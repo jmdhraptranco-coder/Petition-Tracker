@@ -1,0 +1,99 @@
+{% extends "base.html" %}
+{% block title %}Petitions - Petition Tracker{% endblock %}
+{% block page_title %}All Petitions{% endblock %}
+
+{% block content %}
+<div class="card">
+    <div class="card-header">
+        <h2>Petitions List</h2>
+        <div class="header-actions">
+            <div class="filter-group">
+                <label>Mode:</label>
+                <div style="display:flex; gap:0.4rem;">
+                    <a href="{{ url_for('petitions_list', status=status_filter, mode='all') }}" class="btn btn-xs {% if enquiry_mode == 'all' %}btn-primary{% else %}btn-outline{% endif %}">All</a>
+                    <a href="{{ url_for('petitions_list', status=status_filter, mode='direct') }}" class="btn btn-xs {% if enquiry_mode == 'direct' %}btn-primary{% else %}btn-outline{% endif %}">Direct</a>
+                    <a href="{{ url_for('petitions_list', status=status_filter, mode='permission') }}" class="btn btn-xs {% if enquiry_mode == 'permission' %}btn-primary{% else %}btn-outline{% endif %}">Permission Based</a>
+                </div>
+            </div>
+            <div class="filter-group">
+                <label>Filter:</label>
+                <select onchange="window.location.href='{{ url_for('petitions_list') }}?mode={{ enquiry_mode }}&status='+this.value" class="filter-select">
+                    <option value="all" {% if status_filter == 'all' %}selected{% endif %}>All Status</option>
+                    <option value="received" {% if status_filter == 'received' %}selected{% endif %}>Received</option>
+                    <option value="forwarded_to_cvo" {% if status_filter == 'forwarded_to_cvo' %}selected{% endif %}>Forwarded to CVO</option>
+                    <option value="sent_for_permission" {% if status_filter == 'sent_for_permission' %}selected{% endif %}>Sent for Permission</option>
+                    <option value="assigned_to_inspector" {% if status_filter == 'assigned_to_inspector' %}selected{% endif %}>Assigned to Inspector</option>
+                    <option value="enquiry_report_submitted" {% if status_filter == 'enquiry_report_submitted' %}selected{% endif %}>Report Submitted</option>
+                    <option value="forwarded_to_po" {% if status_filter == 'forwarded_to_po' %}selected{% endif %}>At PO</option>
+                    <option value="action_instructed" {% if status_filter == 'action_instructed' %}selected{% endif %}>Pending for Action</option>
+                    <option value="action_taken" {% if status_filter == 'action_taken' %}selected{% endif %}>Action Report Submitted</option>
+                    <option value="lodged" {% if status_filter == 'lodged' %}selected{% endif %}>Lodged</option>
+                    <option value="closed" {% if status_filter == 'closed' %}selected{% endif %}>Closed</option>
+                </select>
+            </div>
+            {% if current_user_role in ('super_admin', 'data_entry') %}
+            <a href="{{ url_for('petition_new') }}" class="btn btn-primary btn-sm">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 8v8"/><path d="M8 12h8"/></svg>
+                New Petition
+            </a>
+            {% endif %}
+        </div>
+    </div>
+    <div class="table-wrapper">
+        <table class="data-table">
+            <thead>
+                <tr>
+                    <th>S.No</th>
+                    <th>E-Office File No</th>
+                    <th>Petitioner</th>
+                    <th>Place</th>
+                    <th>Subject</th>
+                    <th>Type</th>
+                    <th>Received At</th>
+                    <th>Status</th>
+                    <th>Stage</th>
+                    <th>Handler</th>
+                    <th>Date</th>
+                    <th></th>
+                </tr>
+            </thead>
+            <tbody>
+                {% set office_labels = {
+                    'po_office': 'PO Office',
+                    'jmd_office': 'PO Office',
+                    'cvo_apspdcl_tirupathi': 'CVO APSPDCL',
+                    'cvo_apepdcl_vizag': 'CVO APEPDCL',
+                    'cvo_apcpdcl_vijayawada': 'CVO APCPDCL'
+                } %}
+                {% for p in petitions %}
+                <tr>
+                    <td class="font-mono">{{ p.sno }}</td>
+                    <td>{{ p.efile_no or '-' }}</td>
+                    <td>{{ p.petitioner_name }}</td>
+                    <td>{{ p.place or '-' }}</td>
+                    <td class="text-truncate" title="{{ p.subject }}">{{ p.subject[:40] }}{% if p.subject|length > 40 %}...{% endif %}</td>
+                    <td><span class="badge badge-type">{{ petition_types.get(p.petition_type, p.petition_type) }}</span></td>
+                    <td><span class="badge badge-office">{{ office_labels.get(p.received_at, p.received_at) }}</span></td>
+                    <td><span class="status-badge" style="--status-color: {{ status_colors.get(p.status, '#6b7280') }}">{{ status_labels.get(p.status, p.status) }}</span></td>
+                    <td><span class="badge badge-office">Stage {{ status_to_stage.get(p.status, 1) }} - {{ workflow_stage_labels.get(status_to_stage.get(p.status, 1), 'Initiation') }}</span></td>
+                    <td>{{ p.handler_name or '-' }}</td>
+                    <td class="font-mono">{{ p.received_date.strftime('%d/%m/%Y') if p.received_date else '-' }}</td>
+                    <td><a href="{{ url_for('petition_view', petition_id=p.id) }}" class="btn btn-xs btn-outline">View</a></td>
+                </tr>
+                {% else %}
+                <tr>
+                    <td colspan="12" class="empty-state">
+                        <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" stroke-width="1.5"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg>
+                        <p>No petitions found</p>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    <div class="table-footer">
+        <span>Showing {{ petitions|length }} petition(s)</span>
+    </div>
+</div>
+{% endblock %}
+

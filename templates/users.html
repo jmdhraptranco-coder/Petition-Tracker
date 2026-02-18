@@ -1,0 +1,241 @@
+{% extends "base.html" %}
+{% block title %}User Management - Petition Tracker{% endblock %}
+{% block page_title %}User Management{% endblock %}
+
+{% block content %}
+<div class="users-page">
+    <div class="card">
+        <div class="card-header">
+            <h2>Create Officer Login</h2>
+        </div>
+        <form method="POST" action="{{ url_for('user_create') }}" class="user-form">
+            <div class="form-grid">
+                <div class="form-group">
+                    <label>Username <span class="required">*</span></label>
+                    <input type="text" name="username" required placeholder="Login username">
+                </div>
+                <div class="form-group">
+                    <label>Password <span class="required">*</span></label>
+                    <input type="password" name="password" required placeholder="Set password">
+                </div>
+                <div class="form-group">
+                    <label>Officer Name <span class="required">*</span></label>
+                    <input type="text" name="full_name" required placeholder="Officer full name">
+                </div>
+                <div class="form-group">
+                    <label>Role <span class="required">*</span></label>
+                    <select name="role" required id="newUserRole" onchange="toggleCVOFields(this)">
+                        <option value="">-- Select Role --</option>
+                        <option value="data_entry">Data Entry Operator</option>
+                        <option value="po">Personal Officer (Vigilance)</option>
+                        <option value="cmd_apspdcl">CMD - APSPDCL</option>
+                        <option value="cmd_apepdcl">CMD - APEPDCL</option>
+                        <option value="cmd_apcpdcl">CMD - APCPDCL</option>
+                        <option value="cgm_hr_transco">CGM/HR TRANSCO (Headquarters)</option>
+                        <option value="dsp">DSP (Headquarters)</option>
+                        <option value="cvo_apspdcl">CVO - APSPDCL (Tirupathi)</option>
+                        <option value="cvo_apepdcl">CVO - APEPDCL (Vizag)</option>
+                        <option value="cvo_apcpdcl">CVO - APCPDCL (Vijayawada)</option>
+                        <option value="inspector">Field Inspector (CI/SI)</option>
+                    </select>
+                </div>
+                <div class="form-group cvo-field" id="cvoOfficeGroup" style="display:none;">
+                    <label>Office</label>
+                    <select name="cvo_office">
+                        <option value="">-- Not Applicable --</option>
+                        <option value="apspdcl">APSPDCL</option>
+                        <option value="apepdcl">APEPDCL</option>
+                        <option value="apcpdcl">APCPDCL</option>
+                        <option value="headquarters">Headquarters</option>
+                    </select>
+                </div>
+                <div class="form-group cvo-field" id="assignedCVOGroup" style="display:none;">
+                    <label>Assigned to CVO/DSP</label>
+                    <select name="assigned_cvo_id">
+                        <option value="">-- Select CVO/DSP --</option>
+                        {% for cvo in cvo_users %}
+                        <option value="{{ cvo.id }}">{{ cvo.full_name }} ({{ role_labels.get(cvo.role, cvo.role) }})</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>Phone</label>
+                    <input type="text" name="phone" placeholder="Phone number">
+                </div>
+                <div class="form-group">
+                    <label>Email</label>
+                    <input type="email" name="email" placeholder="Email address">
+                </div>
+            </div>
+            <div class="form-actions">
+                <button type="submit" class="btn btn-primary">Create User</button>
+            </div>
+        </form>
+    </div>
+
+    <div class="card">
+        <div class="card-header">
+            <h2>Bulk Create Users (Excel/CSV)</h2>
+        </div>
+        <form method="POST" action="{{ url_for('users_upload') }}" enctype="multipart/form-data" class="user-form">
+            <div style="padding: 0 1.5rem 1rem 1.5rem; color: #6b7280; font-size: 0.9rem;">
+                Required columns: <code>username</code>, <code>password</code>, <code>full_name</code>, <code>role</code><br>
+                Optional: <code>cvo_office</code>, <code>assigned_cvo_username</code>, <code>phone</code>, <code>email</code>
+            </div>
+            <div class="form-grid">
+                <div class="form-group full-width">
+                    <label>Upload File (.xlsx or .csv) <span class="required">*</span></label>
+                    <input type="file" name="users_file" accept=".xlsx,.csv" required>
+                </div>
+            </div>
+            <div class="form-actions">
+                <button type="submit" class="btn btn-primary">Upload & Create Users</button>
+            </div>
+        </form>
+    </div>
+
+    <div class="card">
+        <div class="card-header">
+            <h2>Officer Directory & Controls</h2>
+            <div class="header-actions">
+                <div class="filter-group">
+                    <label>Role</label>
+                    <select id="roleFilter" class="filter-select" onchange="applyUnifiedFilters()">
+                        <option value="all">All Roles</option>
+                        <option value="super_admin">Super Admin</option>
+                        <option value="data_entry">Data Entry</option>
+                        <option value="po">PO</option>
+                        <option value="cmd_apspdcl">CMD APSPDCL</option>
+                        <option value="cmd_apepdcl">CMD APEPDCL</option>
+                        <option value="cmd_apcpdcl">CMD APCPDCL</option>
+                        <option value="cgm_hr_transco">CGM/HR TRANSCO</option>
+                        <option value="dsp">DSP HQ</option>
+                        <option value="cvo_apspdcl">CVO APSPDCL</option>
+                        <option value="cvo_apepdcl">CVO APEPDCL</option>
+                        <option value="cvo_apcpdcl">CVO APCPDCL</option>
+                        <option value="inspector">Inspector</option>
+                    </select>
+                </div>
+                <div class="filter-group">
+                    <label>Status</label>
+                    <select id="statusFilter" class="filter-select" onchange="applyUnifiedFilters()">
+                        <option value="all">All</option>
+                        <option value="active">Active</option>
+                        <option value="inactive">Inactive</option>
+                    </select>
+                </div>
+            </div>
+        </div>
+        <div style="padding: 0 1.5rem 1rem 1.5rem; color: #6b7280; font-size: 0.9rem;">
+            Single table control panel for required officers. You can update officer name later, reset username/password, map inspector to CVO/DSP, and activate/deactivate.
+        </div>
+        <div class="table-wrapper">
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        <th>Role</th>
+                        <th>Username</th>
+                        <th>Officer Name</th>
+                        <th>Status</th>
+                        <th>Map (Inspector)</th>
+                        <th>Update Name</th>
+                        <th>Reset Username</th>
+                        <th>Reset Password</th>
+                        <th>Activate/Deactivate</th>
+                    </tr>
+                </thead>
+                <tbody id="userControlBody">
+                    {% for u in users %}
+                    <tr data-role="{{ u.role }}" data-status="{% if u.is_active %}active{% else %}inactive{% endif %}" class="{% if not u.is_active %}row-inactive{% endif %}">
+                        <td><span class="badge badge-role">{{ role_labels.get(u.role, u.role) }}</span></td>
+                        <td class="font-mono">{{ u.username }}</td>
+                        <td>{{ u.full_name }}</td>
+                        <td>
+                            {% if u.is_active %}
+                            <span class="status-dot status-active"></span> Active
+                            {% else %}
+                            <span class="status-dot status-inactive"></span> Inactive
+                            {% endif %}
+                        </td>
+                        <td>
+                            {% if u.role == 'inspector' %}
+                            {% set map = (inspector_mappings | selectattr('id', 'equalto', u.id) | list | first) %}
+                            <form method="POST" action="{{ url_for('user_map_cvo', inspector_id=u.id) }}" style="display:flex; gap:0.4rem; align-items:center;">
+                                <select name="cvo_id" required style="min-width: 190px;">
+                                    <option value="">-- Select --</option>
+                                    {% for cvo in cvo_users %}
+                                    <option value="{{ cvo.id }}" {% if map and map.mapped_cvo_id == cvo.id %}selected{% endif %}>
+                                        {{ cvo.full_name }}
+                                    </option>
+                                    {% endfor %}
+                                </select>
+                                <button type="submit" class="btn btn-xs btn-primary">Save</button>
+                            </form>
+                            {% else %}
+                            <span class="text-muted">-</span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            <form method="POST" action="{{ url_for('user_update_name', user_id=u.id) }}" style="display:flex; gap:0.4rem; align-items:center;">
+                                <input type="text" name="full_name" required minlength="3" value="{{ u.full_name }}" style="max-width: 150px;">
+                                <button type="submit" class="btn btn-xs btn-primary">Update</button>
+                            </form>
+                        </td>
+                        <td>
+                            <form method="POST" action="{{ url_for('user_reset_username', user_id=u.id) }}" style="display:flex; gap:0.4rem; align-items:center;">
+                                <input type="text" name="new_username" required minlength="3" placeholder="New username" style="max-width: 145px;">
+                                <button type="submit" class="btn btn-xs btn-primary">Reset</button>
+                            </form>
+                        </td>
+                        <td>
+                            <form method="POST" action="{{ url_for('user_reset_password', user_id=u.id) }}" style="display:flex; gap:0.4rem; align-items:center;">
+                                <input type="password" name="new_password" required minlength="6" placeholder="New password" style="max-width: 145px;">
+                                <button type="submit" class="btn btn-xs btn-primary">Reset</button>
+                            </form>
+                        </td>
+                        <td>
+                            <form method="POST" action="{{ url_for('user_toggle', user_id=u.id) }}" style="display:inline">
+                                <button type="submit" class="btn btn-xs {% if u.is_active %}btn-danger{% else %}btn-success{% endif %}">
+                                    {{ 'Deactivate' if u.is_active else 'Activate' }}
+                                </button>
+                            </form>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<script>
+function toggleCVOFields(select) {
+    const role = select.value;
+    const cvoOffice = document.getElementById('cvoOfficeGroup');
+    const assignedCVO = document.getElementById('assignedCVOGroup');
+
+    if (role === 'inspector') {
+        cvoOffice.style.display = 'block';
+        assignedCVO.style.display = 'block';
+    } else if (role.startsWith('cvo_') || role === 'dsp') {
+        cvoOffice.style.display = 'block';
+        assignedCVO.style.display = 'none';
+    } else {
+        cvoOffice.style.display = 'none';
+        assignedCVO.style.display = 'none';
+    }
+}
+
+function applyUnifiedFilters() {
+    const roleValue = document.getElementById('roleFilter').value;
+    const statusValue = document.getElementById('statusFilter').value;
+    const rows = document.querySelectorAll('#userControlBody tr');
+    rows.forEach(row => {
+        const roleOk = roleValue === 'all' || row.dataset.role === roleValue;
+        const statusOk = statusValue === 'all' || row.dataset.status === statusValue;
+        row.style.display = (roleOk && statusOk) ? '' : 'none';
+    });
+}
+</script>
+{% endblock %}
+

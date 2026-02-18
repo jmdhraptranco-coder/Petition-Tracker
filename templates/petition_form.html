@@ -1,0 +1,193 @@
+{% extends "base.html" %}
+{% block title %}New Petition - Petition Tracker{% endblock %}
+{% block page_title %}New Petition Entry{% endblock %}
+
+{% block content %}
+{% set f_petitioner_name = get_field_cfg('deo_petition', 'petitioner_name') %}
+{% set f_contact = get_field_cfg('deo_petition', 'contact') %}
+{% set f_place = get_field_cfg('deo_petition', 'place') %}
+{% set f_subject = get_field_cfg('deo_petition', 'subject') %}
+{% set f_remarks = get_field_cfg('deo_petition', 'remarks') %}
+{% set f_govt_inst = get_field_cfg('deo_petition', 'govt_institution_type') %}
+<div class="card">
+    <div class="card-header">
+        <h2>Petition Entry Form</h2>
+    </div>
+    <form method="POST" action="{{ url_for('petition_new') }}" class="petition-form" enctype="multipart/form-data">
+        <div class="form-grid">
+            <div class="form-group">
+                <label for="received_date">Received Date <span class="required">*</span></label>
+                <input type="date" id="received_date" name="received_date" value="{{ request.form.get('received_date') or now.strftime('%Y-%m-%d') }}" required>
+            </div>
+            
+            <div class="form-group">
+                <label for="received_at">Received At <span class="required">*</span></label>
+                <select id="received_at" name="received_at" required>
+                    <option value="">-- Select Office --</option>
+                    <option value="jmd_office" {% if request.form.get('received_at') == 'jmd_office' %}selected{% endif %}>JMD Office</option>
+                    <option value="cvo_apspdcl_tirupathi" {% if request.form.get('received_at') == 'cvo_apspdcl_tirupathi' %}selected{% endif %}>CVO (APSPDCL) - Tirupathi</option>
+                    <option value="cvo_apepdcl_vizag" {% if request.form.get('received_at') == 'cvo_apepdcl_vizag' %}selected{% endif %}>CVO (APEPDCL) - Vizag</option>
+                    <option value="cvo_apcpdcl_vijayawada" {% if request.form.get('received_at') == 'cvo_apcpdcl_vijayawada' %}selected{% endif %}>CVO (APCPDCL) - Vijayawada</option>
+                </select>
+            </div>
+
+            <div class="form-group">
+                <label for="ereceipt_no">E-Receipt No</label>
+                <input type="text" id="ereceipt_no" name="ereceipt_no" value="{{ request.form.get('ereceipt_no', '') }}" placeholder="Enter e-receipt number">
+            </div>
+
+            <div class="form-group">
+                <label for="ereceipt_file">Upload E-Receipt (PDF, max 10MB)</label>
+                <input type="file" id="ereceipt_file" name="ereceipt_file" accept=".pdf">
+            </div>
+
+            <div class="form-group" id="target_cvo_group">
+                <label for="target_cvo">Target CVO Jurisdiction</label>
+                <select id="target_cvo" name="target_cvo">
+                    <option value="">-- Select CVO --</option>
+                    <option value="apspdcl" {% if request.form.get('target_cvo') == 'apspdcl' %}selected{% endif %}>APSPDCL (Tirupathi)</option>
+                    <option value="apepdcl" {% if request.form.get('target_cvo') == 'apepdcl' %}selected{% endif %}>APEPDCL (Vizag)</option>
+                    <option value="apcpdcl" {% if request.form.get('target_cvo') == 'apcpdcl' %}selected{% endif %}>APCPDCL (Vijayawada)</option>
+                    <option value="headquarters" {% if request.form.get('target_cvo') == 'headquarters' %}selected{% endif %}>Headquarters (DSP)</option>
+                </select>
+            </div>
+
+            <div class="form-group" id="permission_request_group">
+                <label for="permission_request_type">Permission Request <span class="required">*</span></label>
+                <select id="permission_request_type" name="permission_request_type" required>
+                    <option value="direct_enquiry" {% if (request.form.get('permission_request_type') or 'direct_enquiry') == 'direct_enquiry' %}selected{% endif %}>Direct Enquiry (CVO sends copy and starts enquiry)</option>
+                    <option value="permission_required" {% if request.form.get('permission_request_type') == 'permission_required' %}selected{% endif %}>Permission Required (CVO sends to PO for approval)</option>
+                </select>
+            </div>
+            
+            <div class="form-group full-width">
+                <label for="petitioner_name">{{ f_petitioner_name.label }} {% if f_petitioner_name.required %}<span class="required">*</span>{% endif %}</label>
+                {% if f_petitioner_name.type == 'textarea' %}
+                <textarea id="petitioner_name" name="petitioner_name" rows="2" {% if f_petitioner_name.required %}required{% endif %} placeholder="Leave blank if anonymous">{{ request.form.get('petitioner_name', '') }}</textarea>
+                {% else %}
+                <input type="{{ f_petitioner_name.type }}" id="petitioner_name" name="petitioner_name" value="{{ request.form.get('petitioner_name', '') }}" {% if f_petitioner_name.required %}required{% endif %} placeholder="Leave blank if anonymous">
+                {% endif %}
+            </div>
+            
+            <div class="form-group">
+                <label for="contact">{{ f_contact.label }} {% if f_contact.required %}<span class="required">*</span>{% endif %}</label>
+                {% if f_contact.type == 'textarea' %}
+                <textarea id="contact" name="contact" rows="2" {% if f_contact.required %}required{% endif %} placeholder="Phone number">{{ request.form.get('contact', '') }}</textarea>
+                {% else %}
+                <input type="{{ f_contact.type }}" id="contact" name="contact" value="{{ request.form.get('contact', '') }}" pattern="[0-9+\-\s()]{7,20}" {% if f_contact.required %}required{% endif %} placeholder="Phone number">
+                {% endif %}
+            </div>
+            
+            <div class="form-group">
+                <label for="place">{{ f_place.label }} {% if f_place.required %}<span class="required">*</span>{% endif %}</label>
+                {% if f_place.type == 'textarea' %}
+                <textarea id="place" name="place" rows="2" {% if f_place.required %}required{% endif %} placeholder="Location / Area">{{ request.form.get('place', '') }}</textarea>
+                {% else %}
+                <input type="{{ f_place.type }}" id="place" name="place" value="{{ request.form.get('place', '') }}" {% if f_place.required %}required{% endif %} placeholder="Location / Area">
+                {% endif %}
+            </div>
+            
+            <div class="form-group full-width">
+                <label for="subject">{{ f_subject.label }} {% if f_subject.required %}<span class="required">*</span>{% endif %}</label>
+                {% if f_subject.type == 'textarea' %}
+                <textarea id="subject" name="subject" rows="3" {% if f_subject.required %}required{% endif %} placeholder="Brief description of the petition subject">{{ request.form.get('subject', '') }}</textarea>
+                {% else %}
+                <input type="{{ f_subject.type }}" id="subject" name="subject" value="{{ request.form.get('subject', '') }}" {% if f_subject.required %}required{% endif %} placeholder="Brief description of the petition subject">
+                {% endif %}
+            </div>
+            
+            <div class="form-group">
+                <label for="petition_type">Type of Petition <span class="required">*</span></label>
+                <select id="petition_type" name="petition_type" required>
+                    <option value="">-- Select Type --</option>
+                    <option value="bribe" {% if request.form.get('petition_type') == 'bribe' %}selected{% endif %}>Bribe</option>
+                    <option value="harassment" {% if request.form.get('petition_type') == 'harassment' %}selected{% endif %}>Harassment</option>
+                    <option value="theft_of_materials" {% if request.form.get('petition_type') == 'theft_of_materials' %}selected{% endif %}>Theft of Materials</option>
+                    <option value="adverse_news" {% if request.form.get('petition_type') == 'adverse_news' %}selected{% endif %}>Adverse News</option>
+                    <option value="procedural_lapses" {% if request.form.get('petition_type') == 'procedural_lapses' %}selected{% endif %}>Procedural Lapses</option>
+                    <option value="other" {% if request.form.get('petition_type') == 'other' %}selected{% endif %}>Other</option>
+                </select>
+            </div>
+
+            <div class="form-group">
+                <label for="source_of_petition">Source of Petition <span class="required">*</span></label>
+                <select id="source_of_petition" name="source_of_petition" required>
+                    <option value="media" {% if request.form.get('source_of_petition') == 'media' %}selected{% endif %}>Media</option>
+                    <option value="public_individual" {% if (request.form.get('source_of_petition') or 'public_individual') == 'public_individual' %}selected{% endif %}>Public (Individual)</option>
+                    <option value="govt" {% if request.form.get('source_of_petition') == 'govt' %}selected{% endif %}>Govt</option>
+                    <option value="sumoto" {% if request.form.get('source_of_petition') == 'sumoto' %}selected{% endif %}>Sumoto</option>
+                </select>
+            </div>
+            <div class="form-group" id="govt_institution_group" style="display:none;">
+                <label for="govt_institution_type">{{ f_govt_inst.label }} {% if f_govt_inst.required %}<span class="required">*</span>{% endif %}</label>
+                <select id="govt_institution_type" name="govt_institution_type" {% if f_govt_inst.required %}required{% endif %}>
+                    <option value="">-- Select Institution --</option>
+                    {% for opt in f_govt_inst.options %}
+                    <option value="{{ opt.value }}" {% if request.form.get('govt_institution_type') == opt.value %}selected{% endif %}>{{ opt.label }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+
+            <div class="form-group">
+                <label>Workflow Note</label>
+                <input type="text" value="Detailed SLA: 30 days | Preliminary SLA: 45 days" readonly>
+            </div>
+            
+            <div class="form-group full-width">
+                <label for="remarks">{{ f_remarks.label }} {% if f_remarks.required %}<span class="required">*</span>{% endif %}</label>
+                {% if f_remarks.type == 'textarea' %}
+                <textarea id="remarks" name="remarks" rows="2" {% if f_remarks.required %}required{% endif %} placeholder="Any additional remarks">{{ request.form.get('remarks', '') }}</textarea>
+                {% else %}
+                <input type="{{ f_remarks.type }}" id="remarks" name="remarks" value="{{ request.form.get('remarks', '') }}" {% if f_remarks.required %}required{% endif %} placeholder="Any additional remarks">
+                {% endif %}
+            </div>
+        </div>
+        
+        <div class="form-actions">
+            <a href="{{ url_for('petitions_list') }}" class="btn btn-outline">Cancel</a>
+            <button type="submit" class="btn btn-primary">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
+                Save Petition
+            </button>
+        </div>
+    </form>
+</div>
+<script>
+(() => {
+    const receivedAt = document.getElementById('received_at');
+    const targetGroup = document.getElementById('target_cvo_group');
+    const targetCvo = document.getElementById('target_cvo');
+    const permissionGroup = document.getElementById('permission_request_group');
+    const permissionType = document.getElementById('permission_request_type');
+    const sourcePetition = document.getElementById('source_of_petition');
+    const govtInstitutionGroup = document.getElementById('govt_institution_group');
+    const govtInstitutionType = document.getElementById('govt_institution_type');
+    if (!receivedAt || !targetGroup || !targetCvo || !permissionGroup || !permissionType || !sourcePetition || !govtInstitutionGroup || !govtInstitutionType) return;
+
+    const syncWorkflowFields = () => {
+        const isJmdOffice = receivedAt.value === 'jmd_office';
+        targetGroup.style.display = isJmdOffice ? 'none' : '';
+        permissionGroup.style.display = isJmdOffice ? 'none' : '';
+        if (isJmdOffice) {
+            targetCvo.value = '';
+            permissionType.value = 'permission_required';
+        }
+    };
+
+    receivedAt.addEventListener('change', syncWorkflowFields);
+    syncWorkflowFields();
+
+    const syncGovtInstitutionField = () => {
+        const isGovt = sourcePetition.value === 'govt';
+        govtInstitutionGroup.style.display = isGovt ? '' : 'none';
+        govtInstitutionType.required = isGovt && {{ 1 if f_govt_inst.required else 0 }};
+        if (!isGovt) govtInstitutionType.value = '';
+    };
+
+    sourcePetition.addEventListener('change', syncGovtInstitutionField);
+    syncGovtInstitutionField();
+})();
+</script>
+{% endblock %}
+
+

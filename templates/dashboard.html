@@ -1,0 +1,497 @@
+{% extends "base.html" %}
+{% block title %}Dashboard - Petition Tracker{% endblock %}
+{% block page_title %}Dashboard{% endblock %}
+
+{% block content %}
+<div class="dashboard dashboard-compact-board" data-user-role="{{ current_user_role }}">
+    <div class="card dashboard-hero">
+        <div class="dashboard-hero-main">
+            <h2>Unified Operations Dashboard</h2>
+            <p>Role-wise visibility, live workflow tracking, and SLA monitoring for assigned petitions.</p>
+        </div>
+        <span class="badge badge-role dashboard-role-chip">{{ role_labels.get(current_user_role, current_user_role) }}</span>
+    </div>
+
+    <div class="stats-grid">
+        {% for card in stats.get('kpi_cards', []) %}
+        <div class="stat-card {{ card.get('style', 'stat-primary') }} is-drilldown" data-metric="{{ card.get('metric', 'all') }}" data-title="{{ card.get('label', 'KPI') }}">
+            <div class="stat-icon">
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg>
+            </div>
+            <div class="stat-content">
+                <span class="stat-value countup" data-target="{{ card.get('value', 0) }}">{{ card.get('value', 0) }}</span>
+                <span class="stat-label">{{ card.get('label', '-') }}</span>
+                <div class="stat-sparkline" aria-hidden="true"></div>
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+
+    <div class="card sla-card compact-sla-panel">
+        <div class="card-header sla-header">
+            <div>
+                <h2>SLA Dashboard</h2>
+                <p class="sla-subtitle">Target: Preliminary 7 days, Detailed 45 days from assignment to closure</p>
+            </div>
+        </div>
+        <div class="stats-grid sla-stats-grid">
+            <div class="stat-card stat-primary sla-stat is-drilldown" data-metric="sla_total" data-title="SLA Total Cases">
+                <div class="stat-content">
+                    <span class="stat-value countup" data-target="{{ stats.get('sla_total', 0) }}">{{ stats.get('sla_total', 0) }}</span>
+                    <span class="stat-label">Total SLA Cases</span>
+                    <span class="sla-chip">Monitored</span>
+                    <div class="stat-sparkline" aria-hidden="true"></div>
+                </div>
+            </div>
+            <div class="stat-card stat-warning sla-stat is-drilldown" data-metric="sla_in_progress" data-title="SLA In Progress">
+                <div class="stat-content">
+                    <span class="stat-value countup" data-target="{{ stats.get('sla_in_progress', 0) }}">{{ stats.get('sla_in_progress', 0) }}</span>
+                    <span class="stat-label">In Progress</span>
+                    <span class="sla-chip">Active Window</span>
+                    <div class="stat-sparkline" aria-hidden="true"></div>
+                </div>
+            </div>
+            <div class="stat-card stat-success sla-stat is-drilldown" data-metric="sla_within" data-title="SLA Within">
+                <div class="stat-content">
+                    <span class="stat-value countup" data-target="{{ stats.get('sla_within', 0) }}">{{ stats.get('sla_within', 0) }}</span>
+                    <span class="stat-label">Within SLA</span>
+                    <span class="sla-chip is-good">On Time</span>
+                    <div class="stat-sparkline" aria-hidden="true"></div>
+                </div>
+            </div>
+            <div class="stat-card stat-danger sla-stat is-drilldown {% if stats.get('sla_breached', 0) > 0 %}threshold-crossed{% endif %}" data-threshold-crossed="{{ 1 if stats.get('sla_breached', 0) > 0 else 0 }}" data-metric="sla_breached" data-title="SLA Breached">
+                <div class="stat-content">
+                    <span class="stat-value countup" data-target="{{ stats.get('sla_breached', 0) }}">{{ stats.get('sla_breached', 0) }}</span>
+                    <span class="stat-label">Breached</span>
+                    <span class="sla-chip is-breach">{% if stats.get('sla_breached', 0) > 0 %}Threshold Crossed{% else %}No Breach{% endif %}</span>
+                    <div class="stat-sparkline" aria-hidden="true"></div>
+                </div>
+            </div>
+        </div>
+        <div class="sla-note">
+            SLA is measured from <strong>assignment to field officer</strong> until <strong>petition closure</strong>, based on enquiry type target.
+        </div>
+    </div>
+
+    <div class="analytics-grid">
+        <div class="card analytics-card analytics-wide">
+            <div class="card-header">
+                <h2>Petitions Trend (Last 6 Months)</h2>
+            </div>
+            <div class="analytics-canvas-wrap">
+                <canvas id="chartMonthlyTrend"></canvas>
+            </div>
+        </div>
+        <div class="card analytics-card">
+            <div class="card-header">
+                <h2>Workflow Status Split</h2>
+            </div>
+            <div class="analytics-canvas-wrap">
+                <canvas id="chartStatusSplit"></canvas>
+            </div>
+        </div>
+        <div class="card analytics-card">
+            <div class="card-header">
+                <h2>Petition Type Split</h2>
+            </div>
+            <div class="analytics-canvas-wrap">
+                <canvas id="chartTypeSplit"></canvas>
+            </div>
+        </div>
+        <div class="card analytics-card">
+            <div class="card-header">
+                <h2>Source of Petition</h2>
+            </div>
+            <div class="analytics-canvas-wrap">
+                <canvas id="chartSourceSplit"></canvas>
+            </div>
+        </div>
+        <div class="card analytics-card">
+            <div class="card-header">
+                <h2>Direct vs Permission</h2>
+            </div>
+            <div class="analytics-canvas-wrap">
+                <canvas id="chartModeSplit"></canvas>
+            </div>
+        </div>
+    </div>
+
+    <div class="analytics-summary-grid">
+        <div class="analytics-summary-item">
+            <span class="analytics-summary-label">Total Visible</span>
+            <strong class="analytics-summary-value">{{ analytics.summary.total_visible }}</strong>
+        </div>
+        <div class="analytics-summary-item">
+            <span class="analytics-summary-label">Active Cases</span>
+            <strong class="analytics-summary-value">{{ analytics.summary.active }}</strong>
+        </div>
+        <div class="analytics-summary-item">
+            <span class="analytics-summary-label">Lodged</span>
+            <strong class="analytics-summary-value">{{ analytics.summary.lodged }}</strong>
+        </div>
+        <div class="analytics-summary-item">
+            <span class="analytics-summary-label">Closed</span>
+            <strong class="analytics-summary-value">{{ analytics.summary.closed }}</strong>
+        </div>
+        <div class="analytics-summary-item">
+            <span class="analytics-summary-label">SLA Within</span>
+            <strong class="analytics-summary-value">{{ analytics.summary.sla_within }}</strong>
+        </div>
+        <div class="analytics-summary-item">
+            <span class="analytics-summary-label">SLA Breached</span>
+            <strong class="analytics-summary-value">{{ analytics.summary.sla_breached }}</strong>
+        </div>
+    </div>
+
+    <div class="card recent-panel">
+        <div class="card-header">
+            <h2>Recent Petitions</h2>
+            <a href="{{ url_for('petitions_list') }}" class="btn btn-sm btn-outline">View All</a>
+        </div>
+        <div class="table-wrapper">
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        <th>S.No</th>
+                        <th>E-Office File No</th>
+                        <th>Petitioner</th>
+                        <th>Subject</th>
+                        <th>Type</th>
+                        <th>Status</th>
+                        <th>Date</th>
+                        <th></th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for p in petitions[:10] %}
+                    <tr>
+                        <td class="font-mono">{{ p.sno }}</td>
+                        <td>{{ p.efile_no or '-' }}</td>
+                        <td>{{ p.petitioner_name }}</td>
+                        <td class="text-truncate" title="{{ p.subject }}">{{ p.subject[:50] }}{% if p.subject|length > 50 %}...{% endif %}</td>
+                        <td><span class="badge badge-type">{{ petition_types.get(p.petition_type, p.petition_type) }}</span></td>
+                        <td><span class="status-badge" style="--status-color: {{ status_colors.get(p.status, '#6b7280') }}">{{ status_labels.get(p.status, p.status) }}</span></td>
+                        <td>{{ p.received_date.strftime('%d/%m/%Y') if p.received_date else '-' }}</td>
+                        <td><a href="{{ url_for('petition_view', petition_id=p.id) }}" class="btn btn-xs btn-outline">View</a></td>
+                    </tr>
+                    {% else %}
+                    <tr>
+                        <td colspan="8" class="empty-state">No petitions found</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<div id="dashboardDrilldownModal" class="dash-modal" style="display:none;">
+    <div class="dash-modal-backdrop" onclick="closeDashboardDrilldown()"></div>
+    <div class="dash-modal-panel">
+        <div class="card-header">
+            <h2 id="dashModalTitle">Dashboard Drilldown</h2>
+            <button class="btn btn-xs btn-outline" onclick="closeDashboardDrilldown()">Close</button>
+        </div>
+        <div class="table-wrapper">
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        <th>S.No</th>
+                        <th>Petitioner</th>
+                        <th>Subject</th>
+                        <th>Status</th>
+                        <th>Date</th>
+                        <th></th>
+                    </tr>
+                </thead>
+                <tbody id="dashModalBody">
+                    <tr><td colspan="6" class="empty-state">Loading...</td></tr>
+                </tbody>
+            </table>
+        </div>
+        <div id="dashRowDetail" class="dash-row-detail" style="display:none;">
+            <div class="dash-row-detail-head">
+                <h3>Petition Detail Snapshot</h3>
+                <button class="btn btn-xs btn-outline" type="button" onclick="hideDashboardRowDetail()">Hide</button>
+            </div>
+            <div id="dashRowDetailBody" class="dash-row-detail-body"></div>
+        </div>
+    </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.6/dist/chart.umd.min.js"></script>
+<script>
+const analyticsData = {{ analytics|tojson }};
+let dashCurrentRows = [];
+
+function escapeHtml(value) {
+    return String(value || '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+}
+
+function animateCardToModal(sourceEl, modalPanel) {
+    if (!sourceEl || !modalPanel) return;
+    const sourceRect = sourceEl.getBoundingClientRect();
+    const targetRect = modalPanel.getBoundingClientRect();
+    const ghost = sourceEl.cloneNode(true);
+    ghost.classList.add('dash-shared-ghost');
+    ghost.style.left = `${sourceRect.left}px`;
+    ghost.style.top = `${sourceRect.top}px`;
+    ghost.style.width = `${sourceRect.width}px`;
+    ghost.style.height = `${sourceRect.height}px`;
+    document.body.appendChild(ghost);
+    requestAnimationFrame(() => {
+        ghost.style.left = `${targetRect.left}px`;
+        ghost.style.top = `${targetRect.top}px`;
+        ghost.style.width = `${targetRect.width}px`;
+        ghost.style.height = `${Math.min(220, targetRect.height)}px`;
+        ghost.style.opacity = '0';
+    });
+    setTimeout(() => ghost.remove(), 340);
+}
+
+async function openDashboardDrilldown(metric, title, sourceEl) {
+    const modal = document.getElementById('dashboardDrilldownModal');
+    const panel = modal ? modal.querySelector('.dash-modal-panel') : null;
+    const body = document.getElementById('dashModalBody');
+    const heading = document.getElementById('dashModalTitle');
+    hideDashboardRowDetail();
+    heading.textContent = title;
+    body.innerHTML = '<tr><td colspan="6" class="empty-state">Loading...</td></tr>';
+    modal.style.display = 'block';
+    modal.classList.add('open');
+    animateCardToModal(sourceEl, panel);
+
+    try {
+        const res = await fetch(`{{ url_for('api_dashboard_drilldown') }}?metric=${encodeURIComponent(metric)}`);
+        const data = await res.json();
+        const items = data.items || [];
+        dashCurrentRows = items;
+        if (!items.length) {
+            body.innerHTML = '<tr><td colspan="6" class="empty-state">No data found</td></tr>';
+            return;
+        }
+        body.innerHTML = items.map((i, idx) => `
+            <tr class="dash-modal-row" data-row-index="${idx}">
+                <td class="font-mono">${escapeHtml(i.sno || '-')}</td>
+                <td>${escapeHtml(i.petitioner_name || '-')}</td>
+                <td title="${escapeHtml(i.subject || '')}">${escapeHtml((i.subject || '-').slice(0, 70))}${(i.subject || '').length > 70 ? '...' : ''}</td>
+                <td>${escapeHtml(i.status || '-')}</td>
+                <td>${escapeHtml(i.received_date || '-')}</td>
+                <td><a href="/petitions/${i.id}" class="btn btn-xs btn-outline">View</a></td>
+            </tr>
+        `).join('');
+        bindDashboardRowTransitions();
+    } catch (e) {
+        body.innerHTML = '<tr><td colspan="6" class="empty-state">Failed to load data</td></tr>';
+    }
+}
+
+function bindDashboardRowTransitions() {
+    document.querySelectorAll('.dash-modal-row').forEach((row) => {
+        row.addEventListener('click', (event) => {
+            if (event.target.closest('a,button')) return;
+            const idx = Number(row.dataset.rowIndex || -1);
+            if (Number.isNaN(idx) || idx < 0 || !dashCurrentRows[idx]) return;
+            openDashboardRowDetail(dashCurrentRows[idx], row);
+        });
+    });
+}
+
+function openDashboardRowDetail(item, rowEl) {
+    const detailWrap = document.getElementById('dashRowDetail');
+    const detailBody = document.getElementById('dashRowDetailBody');
+    if (!detailWrap || !detailBody) return;
+    const itemRect = rowEl.getBoundingClientRect();
+    const wrapRect = detailWrap.getBoundingClientRect();
+    detailBody.innerHTML = `
+        <div class="dash-row-detail-grid">
+            <div><span>S.No</span><strong>${escapeHtml(item.sno || '-')}</strong></div>
+            <div><span>Petitioner</span><strong>${escapeHtml(item.petitioner_name || '-')}</strong></div>
+            <div><span>Status</span><strong>${escapeHtml(item.status || '-')}</strong></div>
+            <div><span>Received Date</span><strong>${escapeHtml(item.received_date || '-')}</strong></div>
+            <div class="full"><span>Subject</span><strong>${escapeHtml(item.subject || '-')}</strong></div>
+        </div>
+    `;
+    detailWrap.style.display = 'block';
+    detailWrap.classList.remove('animate');
+    detailWrap.style.setProperty('--row-origin-y', `${itemRect.top - wrapRect.top}px`);
+    requestAnimationFrame(() => detailWrap.classList.add('animate'));
+}
+
+function hideDashboardRowDetail() {
+    const detailWrap = document.getElementById('dashRowDetail');
+    const detailBody = document.getElementById('dashRowDetailBody');
+    if (!detailWrap || !detailBody) return;
+    detailWrap.style.display = 'none';
+    detailBody.innerHTML = '';
+}
+
+function closeDashboardDrilldown() {
+    const modal = document.getElementById('dashboardDrilldownModal');
+    hideDashboardRowDetail();
+    modal.classList.remove('open');
+    modal.style.display = 'none';
+}
+
+function initAnalyticsDashboard() {
+    if (!window.Chart || !analyticsData) return;
+    const palette = ['#2f6df6', '#5f95ff', '#18b46f', '#f59e0b', '#ef4444', '#8b5cf6', '#06b6d4', '#f97316'];
+    const commonLegend = {
+        labels: {
+            color: '#5e739f',
+            boxWidth: 12,
+            usePointStyle: true,
+            pointStyle: 'circle'
+        }
+    };
+    const axisColor = '#a3b5da';
+    const gridColor = '#e7efff';
+
+    const trendCtx = document.getElementById('chartMonthlyTrend');
+    if (trendCtx) {
+        const g = trendCtx.getContext('2d').createLinearGradient(0, 0, 0, 260);
+        g.addColorStop(0, 'rgba(47, 109, 246, 0.35)');
+        g.addColorStop(1, 'rgba(47, 109, 246, 0.02)');
+        new Chart(trendCtx, {
+            type: 'line',
+            data: {
+                labels: analyticsData.monthly_trend.labels,
+                datasets: [{
+                    label: 'Petitions',
+                    data: analyticsData.monthly_trend.values,
+                    borderColor: '#2f6df6',
+                    backgroundColor: g,
+                    fill: true,
+                    borderWidth: 3,
+                    pointRadius: 4,
+                    pointHoverRadius: 5,
+                    tension: 0.35
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: { legend: { display: false } },
+                scales: {
+                    x: { ticks: { color: axisColor }, grid: { color: gridColor } },
+                    y: { beginAtZero: true, ticks: { precision: 0, color: axisColor }, grid: { color: gridColor } }
+                }
+            }
+        });
+    }
+
+    const statusCtx = document.getElementById('chartStatusSplit');
+    if (statusCtx) {
+        new Chart(statusCtx, {
+            type: 'doughnut',
+            data: {
+                labels: analyticsData.status_split.labels,
+                datasets: [{
+                    data: analyticsData.status_split.values,
+                    backgroundColor: palette,
+                    borderColor: '#ffffff',
+                    borderWidth: 2
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: { legend: commonLegend }
+            }
+        });
+    }
+
+    const typeCtx = document.getElementById('chartTypeSplit');
+    if (typeCtx) {
+        new Chart(typeCtx, {
+            type: 'bar',
+            data: {
+                labels: analyticsData.type_split.labels,
+                datasets: [{
+                    label: 'Count',
+                    data: analyticsData.type_split.values,
+                    backgroundColor: '#5f95ff',
+                    borderRadius: 8,
+                    maxBarThickness: 40
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: { legend: { display: false } },
+                scales: {
+                    x: { ticks: { color: axisColor }, grid: { display: false } },
+                    y: { beginAtZero: true, ticks: { precision: 0, color: axisColor }, grid: { color: gridColor } }
+                }
+            }
+        });
+    }
+
+    const sourceCtx = document.getElementById('chartSourceSplit');
+    if (sourceCtx) {
+        new Chart(sourceCtx, {
+            type: 'polarArea',
+            data: {
+                labels: analyticsData.source_split.labels,
+                datasets: [{
+                    data: analyticsData.source_split.values,
+                    backgroundColor: ['rgba(47,109,246,0.66)', 'rgba(24,180,111,0.64)', 'rgba(245,158,11,0.6)', 'rgba(239,68,68,0.58)', 'rgba(139,92,246,0.58)'],
+                    borderColor: '#ffffff',
+                    borderWidth: 2
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: { legend: commonLegend },
+                scales: { r: { ticks: { color: axisColor }, grid: { color: gridColor } } }
+            }
+        });
+    }
+
+    const modeCtx = document.getElementById('chartModeSplit');
+    if (modeCtx) {
+        new Chart(modeCtx, {
+            type: 'bar',
+            data: {
+                labels: analyticsData.enquiry_mode_split.labels,
+                datasets: [{
+                    label: 'Petitions',
+                    data: analyticsData.enquiry_mode_split.values,
+                    backgroundColor: ['#2f6df6', '#18b46f'],
+                    borderRadius: 10,
+                    maxBarThickness: 54
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: { legend: { display: false } },
+                scales: {
+                    x: { ticks: { color: axisColor }, grid: { display: false } },
+                    y: { beginAtZero: true, ticks: { precision: 0, color: axisColor }, grid: { color: gridColor } }
+                }
+            }
+        });
+    }
+}
+
+document.querySelectorAll('.is-drilldown').forEach(card => {
+    card.addEventListener('click', () => {
+        openDashboardDrilldown(card.dataset.metric, card.dataset.title || 'Drilldown', card);
+    });
+});
+
+document.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape') closeDashboardDrilldown();
+});
+
+initAnalyticsDashboard();
+</script>
+{% endblock %}
+

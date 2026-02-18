@@ -1,0 +1,646 @@
+{% extends "base.html" %}
+{% block title %}{{ petition.sno }} - Petition Details{% endblock %}
+{% block page_title %}Petition Details{% endblock %}
+
+{% block content %}
+{% set f_inspector_report_text = get_field_cfg('inspector_report', 'report_text') %}
+{% set f_inspector_recommendation = get_field_cfg('inspector_report', 'recommendation') %}
+{% set f_inspector_report_file = get_field_cfg('inspector_report', 'report_file') %}
+{% set f_cvo_comments = get_field_cfg('cvo_review', 'cvo_comments') %}
+{% set f_cvo_consolidated_file = get_field_cfg('cvo_review', 'consolidated_report_file') %}
+{% set f_cmd_action_taken = get_field_cfg('cmd_action', 'action_taken') %}
+{% set f_cmd_action_file = get_field_cfg('cmd_action', 'action_report_file') %}
+{% set f_po_approve_efile = get_field_cfg('po_decision', 'approve_permission_efile_no') %}
+{% set f_po_reject_reason = get_field_cfg('po_decision', 'reject_permission_reason') %}
+{% set f_po_send_cmd_instructions = get_field_cfg('po_decision', 'send_cmd_instructions') %}
+{% set f_po_send_cmd_efile = get_field_cfg('po_decision', 'send_cmd_efile_no') %}
+{% set f_po_lodge_efile = get_field_cfg('po_decision', 'po_lodge_efile_no') %}
+{% set f_po_lodge_remarks = get_field_cfg('po_decision', 'po_lodge_remarks') %}
+{% set f_po_direct_lodge_efile = get_field_cfg('po_decision', 'po_direct_lodge_efile_no') %}
+{% set f_po_direct_lodge_remarks = get_field_cfg('po_decision', 'po_direct_lodge_remarks') %}
+{% set f_po_close_comments = get_field_cfg('po_decision', 'close_comments') %}
+<div class="petition-detail">
+    <div class="card petition-header-card">
+        <div class="petition-title-row">
+            <div>
+                <span class="petition-sno">{{ petition.sno }}</span>
+                <span class="status-badge status-badge-lg" style="--status-color: {{ status_colors.get(petition.status, '#6b7280') }}">
+                    {{ status_labels.get(petition.status, petition.status) }}
+                </span>
+                {% if petition.requires_permission %}
+                <span class="badge badge-permission">Permission: {{ petition.permission_status|title }}</span>
+                {% endif %}
+            </div>
+            <a href="{{ url_for('petitions_list') }}" class="btn btn-outline btn-sm">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 12H5"/><path d="M12 19l-7-7 7-7"/></svg>
+                Back
+            </a>
+        </div>
+    </div>
+    {% set current_stage = status_to_stage.get(petition.status, 1) %}
+    <div class="card">
+        <div class="card-header"><h3>Petition Status</h3></div>
+        <div class="workflow-process">
+            <div class="workflow-track">
+                <div class="workflow-track-line"></div>
+                {% for i in [1, 2, 3, 4, 5, 6] %}
+                <div class="workflow-track-node {% if i <= current_stage %}active{% endif %} {% if i == current_stage %}current{% endif %}">
+                    {{ "%02d"|format(i) }}
+                </div>
+                {% endfor %}
+            </div>
+
+            <div class="workflow-step-cards">
+                {% for i in [1, 2, 3, 4, 5, 6] %}
+                <div class="workflow-step-card {% if i <= current_stage %}active{% endif %} {% if i == current_stage %}current{% endif %}">
+                    <div class="workflow-step-card-icon">
+                        {% if i == 1 %}
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12l9-9 9 9"/><path d="M9 21V9h6v12"/></svg>
+                        {% elif i == 2 %}
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/></svg>
+                        {% elif i == 3 %}
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg>
+                        {% elif i == 4 %}
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 7v5"/><path d="M12 16h.01"/></svg>
+                        {% elif i == 5 %}
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 7h16"/><path d="M7 7V5a2 2 0 0 1 2-2h6a2 2 0 0 1 2 2v2"/><path d="M5 7l1 12a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2l1-12"/></svg>
+                        {% else %}
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><path d="M22 4L12 14.01 9 11.01"/></svg>
+                        {% endif %}
+                    </div>
+                    <div class="workflow-step-card-meta">STEP {{ i }}</div>
+                    <div class="workflow-step-card-title">{{ workflow_stage_labels.get(i) }}</div>
+                </div>
+                {% endfor %}
+            </div>
+        </div>
+    </div>
+
+    <div class="detail-grid">
+        <div class="card">
+            <div class="card-header"><h3>Petition Information</h3></div>
+            <div class="info-grid">
+                <div class="info-item">
+                    <span class="info-label">E-Receipt No</span>
+                    <span class="info-value">{{ petition.ereceipt_no or '-' }}</span>
+                </div>
+                <div class="info-item">
+                    <span class="info-label">E-Office File No</span>
+                    <span class="info-value">{{ petition.efile_no or '-' }}</span>
+                </div>
+                {% if petition.ereceipt_file %}
+                <div class="info-item">
+                    <span class="info-label">E-Receipt File</span>
+                    <span class="info-value"><a href="{{ url_for('ereceipt_file', filename=petition.ereceipt_file) }}" target="_blank">View</a></span>
+                </div>
+                {% endif %}
+                <div class="info-item">
+                    <span class="info-label">Petitioner Name</span>
+                    <span class="info-value">{{ petition.petitioner_name }}</span>
+                </div>
+                <div class="info-item">
+                    <span class="info-label">Contact</span>
+                    <span class="info-value">{{ petition.contact or '-' }}</span>
+                </div>
+                <div class="info-item">
+                    <span class="info-label">Place</span>
+                    <span class="info-value">{{ petition.place or '-' }}</span>
+                </div>
+                <div class="info-item">
+                    <span class="info-label">Type</span>
+                    <span class="info-value"><span class="badge badge-type">{{ petition_types.get(petition.petition_type, petition.petition_type) }}</span></span>
+                </div>
+                <div class="info-item">
+                    <span class="info-label">Source of Petition</span>
+                    <span class="info-value">{{ petition_sources.get(petition.source_of_petition, petition.source_of_petition or '-') }}</span>
+                </div>
+                {% if petition.source_of_petition == 'govt' %}
+                <div class="info-item">
+                    <span class="info-label">Type of Institution</span>
+                    <span class="info-value">{{ govt_institution_labels.get(petition.govt_institution_type, petition.govt_institution_type or '-') }}</span>
+                </div>
+                {% endif %}
+                <div class="info-item">
+                    <span class="info-label">Enquiry Type</span>
+                    <span class="info-value">{{ (petition.enquiry_type or 'detailed')|title }}</span>
+                </div>
+                <div class="info-item">
+                    <span class="info-label">SLA Target</span>
+                    <span class="info-value">
+                        {% if petition.enquiry_type == 'preliminary' %}7 days{% else %}45 days{% endif %}
+                    </span>
+                </div>
+                <div class="info-item">
+                    <span class="info-label">Received Date</span>
+                    <span class="info-value">{{ petition.received_date.strftime('%d %b %Y') if petition.received_date else '-' }}</span>
+                </div>
+                {% set office_labels = {
+                    'po_office': 'PO Office',
+                    'jmd_office': 'PO Office',
+                    'cvo_apspdcl_tirupathi': 'CVO (APSPDCL) Tirupathi',
+                    'cvo_apepdcl_vizag': 'CVO (APEPDCL) Vizag',
+                    'cvo_apcpdcl_vijayawada': 'CVO (APCPDCL) Vijayawada'
+                } %}
+                <div class="info-item">
+                    <span class="info-label">Received At</span>
+                    <span class="info-value">{{ office_labels.get(petition.received_at, petition.received_at) }}</span>
+                </div>
+                <div class="info-item">
+                    <span class="info-label">Current Handler</span>
+                    <span class="info-value">{{ petition.handler_name or '-' }}</span>
+                </div>
+                {% if petition.inspector_name %}
+                <div class="info-item">
+                    <span class="info-label">Assigned Inspector</span>
+                    <span class="info-value">{{ petition.inspector_name }}</span>
+                </div>
+                {% endif %}
+                <div class="info-item full-width">
+                    <span class="info-label">Subject</span>
+                    <span class="info-value">{{ petition.subject }}</span>
+                </div>
+                {% if petition.remarks %}
+                <div class="info-item full-width">
+                    <span class="info-label">Remarks</span>
+                    <span class="info-value">{{ petition.remarks }}</span>
+                </div>
+                {% endif %}
+            </div>
+        </div>
+
+        {% if report %}
+        <div class="card report-card">
+            <div class="card-header"><h3>Enquiry Report</h3></div>
+            <div class="report-section">
+                <div class="report-meta">
+                    <span>Submitted by: <strong>{{ report.submitted_by_name }}</strong></span>
+                    <span>Date: {{ report.submitted_at.strftime('%d %b %Y %H:%M') if report.submitted_at else '-' }}</span>
+                </div>
+                <div class="report-stage-flow-wrap">
+                    <div class="report-stage-flow">
+                        <button type="button" class="report-stage-node" data-title="Report" data-content="{{ report.report_text|e }}" data-file-url="{{ url_for('enquiry_file', filename=report.report_file) if report.report_file else '' }}" data-file-label="View Uploaded File" onclick="openReportStageModal(this)">
+                            <span class="report-stage-circle">
+                                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg>
+                            </span>
+                            <span class="report-stage-name">Report</span>
+                        </button>
+
+                        {% if report.cvo_consolidated_report_file %}
+                        <button type="button" class="report-stage-node" data-title="CVO/DSP Consolidated Report" data-content="Consolidated report uploaded." data-file-url="{{ url_for('enquiry_file', filename=report.cvo_consolidated_report_file) }}" data-file-label="View Consolidated Report" onclick="openReportStageModal(this)">
+                            <span class="report-stage-circle">
+                                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
+                            </span>
+                            <span class="report-stage-name">Consolidated</span>
+                        </button>
+                        {% endif %}
+
+                        {% if report.findings %}
+                        <button type="button" class="report-stage-node" data-title="Findings" data-content="{{ report.findings|e }}" data-file-url="" data-file-label="" onclick="openReportStageModal(this)">
+                            <span class="report-stage-circle">
+                                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>
+                            </span>
+                            <span class="report-stage-name">Findings</span>
+                        </button>
+                        {% endif %}
+
+                        {% if report.recommendation %}
+                        <button type="button" class="report-stage-node" data-title="Recommendation" data-content="{{ report.recommendation|e }}" data-file-url="" data-file-label="" onclick="openReportStageModal(this)">
+                            <span class="report-stage-circle">
+                                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3l9 4.5-9 4.5-9-4.5 9-4.5z"/><path d="M3 12l9 4.5 9-4.5"/><path d="M12 16.5V21"/></svg>
+                            </span>
+                            <span class="report-stage-name">Recommendation</span>
+                        </button>
+                        {% endif %}
+
+                        {% if report.cvo_comments %}
+                        <button type="button" class="report-stage-node" data-title="CVO Comments" data-content="{{ report.cvo_comments|e }}" data-file-url="" data-file-label="" onclick="openReportStageModal(this)">
+                            <span class="report-stage-circle">
+                                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+                            </span>
+                            <span class="report-stage-name">CVO Comments</span>
+                        </button>
+                        {% endif %}
+
+                        {% if report.jmd_remarks %}
+                        <button type="button" class="report-stage-node" data-title="Review Remarks" data-content="{{ report.jmd_remarks|e }}" data-file-url="" data-file-label="" onclick="openReportStageModal(this)">
+                            <span class="report-stage-circle">
+                                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="M9 15h6"/></svg>
+                            </span>
+                            <span class="report-stage-name">Review</span>
+                        </button>
+                        {% endif %}
+
+                        {% if report.po_conclusion %}
+                        <button type="button" class="report-stage-node" data-title="PO Final Conclusion" data-content="{{ report.po_conclusion|e }}" data-file-url="{{ url_for('enquiry_file', filename=report.conclusion_file) if report.conclusion_file else '' }}" data-file-label="View Conclusion PDF" onclick="openReportStageModal(this)">
+                            <span class="report-stage-circle">
+                                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 6L9 17l-5-5"/></svg>
+                            </span>
+                            <span class="report-stage-name">PO Conclusion</span>
+                        </button>
+                        {% endif %}
+
+                        {% if report.po_instructions %}
+                        <button type="button" class="report-stage-node" data-title="PO Remarks" data-content="{{ report.po_instructions|e }}" data-file-url="" data-file-label="" onclick="openReportStageModal(this)">
+                            <span class="report-stage-circle">
+                                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12h18"/><path d="M3 6h18"/><path d="M3 18h18"/></svg>
+                            </span>
+                            <span class="report-stage-name">PO Remarks</span>
+                        </button>
+                        {% endif %}
+
+                        {% if report.action_taken %}
+                        <button type="button" class="report-stage-node" data-title="CMD Action Taken Report" data-content="{{ report.action_taken|e }}" data-file-url="{{ url_for('enquiry_file', filename=report.cmd_action_report_file) if report.cmd_action_report_file else '' }}" data-file-label="View CMD Report PDF" onclick="openReportStageModal(this)">
+                            <span class="report-stage-circle">
+                                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 6h13"/><path d="M8 12h13"/><path d="M8 18h13"/><path d="M3 6h.01"/><path d="M3 12h.01"/><path d="M3 18h.01"/></svg>
+                            </span>
+                            <span class="report-stage-name">CMD Action</span>
+                        </button>
+                        {% endif %}
+                    </div>
+                </div>
+
+                <div id="reportStageModal" class="report-node-modal" style="display:none;">
+                    <div class="report-node-modal-backdrop" onclick="closeReportStageModal()"></div>
+                    <div class="report-node-modal-panel">
+                        <div class="card-header">
+                            <h3 id="reportStageModalTitle">Report Details</h3>
+                            <button class="btn btn-xs btn-outline" type="button" onclick="closeReportStageModal()">Close</button>
+                        </div>
+                        <div class="report-node-modal-body">
+                            <p id="reportStageModalContent" class="report-node-modal-text">-</p>
+                            <p id="reportStageModalFileWrap"></p>
+                        </div>
+                    </div>
+                </div>
+
+                <script>
+                function openReportStageModal(buttonEl) {
+                    const modal = document.getElementById('reportStageModal');
+                    const titleEl = document.getElementById('reportStageModalTitle');
+                    const contentEl = document.getElementById('reportStageModalContent');
+                    const fileWrap = document.getElementById('reportStageModalFileWrap');
+                    if (!modal || !titleEl || !contentEl || !fileWrap || !buttonEl) return;
+
+                    const title = buttonEl.dataset.title || 'Report Details';
+                    const content = buttonEl.dataset.content || '-';
+                    const fileUrl = buttonEl.dataset.fileUrl || '';
+                    const fileLabel = buttonEl.dataset.fileLabel || 'View File';
+
+                    titleEl.textContent = title;
+                    contentEl.textContent = content;
+
+                    if (fileUrl) {
+                        fileWrap.innerHTML = `<a href="${fileUrl}" target="_blank" class="btn btn-sm btn-outline">${fileLabel}</a>`;
+                    } else {
+                        fileWrap.innerHTML = '';
+                    }
+
+                    modal.style.display = 'flex';
+                }
+
+                function closeReportStageModal() {
+                    const modal = document.getElementById('reportStageModal');
+                    if (modal) modal.style.display = 'none';
+                }
+
+                document.addEventListener('keydown', function(event) {
+                    if (event.key === 'Escape') closeReportStageModal();
+                });
+                </script>
+            </div>
+        </div>
+        {% endif %}
+    </div>
+
+    <div class="card action-card">
+        <div class="card-header"><h3>Actions</h3></div>
+        <div class="action-panels">
+            {% if current_user_role in ('po', 'super_admin') %}
+                {% if not petition.requires_permission and not petition.efile_no and petition.status in ('received', 'forwarded_to_cvo', 'assigned_to_inspector', 'enquiry_in_progress') %}
+                <div class="action-panel">
+                    <h4>Set E-Office File Number (Direct Enquiry - One Time)</h4>
+                    <form method="POST" action="{{ url_for('petition_action', petition_id=petition.id) }}">
+                        <input type="hidden" name="action" value="update_efile_no">
+                        <div class="form-group">
+                            <label>E-Office File No <span class="required">*</span></label>
+                            <input type="text" name="efile_no" required placeholder="Enter E-Office file number">
+                        </div>
+                        <button type="submit" class="btn btn-primary">Set E-Office No</button>
+                    </form>
+                </div>
+                {% endif %}
+
+                {% if petition.status == 'sent_for_permission' %}
+                <div class="action-panel">
+                    <h4>Grant Enquiry Permission & Push to CVO</h4>
+                    <form method="POST" action="{{ url_for('petition_action', petition_id=petition.id) }}">
+                        <input type="hidden" name="action" value="approve_permission">
+                        <div class="form-group">
+                            <label>{{ f_po_approve_efile.label }} {% if f_po_approve_efile.required %}<span class="required">*</span>{% endif %}</label>
+                            {% if petition.efile_no %}
+                            <input type="text" name="efile_no" value="{{ petition.efile_no }}" readonly>
+                            {% else %}
+                            <input type="{{ f_po_approve_efile.type if f_po_approve_efile.type != 'textarea' else 'text' }}" name="efile_no" {% if f_po_approve_efile.required %}required{% endif %} placeholder="Enter E-Office file number">
+                            {% endif %}
+                        </div>
+                        <div class="form-group">
+                            <label>Send to CVO</label>
+                            <select name="target_cvo" required>
+                                <option value="">-- Select CVO --</option>
+                                <option value="apspdcl" {% if petition.target_cvo == 'apspdcl' %}selected{% endif %}>APSPDCL (Tirupathi)</option>
+                                <option value="apepdcl" {% if petition.target_cvo == 'apepdcl' %}selected{% endif %}>APEPDCL (Vizag)</option>
+                                <option value="apcpdcl" {% if petition.target_cvo == 'apcpdcl' %}selected{% endif %}>APCPDCL (Vijayawada)</option>
+                                <option value="headquarters" {% if petition.target_cvo == 'headquarters' %}selected{% endif %}>Headquarters (DSP)</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label>Enquiry Type Decision <span class="required">*</span></label>
+                            <select name="enquiry_type_decision" required>
+                                <option value="">-- Select Enquiry Type --</option>
+                                <option value="detailed" {% if petition.enquiry_type == 'detailed' %}selected{% endif %}>Detailed</option>
+                                <option value="preliminary" {% if petition.enquiry_type == 'preliminary' %}selected{% endif %}>Preliminary</option>
+                            </select>
+                        </div>
+                        <div class="form-group"><label>Comments</label><textarea name="comments" rows="2"></textarea></div>
+                        <button type="submit" class="btn btn-success">Grant Permission & Push</button>
+                    </form>
+                </div>
+                <div class="action-divider">OR</div>
+                <div class="action-panel">
+                    <h4>Reject Permission</h4>
+                    <form method="POST" action="{{ url_for('petition_action', petition_id=petition.id) }}">
+                        <input type="hidden" name="action" value="reject_permission">
+                        <div class="form-group"><label>{{ f_po_reject_reason.label }} {% if f_po_reject_reason.required %}<span class="required">*</span>{% endif %}</label><textarea name="comments" rows="2" {% if f_po_reject_reason.required %}required{% endif %}></textarea></div>
+                        <button type="submit" class="btn btn-danger">Reject Permission</button>
+                    </form>
+                </div>
+                <div class="action-divider">OR</div>
+                <div class="action-panel">
+                    <h4>Direct Lodge (No Enquiry / No Action Required)</h4>
+                    <form method="POST" action="{{ url_for('petition_action', petition_id=petition.id) }}">
+                        <input type="hidden" name="action" value="po_direct_lodge">
+                        <div class="form-group">
+                            <label>{{ f_po_direct_lodge_efile.label }} {% if f_po_direct_lodge_efile.required %}<span class="required">*</span>{% else %}(Optional){% endif %}</label>
+                            {% if petition.efile_no %}
+                            <input type="text" name="efile_no" value="{{ petition.efile_no }}" readonly>
+                            {% else %}
+                            <input type="{{ f_po_direct_lodge_efile.type if f_po_direct_lodge_efile.type != 'textarea' else 'text' }}" name="efile_no" {% if f_po_direct_lodge_efile.required %}required{% endif %} placeholder="Enter E-Office file number">
+                            {% endif %}
+                        </div>
+                        <div class="form-group">
+                            <label>{{ f_po_direct_lodge_remarks.label }} {% if f_po_direct_lodge_remarks.required %}<span class="required">*</span>{% endif %}</label>
+                            <textarea name="lodge_remarks" rows="3" {% if f_po_direct_lodge_remarks.required %}required{% endif %} placeholder="Reason for direct lodge"></textarea>
+                        </div>
+                        <button type="submit" class="btn btn-success">Direct Lodge Petition</button>
+                    </form>
+                </div>
+                {% endif %}
+
+                {% if petition.status == 'forwarded_to_po' %}
+                <div class="action-panel">
+                    <h4>PO Decision</h4>
+                    {% set cmd_actor_label = 'CGM/HR TRANSCO' if petition.target_cvo == 'headquarters' else 'CMD' %}
+                    <form method="POST" action="{{ url_for('petition_action', petition_id=petition.id) }}">
+                        <input type="hidden" id="po_action_hidden" name="action" value="send_to_cmd">
+                        <div class="form-group">
+                            <label>Choose Action</label>
+                            <select id="po_action_selector" onchange="togglePoUnifiedActionFields()">
+                                <option value="send_to_cmd">Send to {{ cmd_actor_label }} for Action</option>
+                                <option value="po_lodge">Lodge in PO (No {{ cmd_actor_label }} Action Required)</option>
+                            </select>
+                        </div>
+                        <div class="form-group" id="po_cmd_instructions_group">
+                            <label>{{ f_po_send_cmd_instructions.label }}</label>
+                            <textarea name="cmd_instructions" rows="3" {% if f_po_send_cmd_instructions.required %}required{% endif %} placeholder="Instructions to concerned {{ cmd_actor_label }}"></textarea>
+                        </div>
+                        <div class="form-group">
+                            <label id="po_efile_label">{{ f_po_send_cmd_efile.label }} {% if f_po_send_cmd_efile.required %}<span class="required">*</span>{% endif %}</label>
+                            {% if petition.efile_no %}
+                            <input type="text" id="po_efile_input" name="efile_no" value="{{ petition.efile_no }}" readonly data-send-required="{{ 1 if f_po_send_cmd_efile.required else 0 }}" data-lodge-required="{{ 1 if f_po_lodge_efile.required else 0 }}">
+                            {% else %}
+                            <input type="{{ f_po_send_cmd_efile.type if f_po_send_cmd_efile.type != 'textarea' else 'text' }}" id="po_efile_input" name="efile_no" {% if f_po_send_cmd_efile.required %}required{% endif %} placeholder="Enter E-Office file number" data-send-required="{{ 1 if f_po_send_cmd_efile.required else 0 }}" data-lodge-required="{{ 1 if f_po_lodge_efile.required else 0 }}">
+                            {% endif %}
+                            <small id="po_efile_help" class="form-help">{% if f_po_send_cmd_efile.required %}Required{% else %}Optional{% endif %} when sending to {{ cmd_actor_label }}.</small>
+                        </div>
+                        <div class="form-group" id="po_lodge_remarks_group" style="display:none;">
+                            <label>{{ f_po_lodge_remarks.label }} {% if f_po_lodge_remarks.required %}<span class="required">*</span>{% endif %}</label>
+                            <textarea name="lodge_remarks" rows="3" {% if f_po_lodge_remarks.required %}required{% endif %} placeholder="Reason for lodging at PO"></textarea>
+                        </div>
+                        <button type="submit" id="po_unified_submit_btn" class="btn btn-warning">Forward to {{ cmd_actor_label }}</button>
+                    </form>
+                    <script>
+                    function togglePoUnifiedActionFields() {
+                        const cmdActorLabel = {{ cmd_actor_label|tojson }};
+                        const poSendEfileLabel = {{ f_po_send_cmd_efile.label|tojson }};
+                        const poLodgeEfileLabel = {{ f_po_lodge_efile.label|tojson }};
+                        const sel = document.getElementById('po_action_selector');
+                        const action = document.getElementById('po_action_hidden');
+                        const cmdGroup = document.getElementById('po_cmd_instructions_group');
+                        const lodgeGroup = document.getElementById('po_lodge_remarks_group');
+                        const btn = document.getElementById('po_unified_submit_btn');
+                        const efileLabel = document.getElementById('po_efile_label');
+                        const efileInput = document.getElementById('po_efile_input');
+                        const efileHelp = document.getElementById('po_efile_help');
+                        if (!sel || !action || !cmdGroup || !lodgeGroup || !btn || !efileLabel || !efileInput || !efileHelp) return;
+                        if (sel.value === 'po_lodge') {
+                            action.value = 'po_lodge';
+                            cmdGroup.style.display = 'none';
+                            lodgeGroup.style.display = '';
+                            btn.className = 'btn btn-success';
+                            btn.textContent = 'Lodge Petition';
+                            efileInput.required = efileInput.dataset.lodgeRequired === '1';
+                            efileLabel.innerHTML = `${poLodgeEfileLabel} ${efileInput.required ? '<span class="required">*</span>' : '(Optional)'}`;
+                            efileHelp.textContent = `${efileInput.required ? 'Required' : 'Optional'} when lodging at PO.`;
+                        } else {
+                            action.value = 'send_to_cmd';
+                            cmdGroup.style.display = '';
+                            lodgeGroup.style.display = 'none';
+                            btn.className = 'btn btn-warning';
+                            btn.textContent = `Forward to ${cmdActorLabel}`;
+                            efileInput.required = efileInput.dataset.sendRequired === '1';
+                            efileLabel.innerHTML = `${poSendEfileLabel} ${efileInput.required ? '<span class="required">*</span>' : '(Optional)'}`;
+                            efileHelp.textContent = `${efileInput.required ? 'Required' : 'Optional'} when sending to ${cmdActorLabel}.`;
+                        }
+                    }
+                    togglePoUnifiedActionFields();
+                    </script>
+                </div>
+                {% endif %}
+
+                {% if petition.status == 'action_taken' %}
+                <div class="action-panel">
+                    <h4>Lodge in PO after CMD Action Report</h4>
+                    <form method="POST" action="{{ url_for('petition_action', petition_id=petition.id) }}">
+                        <input type="hidden" name="action" value="po_lodge">
+                        <div class="form-group">
+                            <label>{{ f_po_lodge_efile.label }} {% if f_po_lodge_efile.required %}<span class="required">*</span>{% else %}(Optional){% endif %}</label>
+                            {% if petition.efile_no %}
+                            <input type="text" name="efile_no" value="{{ petition.efile_no }}" readonly>
+                            {% else %}
+                            <input type="{{ f_po_lodge_efile.type if f_po_lodge_efile.type != 'textarea' else 'text' }}" name="efile_no" {% if f_po_lodge_efile.required %}required{% endif %} placeholder="Enter E-Office file number">
+                            {% endif %}
+                        </div>
+                        <div class="form-group">
+                            <label>{{ f_po_lodge_remarks.label }} {% if f_po_lodge_remarks.required %}<span class="required">*</span>{% endif %}</label>
+                            <textarea name="lodge_remarks" rows="3" {% if f_po_lodge_remarks.required %}required{% endif %} placeholder="Final PO remarks after CMD action"></textarea>
+                        </div>
+                        <button type="submit" class="btn btn-success">Lodge Petition</button>
+                    </form>
+                </div>
+                {% endif %}
+
+                {% if petition.status == 'lodged' %}
+                <div class="action-panel">
+                    <h4>Petition Closed</h4>
+                    <form method="POST" action="{{ url_for('petition_action', petition_id=petition.id) }}">
+                        <input type="hidden" name="action" value="close">
+                        <div class="form-group">
+                            <label>{{ f_po_close_comments.label }} {% if f_po_close_comments.required %}<span class="required">*</span>{% endif %}</label>
+                            <textarea name="comments" rows="3" {% if f_po_close_comments.required %}required{% endif %} placeholder="Final closing remarks"></textarea>
+                        </div>
+                        <button type="submit" class="btn btn-success">Close Petition</button>
+                    </form>
+                </div>
+                {% endif %}
+            {% endif %}
+
+            {% if current_user_role in ('cvo_apspdcl', 'cvo_apepdcl', 'cvo_apcpdcl', 'dsp', 'super_admin') %}
+                {% if petition.status == 'forwarded_to_cvo' and petition.requires_permission %}
+                <div class="action-panel">
+                    <h4>Send Receipt to PO (Permission Mandatory)</h4>
+                    <form method="POST" action="{{ url_for('petition_action', petition_id=petition.id) }}">
+                        <input type="hidden" name="action" value="send_receipt_to_po">
+                        <div class="form-group"><label>CVO Remarks</label><textarea name="comments" rows="3" placeholder="Receipt details and remarks"></textarea></div>
+                        <button type="submit" class="btn btn-warning">Send to PO</button>
+                    </form>
+                </div>
+                {% endif %}
+
+                {% if petition.status == 'permission_approved' or (petition.status == 'forwarded_to_cvo' and not petition.requires_permission) %}
+                <div class="action-panel">
+                    <h4>Assign to Field Inspector</h4>
+                    <form method="POST" action="{{ url_for('petition_action', petition_id=petition.id) }}">
+                        <input type="hidden" name="action" value="assign_inspector">
+                        <div class="form-group">
+                            <label>Select Inspector (CI/SI)</label>
+                            <select name="inspector_id" required>
+                                <option value="">-- Select Inspector --</option>
+                                {% for insp in inspectors %}
+                                <option value="{{ insp.id }}">{{ insp.full_name }}</option>
+                                {% else %}
+                                <option value="" disabled>No mapped field inspectors found. Add/map in User Management.</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        {% if not petition.requires_permission %}
+                        <div class="form-group">
+                            <label>Enquiry Type Decision <span class="required">*</span></label>
+                            <select name="enquiry_type_decision" required>
+                                <option value="">-- Select Enquiry Type --</option>
+                                <option value="detailed" {% if petition.enquiry_type == 'detailed' %}selected{% endif %}>Detailed</option>
+                                <option value="preliminary" {% if petition.enquiry_type == 'preliminary' %}selected{% endif %}>Preliminary</option>
+                            </select>
+                        </div>
+                        {% endif %}
+                        <div class="form-group"><label>Instructions</label><textarea name="comments" rows="2" placeholder="Instructions for the inspector"></textarea></div>
+                        <button type="submit" class="btn btn-primary">Assign Inspector</button>
+                    </form>
+                </div>
+                {% endif %}
+
+                {% if petition.status == 'enquiry_report_submitted' %}
+                <div class="action-panel">
+                    <h4>Consolidated report by CVO</h4>
+                    <form method="POST" action="{{ url_for('petition_action', petition_id=petition.id) }}" enctype="multipart/form-data">
+                        <input type="hidden" name="action" value="cvo_comments">
+                        <div class="form-group"><label>{{ f_cvo_consolidated_file.label }}{% if f_cvo_consolidated_file.required %} <span class="required">*</span>{% endif %}</label><input type="file" name="consolidated_report_file" accept=".pdf" {% if f_cvo_consolidated_file.required %}required{% endif %}></div>
+                        <div class="form-group"><label>{{ f_cvo_comments.label }}{% if f_cvo_comments.required %} <span class="required">*</span>{% endif %}</label><textarea name="cvo_comments" rows="4" {% if f_cvo_comments.required %}required{% endif %} placeholder="Your comments and observations on the enquiry report"></textarea></div>
+                        <button type="submit" class="btn btn-primary">Submit & Forward to PO</button>
+                    </form>
+                </div>
+                {% if petition.enquiry_type == 'preliminary' %}
+                <div class="action-divider">OR</div>
+                <div class="action-panel">
+                    <h4>Preliminary Completed - Request Detailed Enquiry Permission</h4>
+                    <form method="POST" action="{{ url_for('petition_action', petition_id=petition.id) }}">
+                        <input type="hidden" name="action" value="request_detailed_enquiry">
+                        <div class="form-group"><label>CVO/DSP Remarks</label><textarea name="cvo_comments" rows="4" required placeholder="Reason for converting preliminary enquiry to detailed enquiry"></textarea></div>
+                        <button type="submit" class="btn btn-warning">Request PO Permission for Detailed Enquiry</button>
+                    </form>
+                </div>
+                {% endif %}
+                {% endif %}
+            {% endif %}
+
+            {% if current_user_role in ('inspector', 'super_admin') %}
+                {% if petition.status == 'assigned_to_inspector' and (petition.assigned_inspector_id == current_user_id or current_user_role == 'super_admin') %}
+                <div class="action-panel">
+                    <h4>Upload Enquiry Report</h4>
+                    <form method="POST" action="{{ url_for('petition_action', petition_id=petition.id) }}" enctype="multipart/form-data">
+                        <input type="hidden" name="action" value="submit_report">
+                        <div class="form-group"><label>{{ f_inspector_report_text.label }}{% if f_inspector_report_text.required %} <span class="required">*</span>{% endif %}</label><textarea name="report_text" rows="5" {% if f_inspector_report_text.required %}required{% endif %} placeholder="Enter conclusion of enquiry report"></textarea></div>
+                        <div class="form-group"><label>{{ f_inspector_recommendation.label }}{% if f_inspector_recommendation.required %} <span class="required">*</span>{% endif %}</label><textarea name="recommendation" rows="3" {% if f_inspector_recommendation.required %}required{% endif %} placeholder="Enter recommendations/suggestions"></textarea></div>
+                        <div class="form-group"><label>{{ f_inspector_report_file.label }}{% if f_inspector_report_file.required %} <span class="required">*</span>{% endif %}</label><input type="file" name="report_file" accept=".pdf" {% if f_inspector_report_file.required %}required{% endif %}></div>
+                        <button type="submit" class="btn btn-primary">Upload Report</button>
+                    </form>
+                </div>
+                {% endif %}
+            {% endif %}
+
+            {% if current_user_role in ('cmd_apspdcl', 'cmd_apepdcl', 'cmd_apcpdcl', 'cgm_hr_transco', 'super_admin') %}
+                {% if petition.status == 'action_instructed' and (petition.current_handler_id == current_user_id or current_user_role == 'super_admin') %}
+                <div class="action-panel">
+                    <h4>Mark Action Taken & Send Copy to PO</h4>
+                    <form method="POST" action="{{ url_for('petition_action', petition_id=petition.id) }}" enctype="multipart/form-data">
+                        <input type="hidden" name="action" value="cmd_submit_action_report">
+                        <div class="form-group">
+                            <label>{{ f_cmd_action_taken.label }}{% if f_cmd_action_taken.required %} <span class="required">*</span>{% endif %}</label>
+                            <textarea name="action_taken" rows="4" {% if f_cmd_action_taken.required %}required{% endif %} placeholder="Enter action taken report"></textarea>
+                        </div>
+                        <div class="form-group">
+                            <label>{{ f_cmd_action_file.label }}{% if f_cmd_action_file.required %} <span class="required">*</span>{% endif %}</label>
+                            <input type="file" name="action_report_file" accept=".pdf" {% if f_cmd_action_file.required %}required{% endif %}>
+                        </div>
+                        <button type="submit" class="btn btn-primary">Action Taken (Send Copy to PO for Closure)</button>
+                    </form>
+                </div>
+                {% endif %}
+            {% endif %}
+
+            {% if petition.status == 'closed' %}
+            <div class="action-panel action-closed">
+                <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="#22c55e" stroke-width="2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+                <p>This petition has been closed.</p>
+            </div>
+            {% endif %}
+        </div>
+    </div>
+
+    <div class="card">
+        <div class="card-header"><h3>Tracking History</h3></div>
+        <div class="timeline">
+            {% for t in tracking %}
+            <div class="timeline-item">
+                <div class="timeline-dot" style="background: {{ status_colors.get(t.status_after, '#6b7280') }}"></div>
+                <div class="timeline-content">
+                    <div class="timeline-header">
+                        <strong>{{ t.action }}</strong>
+                        <span class="timeline-date">{{ t.created_at.strftime('%d %b %Y %H:%M') if t.created_at else '' }}</span>
+                    </div>
+                    <div class="timeline-meta">
+                        {% if t.from_name %}From: {{ t.from_name }}{% endif %}
+                        {% if t.to_name %} -> To: {{ t.to_name }}{% endif %}
+                    </div>
+                    {% if t.comments %}
+                    <p class="timeline-comment">{{ t.comments }}</p>
+                    {% endif %}
+                </div>
+            </div>
+            {% else %}
+            <p class="empty-state">No tracking history available.</p>
+            {% endfor %}
+        </div>
+    </div>
+</div>
+{% endblock %}
+

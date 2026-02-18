@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#1d4ed8"/>
+      <stop offset="100%" stop-color="#2563eb"/>
+    </linearGradient>
+  </defs>
+  <rect x="8" y="8" width="240" height="240" rx="28" fill="url(#bg)"/>
+  <g fill="none" stroke="#ffffff" stroke-width="10" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M128 44L90 84h76z"/>
+    <path d="M128 44v134"/>
+    <path d="M96 84h64"/>
+    <path d="M88 106h80"/>
+    <path d="M80 128h96"/>
+    <path d="M72 150h112"/>
+    <path d="M64 172h128"/>
+    <path d="M96 84l-24 88"/>
+    <path d="M160 84l24 88"/>
+  </g>
+  <rect x="28" y="190" width="200" height="40" rx="10" fill="#ffffff"/>
+  <text x="128" y="216" text-anchor="middle" font-family="Arial, sans-serif" font-size="22" font-weight="700" fill="#1d4ed8">APTRANSCO</text>
+</svg>

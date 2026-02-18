@@ -1,0 +1,12 @@
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q --maxfail=1 --strict-config --strict-markers --cov=app --cov=models --cov-fail-under=90"
+filterwarnings = ["error"]
+
+[tool.ruff]
+line-length = 110
+target-version = "py310"
+exclude = [".venv", "__pycache__", "uploads"]
+
+[tool.ruff.lint]
+select = ["E9", "F"]

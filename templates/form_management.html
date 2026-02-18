@@ -1,0 +1,163 @@
+{% extends "base.html" %}
+{% block title %}Form Management - Petition Tracker{% endblock %}
+{% block page_title %}Form Management{% endblock %}
+
+{% block content %}
+<div class="card form-mgmt-hero">
+    <div class="card-header">
+        <h2>Form Management</h2>
+    </div>
+    <div class="form-mgmt-hero-body">
+        <p>Configure field labels, field types, required rules, and dropdown options for DEO/Inspector/CVO/CMD/PO forms.</p>
+        <div class="form-mgmt-guide">
+            <span><strong>Dropdown Options Format:</strong> <code>value|Label</code> (one per line)</span>
+            <span><strong>Example:</strong> <code>aprc|1. APRC</code></span>
+        </div>
+    </div>
+ </div>
+
+{% if not grouped_fields %}
+<div class="card">
+    <div class="empty-state">No form fields configured.</div>
+</div>
+{% endif %}
+
+{% for form_key, rows in grouped_fields.items() %}
+<div class="card form-mgmt-section">
+    <div class="card-header">
+        <h3>{{ form_groups.get(form_key, form_key) }}</h3>
+        <span class="form-mgmt-count">{{ rows|length }} fields</span>
+    </div>
+    <div class="form-mgmt-grid">
+        {% for r in rows %}
+        <form method="POST" action="{{ url_for('form_management') }}" class="form-mgmt-field-card">
+            <input type="hidden" name="form_key" value="{{ r.form_key }}">
+            <input type="hidden" name="field_key" value="{{ r.field_key }}">
+
+            <div class="form-mgmt-field-head">
+                <code class="form-mgmt-field-key">{{ r.field_key }}</code>
+                <label class="form-mgmt-required-toggle">
+                    <input type="checkbox" name="is_required" {% if r.required %}checked{% endif %}>
+                    Required
+                </label>
+            </div>
+
+            <div class="form-mgmt-field-body">
+                <div class="form-group">
+                    <label>Label</label>
+                    <input type="text" name="label" value="{{ r.label }}" required>
+                </div>
+                <div class="form-group">
+                    <label>Field Type</label>
+                    <select name="field_type" class="fm-field-type">
+                        {% for t in field_types %}
+                        <option value="{{ t }}" {% if r.type == t %}selected{% endif %}>{{ t|upper }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="form-group full-width fm-options-wrap">
+                    <label>Dropdown Options</label>
+                    <div class="fm-options-builder">
+                        <div class="fm-options-head">
+                            <span>Value</span>
+                            <span>Display Label</span>
+                            <span></span>
+                        </div>
+                        <div class="fm-options-rows">
+                            {% for o in r.options %}
+                            <div class="fm-option-row">
+                                <input type="text" class="fm-opt-value" value="{{ o.value }}" placeholder="value">
+                                <input type="text" class="fm-opt-label" value="{{ o.label }}" placeholder="Display label">
+                                <button type="button" class="btn btn-xs btn-outline fm-opt-remove">Remove</button>
+                            </div>
+                            {% endfor %}
+                        </div>
+                        <div class="fm-options-actions">
+                            <button type="button" class="btn btn-xs btn-outline fm-opt-add">Add Option</button>
+                        </div>
+                    </div>
+                    <textarea name="options_text" rows="2" class="fm-options-hidden" aria-hidden="true"></textarea>
+                    <small>Used only when field type is <code>select</code>.</small>
+                </div>
+            </div>
+
+            <div class="form-mgmt-actions">
+                <button type="submit" class="btn btn-primary btn-sm">Save Field</button>
+            </div>
+        </form>
+        {% endfor %}
+    </div>
+</div>
+{% endfor %}
+
+<script>
+(() => {
+    document.querySelectorAll('.form-mgmt-field-card').forEach((card) => {
+        const typeSelect = card.querySelector('.fm-field-type');
+        const optionsWrap = card.querySelector('.fm-options-wrap');
+        const optionsRows = card.querySelector('.fm-options-rows');
+        const addBtn = card.querySelector('.fm-opt-add');
+        const hiddenOptions = card.querySelector('.fm-options-hidden');
+        const form = card;
+        if (!typeSelect || !optionsWrap) return;
+
+        const buildHiddenOptions = () => {
+            if (!hiddenOptions || !optionsRows) return;
+            const lines = [];
+            optionsRows.querySelectorAll('.fm-option-row').forEach((row) => {
+                const value = (row.querySelector('.fm-opt-value')?.value || '').trim();
+                const label = (row.querySelector('.fm-opt-label')?.value || '').trim();
+                if (value && label) lines.push(`${value}|${label}`);
+            });
+            hiddenOptions.value = lines.join('\n');
+        };
+
+        const bindRemoveButtons = () => {
+            optionsRows?.querySelectorAll('.fm-opt-remove').forEach((btn) => {
+                btn.onclick = () => {
+                    btn.closest('.fm-option-row')?.remove();
+                    buildHiddenOptions();
+                };
+            });
+        };
+
+        const addOptionRow = (value = '', label = '') => {
+            if (!optionsRows) return;
+            const row = document.createElement('div');
+            row.className = 'fm-option-row';
+            row.innerHTML = `
+                <input type="text" class="fm-opt-value" placeholder="value">
+                <input type="text" class="fm-opt-label" placeholder="Display label">
+                <button type="button" class="btn btn-xs btn-outline fm-opt-remove">Remove</button>
+            `;
+            row.querySelector('.fm-opt-value').value = value;
+            row.querySelector('.fm-opt-label').value = label;
+            optionsRows.appendChild(row);
+            bindRemoveButtons();
+            buildHiddenOptions();
+        };
+
+        if (addBtn) {
+            addBtn.addEventListener('click', () => addOptionRow());
+        }
+
+        optionsRows?.querySelectorAll('input').forEach((input) => {
+            input.addEventListener('input', buildHiddenOptions);
+        });
+
+        form?.addEventListener('submit', buildHiddenOptions);
+        bindRemoveButtons();
+        buildHiddenOptions();
+
+        const toggle = () => {
+            const isSelect = typeSelect.value === 'select';
+            optionsWrap.style.display = isSelect ? '' : 'none';
+            if (!isSelect && hiddenOptions) hiddenOptions.value = '';
+        };
+        typeSelect.addEventListener('change', toggle);
+        toggle();
+    });
+})();
+</script>
+{% endblock %}
+

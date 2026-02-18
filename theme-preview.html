@@ -1,0 +1,383 @@
+﻿<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Dashboard Theme Preview</title>
+  <style>
+    :root {
+      --bg: #eef3ff;
+      --bg-2: #dde7ff;
+      --card: #ffffff;
+      --card-soft: #f7faff;
+      --line: #e4ebfb;
+      --text: #1f2a44;
+      --muted: #6c7a9a;
+      --primary: #2f6df6;
+      --primary-2: #4f88ff;
+      --success: #18b46f;
+      --warn: #f59e0b;
+      --danger: #ef4444;
+      --radius: 14px;
+      --shadow: 0 10px 30px rgba(36, 66, 140, 0.12);
+      --font: "DM Sans", "Segoe UI", sans-serif;
+    }
+
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: var(--font);
+      color: var(--text);
+      background:
+        radial-gradient(circle at 12% -8%, rgba(79,136,255,0.34), transparent 30%),
+        radial-gradient(circle at 90% -10%, rgba(163,120,255,0.26), transparent 30%),
+        linear-gradient(165deg, var(--bg) 0%, var(--bg-2) 100%);
+      min-height: 100vh;
+      padding: 24px;
+    }
+
+    .shell {
+      max-width: 1320px;
+      margin: 0 auto;
+      display: grid;
+      grid-template-columns: 250px 1fr;
+      gap: 18px;
+    }
+
+    .sidebar {
+      background: rgba(255,255,255,0.85);
+      backdrop-filter: blur(4px);
+      border: 1px solid rgba(255,255,255,0.9);
+      border-radius: 18px;
+      box-shadow: var(--shadow);
+      padding: 18px;
+    }
+
+    .brand {
+      font-size: 20px;
+      font-weight: 800;
+      color: #18306f;
+      margin-bottom: 18px;
+    }
+
+    .nav-item {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 10px 12px;
+      border-radius: 10px;
+      color: var(--muted);
+      font-weight: 600;
+      margin-bottom: 6px;
+      border: 1px solid transparent;
+    }
+
+    .nav-item.active {
+      background: #edf3ff;
+      color: var(--primary);
+      border-color: #dbe7ff;
+    }
+
+    .dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: #b8c7ef;
+    }
+
+    .nav-item.active .dot { background: var(--primary); }
+
+    .main {
+      display: grid;
+      gap: 16px;
+    }
+
+    .topbar {
+      background: rgba(255,255,255,0.88);
+      border: 1px solid rgba(255,255,255,0.95);
+      border-radius: 18px;
+      box-shadow: var(--shadow);
+      padding: 16px 20px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    h1 { margin: 0; font-size: 22px; color: #18306f; }
+    .sub { color: var(--muted); font-size: 13px; margin-top: 4px; }
+
+    .btn {
+      border: 0;
+      border-radius: 10px;
+      padding: 10px 14px;
+      font-weight: 700;
+      color: #fff;
+      background: linear-gradient(180deg, var(--primary-2), var(--primary));
+      box-shadow: 0 8px 20px rgba(47,109,246,0.28);
+    }
+
+    .stats {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 12px;
+    }
+
+    .card {
+      background: var(--card);
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+      padding: 14px;
+    }
+
+    .kpi {
+      display: grid;
+      gap: 6px;
+    }
+
+    .kpi-title { color: var(--muted); font-size: 12px; font-weight: 700; }
+    .kpi-value { font-size: 26px; font-weight: 800; color: #1e336f; }
+    .kpi-delta { font-size: 12px; font-weight: 700; }
+    .up { color: var(--success); }
+    .down { color: var(--danger); }
+
+    .grid-2 {
+      display: grid;
+      grid-template-columns: 1.5fr 1fr;
+      gap: 12px;
+    }
+
+    .title {
+      font-size: 14px;
+      font-weight: 800;
+      color: #223b7a;
+      margin-bottom: 12px;
+    }
+
+    .bars {
+      height: 210px;
+      display: flex;
+      align-items: flex-end;
+      gap: 8px;
+      padding: 10px;
+      background: var(--card-soft);
+      border: 1px solid var(--line);
+      border-radius: 12px;
+    }
+
+    .bar {
+      flex: 1;
+      border-radius: 7px 7px 3px 3px;
+      background: linear-gradient(180deg, #9ab8ff, #d8e4ff);
+    }
+
+    .bar.hot {
+      background: linear-gradient(180deg, #4f88ff, #2f6df6);
+      box-shadow: 0 10px 18px rgba(47,109,246,0.3);
+    }
+
+    .donut {
+      width: 180px;
+      height: 180px;
+      margin: 8px auto 0;
+      border-radius: 50%;
+      background: conic-gradient(#2f6df6 0 42%, #8cb0ff 42% 69%, #d6e4ff 69% 100%);
+      position: relative;
+    }
+
+    .donut::after {
+      content: "70";
+      position: absolute;
+      inset: 28px;
+      border-radius: 50%;
+      background: #fff;
+      display: grid;
+      place-items: center;
+      color: #2b4280;
+      font-size: 28px;
+      font-weight: 800;
+      box-shadow: inset 0 0 0 1px var(--line);
+    }
+
+    .table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 13px;
+    }
+
+    .table th, .table td {
+      text-align: left;
+      padding: 10px;
+      border-bottom: 1px solid var(--line);
+    }
+
+    .table th { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: .3px; }
+
+    .badge {
+      display: inline-block;
+      padding: 4px 10px;
+      border-radius: 999px;
+      font-size: 11px;
+      font-weight: 800;
+    }
+
+    .b-blue { background: #e8f0ff; color: #2f6df6; }
+    .b-green { background: #def7eb; color: #16905b; }
+    .b-orange { background: #fff2db; color: #c67b00; }
+    .b-red { background: #ffe5e5; color: #c92f2f; }
+
+    .flow {
+      display: grid;
+      grid-template-columns: repeat(6, 1fr);
+      gap: 8px;
+      margin-top: 8px;
+    }
+
+    .stage {
+      background: #f7faff;
+      border: 1px solid #deebff;
+      border-radius: 12px;
+      padding: 10px 8px;
+      text-align: center;
+      font-weight: 700;
+      color: #4b5c86;
+      font-size: 12px;
+    }
+
+    .stage.active {
+      color: #fff;
+      border-color: #2f6df6;
+      background: linear-gradient(180deg, #4f88ff, #2f6df6);
+    }
+
+    @media (max-width: 1100px) {
+      .shell { grid-template-columns: 1fr; }
+      .stats { grid-template-columns: 1fr 1fr; }
+      .grid-2 { grid-template-columns: 1fr; }
+      .flow { grid-template-columns: 1fr 1fr 1fr; }
+    }
+
+    @media (max-width: 700px) {
+      .stats { grid-template-columns: 1fr; }
+      .flow { grid-template-columns: 1fr 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <div class="shell">
+    <aside class="sidebar">
+      <div class="brand">Web Admin Style</div>
+      <div class="nav-item active"><span class="dot"></span>Dashboard</div>
+      <div class="nav-item"><span class="dot"></span>Petitions</div>
+      <div class="nav-item"><span class="dot"></span>Workflow</div>
+      <div class="nav-item"><span class="dot"></span>SLA Monitor</div>
+      <div class="nav-item"><span class="dot"></span>User Management</div>
+      <div class="nav-item"><span class="dot"></span>Reports</div>
+    </aside>
+
+    <main class="main">
+      <section class="topbar">
+        <div>
+          <h1>Hi, Welcome Back</h1>
+          <div class="sub">Bright admin dashboard style with clean cards and clear metrics.</div>
+        </div>
+        <button class="btn">Create Petition</button>
+      </section>
+
+      <section class="stats">
+        <article class="card kpi">
+          <div class="kpi-title">Total Received</div>
+          <div class="kpi-value">632</div>
+          <div class="kpi-delta up">+12.5% this week</div>
+        </article>
+        <article class="card kpi">
+          <div class="kpi-title">Forwarded</div>
+          <div class="kpi-value">425</div>
+          <div class="kpi-delta up">+5.2% this week</div>
+        </article>
+        <article class="card kpi">
+          <div class="kpi-title">Within SLA</div>
+          <div class="kpi-value">311</div>
+          <div class="kpi-delta up">+7.8% this week</div>
+        </article>
+        <article class="card kpi">
+          <div class="kpi-title">Breached</div>
+          <div class="kpi-value">26</div>
+          <div class="kpi-delta down">-2.1% this week</div>
+        </article>
+      </section>
+
+      <section class="grid-2">
+        <article class="card">
+          <div class="title">Petition Overview</div>
+          <div class="bars">
+            <div class="bar" style="height: 22%"></div>
+            <div class="bar" style="height: 30%"></div>
+            <div class="bar" style="height: 38%"></div>
+            <div class="bar" style="height: 44%"></div>
+            <div class="bar" style="height: 54%"></div>
+            <div class="bar" style="height: 62%"></div>
+            <div class="bar hot" style="height: 82%"></div>
+            <div class="bar hot" style="height: 92%"></div>
+          </div>
+        </article>
+
+        <article class="card">
+          <div class="title">Category Mix</div>
+          <div class="donut"></div>
+        </article>
+      </section>
+
+      <section class="card">
+        <div class="title">Workflow Stages</div>
+        <div class="flow">
+          <div class="stage active">Initiated</div>
+          <div class="stage active">Enquiry</div>
+          <div class="stage active">Report Finalized</div>
+          <div class="stage">Action Pending</div>
+          <div class="stage">Lodged</div>
+          <div class="stage">Closed</div>
+        </div>
+      </section>
+
+      <section class="card">
+        <div class="title">Recent Petitions</div>
+        <table class="table">
+          <thead>
+            <tr>
+              <th>S.No</th>
+              <th>Petitioner</th>
+              <th>Subject</th>
+              <th>Status</th>
+              <th>SLA</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>VIG-221</td>
+              <td>Rahul</td>
+              <td>Billing discrepancy</td>
+              <td><span class="badge b-blue">Enquiry</span></td>
+              <td><span class="badge b-orange">In Progress</span></td>
+            </tr>
+            <tr>
+              <td>VIG-222</td>
+              <td>Srinu</td>
+              <td>Field complaint</td>
+              <td><span class="badge b-green">Lodged</span></td>
+              <td><span class="badge b-green">Within</span></td>
+            </tr>
+            <tr>
+              <td>VIG-223</td>
+              <td>Kiran</td>
+              <td>Procurement issue</td>
+              <td><span class="badge b-red">Pending Action</span></td>
+              <td><span class="badge b-red">Breached</span></td>
+            </tr>
+          </tbody>
+        </table>
+      </section>
+    </main>
+  </div>
+</body>
+</html>
