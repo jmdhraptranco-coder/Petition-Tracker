@@ -1,4 +1,5 @@
 import os
+import re
 from pathlib import Path
 
 try:
@@ -43,6 +44,11 @@ class Config:
         self.DB_PASSWORD = os.environ.get('DB_PASSWORD')
         self.DB_SSLMODE = os.environ.get('DB_SSLMODE', 'prefer')
         self.DB_CONNECT_TIMEOUT = int(os.environ.get('DB_CONNECT_TIMEOUT', '10'))
+        self.DB_SCHEMA = os.environ.get('DB_SCHEMA', 'public').strip() or 'public'
+        if not re.fullmatch(r'[A-Za-z_][A-Za-z0-9_]*', self.DB_SCHEMA):
+            raise RuntimeError(
+                "Invalid DB_SCHEMA value. Use a valid PostgreSQL identifier (e.g., public or vigilance_tracker)."
+            )
 
         # App runtime configuration
         self.HOST = os.environ.get('HOST', '0.0.0.0')
@@ -99,10 +105,12 @@ class Config:
 
     def get_psycopg2_kwargs(self):
         database_url = os.environ.get('DATABASE_URL')
+        search_path_option = f"-c search_path={self.DB_SCHEMA},public"
         if database_url:
             return {
                 'dsn': database_url,
                 'connect_timeout': self.DB_CONNECT_TIMEOUT,
+                'options': search_path_option,
             }
 
         kwargs = {
@@ -112,6 +120,7 @@ class Config:
             'user': self.DB_USER,
             'connect_timeout': self.DB_CONNECT_TIMEOUT,
             'sslmode': self.DB_SSLMODE,
+            'options': search_path_option,
         }
         if self.DB_PASSWORD is not None:
             kwargs['password'] = self.DB_PASSWORD
