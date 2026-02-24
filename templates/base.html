@@ -33,6 +33,10 @@
                     <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="M16 13H8"/><path d="M16 17H8"/><path d="M10 9H8"/></svg>
                     <span>Petitions</span>
                 </a>
+                <a href="{{ url_for('profile') }}" class="nav-item {% if request.endpoint == 'profile' %}active{% endif %}">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21a8 8 0 0 0-16 0"/><circle cx="12" cy="7" r="4"/></svg>
+                    <span>My Profile</span>
+                </a>
                 {% if current_user_role == 'po' %}
                 <a href="{{ url_for('petitions_list', mode='direct') }}" class="nav-item {% if request.endpoint == 'petitions_list' and request.args.get('mode') == 'direct' %}active{% endif %}">
                     <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3h18v18H3z"/><path d="M8 8h8"/><path d="M8 12h8"/><path d="M8 16h5"/></svg>
@@ -61,7 +65,11 @@
 
             <div class="sidebar-footer">
                 <div class="user-card">
+                    {% if current_user_profile_photo_url %}
+                    <img src="{{ current_user_profile_photo_url }}" alt="Profile Photo" class="user-avatar user-avatar-img">
+                    {% else %}
                     <div class="user-avatar">{{ current_user_name[0] if current_user_name else 'U' }}</div>
+                    {% endif %}
                     <div class="user-info">
                         <span class="user-name">{{ current_user_name }}</span>
                         <span class="user-role">{{ role_labels.get(current_user_role, current_user_role) }}</span>

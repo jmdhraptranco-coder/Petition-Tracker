@@ -1,0 +1,55 @@
+{% extends "base.html" %}
+{% block title %}My Profile - Petition Tracker{% endblock %}
+{% block page_title %}My Profile{% endblock %}
+
+{% block content %}
+<div class="card profile-card">
+    <div class="card-header">
+        <h2>Profile Settings</h2>
+    </div>
+    <form method="POST" action="{{ url_for('profile') }}" enctype="multipart/form-data" class="user-form">
+        <div class="form-grid">
+            <div class="form-group">
+                <label>Full Name <span class="required">*</span></label>
+                <input type="text" name="full_name" required minlength="3" value="{{ user.full_name or '' }}">
+            </div>
+            <div class="form-group">
+                <label>Username <span class="required">*</span></label>
+                <input type="text" name="username" required minlength="3" value="{{ user.username or '' }}">
+            </div>
+            <div class="form-group">
+                <label>Phone Number</label>
+                <input type="text" name="phone" value="{{ user.phone or '' }}" placeholder="Optional phone number">
+            </div>
+            <div class="form-group">
+                <label>Email ID</label>
+                <input type="email" name="email" value="{{ user.email or '' }}" placeholder="Optional email">
+            </div>
+            <div class="form-group">
+                <label>New Password</label>
+                <input type="password" name="new_password" minlength="6" placeholder="Leave blank to keep current password">
+            </div>
+            <div class="form-group">
+                <label>Confirm New Password</label>
+                <input type="password" name="confirm_password" minlength="6" placeholder="Re-enter new password">
+            </div>
+            <div class="form-group full-width">
+                <label>Profile Photo (jpg, jpeg, png, webp - max 2MB)</label>
+                <input type="file" name="profile_photo" accept=".jpg,.jpeg,.png,.webp">
+                {% if user.profile_photo %}
+                <div class="profile-photo-preview-wrap">
+                    <img src="{{ url_for('profile_photo_file', filename=user.profile_photo) }}" alt="Current profile photo" class="profile-photo-preview">
+                    <label class="profile-photo-remove">
+                        <input type="checkbox" name="remove_photo">
+                        Remove current profile photo
+                    </label>
+                </div>
+                {% endif %}
+            </div>
+        </div>
+        <div class="form-actions">
+            <button type="submit" class="btn btn-primary">Save Profile</button>
+        </div>
+    </form>
+</div>
+{% endblock %}

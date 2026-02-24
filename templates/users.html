@@ -95,9 +95,9 @@
     </div>
 
     <div class="card">
-        <div class="card-header">
+        <div class="card-header user-admin-header">
             <h2>Officer Directory & Controls</h2>
-            <div class="header-actions">
+            <div class="header-actions user-admin-tools">
                 <div class="filter-group">
                     <label>Role</label>
                     <select id="roleFilter" class="filter-select" onchange="applyUnifiedFilters()">
@@ -124,86 +124,112 @@
                         <option value="inactive">Inactive</option>
                     </select>
                 </div>
+                <div class="filter-group">
+                    <label>Search</label>
+                    <input id="searchFilter" type="text" class="filter-select" placeholder="Name / username / role" oninput="applyUnifiedFilters()">
+                </div>
             </div>
         </div>
-        <div style="padding: 0 1.5rem 1rem 1.5rem; color: #6b7280; font-size: 0.9rem;">
-            Single table control panel for required officers. You can update officer name later, reset username/password, map inspector to CVO/DSP, and activate/deactivate.
+        <div class="user-admin-hint">
+            Clean card-based controls for each user. Expand "Manage User" to update details, credentials, mapping, and status.
         </div>
-        <div class="table-wrapper">
-            <table class="data-table">
-                <thead>
-                    <tr>
-                        <th>Role</th>
-                        <th>Username</th>
-                        <th>Officer Name</th>
-                        <th>Status</th>
-                        <th>Map (Inspector)</th>
-                        <th>Update Name</th>
-                        <th>Reset Username</th>
-                        <th>Reset Password</th>
-                        <th>Activate/Deactivate</th>
-                    </tr>
-                </thead>
-                <tbody id="userControlBody">
-                    {% for u in users %}
-                    <tr data-role="{{ u.role }}" data-status="{% if u.is_active %}active{% else %}inactive{% endif %}" class="{% if not u.is_active %}row-inactive{% endif %}">
-                        <td><span class="badge badge-role">{{ role_labels.get(u.role, u.role) }}</span></td>
-                        <td class="font-mono">{{ u.username }}</td>
-                        <td>{{ u.full_name }}</td>
-                        <td>
-                            {% if u.is_active %}
-                            <span class="status-dot status-active"></span> Active
-                            {% else %}
-                            <span class="status-dot status-inactive"></span> Inactive
+        <div id="userControlGrid" class="user-admin-grid">
+            {% for u in users %}
+            <article
+                class="user-admin-card {% if not u.is_active %}user-admin-card-inactive{% endif %}"
+                data-role="{{ u.role }}"
+                data-status="{% if u.is_active %}active{% else %}inactive{% endif %}"
+                data-search="{{ (u.username ~ ' ' ~ u.full_name ~ ' ' ~ role_labels.get(u.role, u.role)) | lower }}"
+            >
+                <div class="user-admin-card-head">
+                    <div class="user-admin-identity">
+                        {% if u.profile_photo %}
+                        <img src="{{ url_for('profile_photo_file', filename=u.profile_photo) }}" alt="Profile" class="table-avatar">
+                        {% else %}
+                        <div class="table-avatar table-avatar-fallback">{{ u.full_name[0] if u.full_name else 'U' }}</div>
+                        {% endif %}
+                        <div>
+                            <div class="user-admin-name">{{ u.full_name }}</div>
+                            <div class="user-admin-username">@{{ u.username }}</div>
+                        </div>
+                    </div>
+                    <div class="user-admin-badges">
+                        <span class="badge badge-role">{{ role_labels.get(u.role, u.role) }}</span>
+                        {% if u.is_active %}
+                        <span class="badge user-badge-active">Active</span>
+                        {% else %}
+                        <span class="badge user-badge-inactive">Inactive</span>
+                        {% endif %}
+                    </div>
+                </div>
+
+                <div class="user-admin-meta">
+                    <div><span class="user-admin-meta-label">Phone:</span> {{ u.phone or '-' }}</div>
+                    <div><span class="user-admin-meta-label">Email:</span> {{ u.email or '-' }}</div>
+                </div>
+
+                <details class="user-admin-actions">
+                    <summary>Manage User</summary>
+
+                    <div class="user-action-grid">
+                        <form method="POST" action="{{ url_for('user_update_name', user_id=u.id) }}" class="user-action-card">
+                            <h4>Update Name</h4>
+                            <input type="text" name="full_name" required minlength="3" value="{{ u.full_name }}">
+                            <button type="submit" class="btn btn-xs btn-primary">Save Name</button>
+                        </form>
+
+                        <form method="POST" action="{{ url_for('user_reset_username', user_id=u.id) }}" class="user-action-card">
+                            <h4>Reset Username</h4>
+                            <input type="text" name="new_username" required minlength="3" placeholder="New username">
+                            <button type="submit" class="btn btn-xs btn-primary">Reset Username</button>
+                        </form>
+
+                        <form method="POST" action="{{ url_for('user_reset_password', user_id=u.id) }}" class="user-action-card">
+                            <h4>Reset Password</h4>
+                            <input type="password" name="new_password" required minlength="6" placeholder="New password">
+                            <button type="submit" class="btn btn-xs btn-primary">Reset Password</button>
+                        </form>
+
+                        <form method="POST" action="{{ url_for('user_update_contact', user_id=u.id) }}" enctype="multipart/form-data" class="user-action-card">
+                            <h4>Contact & Photo</h4>
+                            <input type="text" name="phone" placeholder="Phone" value="{{ u.phone or '' }}">
+                            <input type="email" name="email" placeholder="Email" value="{{ u.email or '' }}">
+                            <input type="file" name="profile_photo" accept=".jpg,.jpeg,.png,.webp">
+                            {% if u.profile_photo %}
+                            <label class="user-action-check">
+                                <input type="checkbox" name="remove_photo"> Remove current photo
+                            </label>
                             {% endif %}
-                        </td>
-                        <td>
-                            {% if u.role == 'inspector' %}
-                            {% set map = (inspector_mappings | selectattr('id', 'equalto', u.id) | list | first) %}
-                            <form method="POST" action="{{ url_for('user_map_cvo', inspector_id=u.id) }}" style="display:flex; gap:0.4rem; align-items:center;">
-                                <select name="cvo_id" required style="min-width: 190px;">
-                                    <option value="">-- Select --</option>
-                                    {% for cvo in cvo_users %}
-                                    <option value="{{ cvo.id }}" {% if map and map.mapped_cvo_id == cvo.id %}selected{% endif %}>
-                                        {{ cvo.full_name }}
-                                    </option>
-                                    {% endfor %}
-                                </select>
-                                <button type="submit" class="btn btn-xs btn-primary">Save</button>
-                            </form>
-                            {% else %}
-                            <span class="text-muted">-</span>
-                            {% endif %}
-                        </td>
-                        <td>
-                            <form method="POST" action="{{ url_for('user_update_name', user_id=u.id) }}" style="display:flex; gap:0.4rem; align-items:center;">
-                                <input type="text" name="full_name" required minlength="3" value="{{ u.full_name }}" style="max-width: 150px;">
-                                <button type="submit" class="btn btn-xs btn-primary">Update</button>
-                            </form>
-                        </td>
-                        <td>
-                            <form method="POST" action="{{ url_for('user_reset_username', user_id=u.id) }}" style="display:flex; gap:0.4rem; align-items:center;">
-                                <input type="text" name="new_username" required minlength="3" placeholder="New username" style="max-width: 145px;">
-                                <button type="submit" class="btn btn-xs btn-primary">Reset</button>
-                            </form>
-                        </td>
-                        <td>
-                            <form method="POST" action="{{ url_for('user_reset_password', user_id=u.id) }}" style="display:flex; gap:0.4rem; align-items:center;">
-                                <input type="password" name="new_password" required minlength="6" placeholder="New password" style="max-width: 145px;">
-                                <button type="submit" class="btn btn-xs btn-primary">Reset</button>
-                            </form>
-                        </td>
-                        <td>
-                            <form method="POST" action="{{ url_for('user_toggle', user_id=u.id) }}" style="display:inline">
-                                <button type="submit" class="btn btn-xs {% if u.is_active %}btn-danger{% else %}btn-success{% endif %}">
-                                    {{ 'Deactivate' if u.is_active else 'Activate' }}
-                                </button>
-                            </form>
-                        </td>
-                    </tr>
-                    {% endfor %}
-                </tbody>
-            </table>
+                            <button type="submit" class="btn btn-xs btn-primary">Save Contact/Photo</button>
+                        </form>
+
+                        {% if u.role == 'inspector' %}
+                        {% set map = (inspector_mappings | selectattr('id', 'equalto', u.id) | list | first) %}
+                        <form method="POST" action="{{ url_for('user_map_cvo', inspector_id=u.id) }}" class="user-action-card">
+                            <h4>Map Inspector</h4>
+                            <select name="cvo_id" required>
+                                <option value="">-- Select CVO/DSP --</option>
+                                {% for cvo in cvo_users %}
+                                <option value="{{ cvo.id }}" {% if map and map.mapped_cvo_id == cvo.id %}selected{% endif %}>
+                                    {{ cvo.full_name }} ({{ role_labels.get(cvo.role, cvo.role) }})
+                                </option>
+                                {% endfor %}
+                            </select>
+                            <button type="submit" class="btn btn-xs btn-primary">Save Mapping</button>
+                        </form>
+                        {% endif %}
+
+                        <form method="POST" action="{{ url_for('user_toggle', user_id=u.id) }}" class="user-action-card">
+                            <h4>Activation</h4>
+                            <p class="user-action-note">Current status: {{ 'Active' if u.is_active else 'Inactive' }}</p>
+                            <button type="submit" class="btn btn-xs {% if u.is_active %}btn-danger{% else %}btn-success{% endif %}">
+                                {{ 'Deactivate User' if u.is_active else 'Activate User' }}
+                            </button>
+                        </form>
+                    </div>
+                </details>
+            </article>
+            {% endfor %}
         </div>
     </div>
 </div>
@@ -229,13 +255,19 @@ function toggleCVOFields(select) {
 function applyUnifiedFilters() {
     const roleValue = document.getElementById('roleFilter').value;
     const statusValue = document.getElementById('statusFilter').value;
-    const rows = document.querySelectorAll('#userControlBody tr');
-    rows.forEach(row => {
-        const roleOk = roleValue === 'all' || row.dataset.role === roleValue;
-        const statusOk = statusValue === 'all' || row.dataset.status === statusValue;
-        row.style.display = (roleOk && statusOk) ? '' : 'none';
+    const searchValue = (document.getElementById('searchFilter').value || '').trim().toLowerCase();
+    const cards = document.querySelectorAll('#userControlGrid .user-admin-card');
+    cards.forEach(card => {
+        const roleOk = roleValue === 'all' || card.dataset.role === roleValue;
+        const statusOk = statusValue === 'all' || card.dataset.status === statusValue;
+        const searchOk = !searchValue || (card.dataset.search || '').includes(searchValue);
+        card.style.display = (roleOk && statusOk && searchOk) ? '' : 'none';
     });
 }
+
+document.addEventListener('DOMContentLoaded', function () {
+    applyUnifiedFilters();
+});
 </script>
 {% endblock %}
 

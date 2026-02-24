@@ -54,6 +54,10 @@ def ensure_schema_updates():
                 PRIMARY KEY (form_key, field_key)
             )
         """)
+        cur.execute("""
+            ALTER TABLE users
+            ADD COLUMN IF NOT EXISTS profile_photo VARCHAR(255)
+        """)
     except Exception:
         raise
     finally:
@@ -127,7 +131,11 @@ def get_all_users():
     conn = get_db()
     try:
         cur = dict_cursor(conn)
-        cur.execute("SELECT id, username, full_name, role, cvo_office, phone, email, is_active, created_at FROM users ORDER BY role, full_name")
+        cur.execute("""
+            SELECT id, username, full_name, role, cvo_office, phone, email, profile_photo, is_active, created_at
+            FROM users
+            ORDER BY role, full_name
+        """)
         return [dict(row) for row in cur.fetchall()]
     finally:
         conn.close()
@@ -281,6 +289,50 @@ def update_user_full_name(user_id, full_name):
         cur.execute(
             "UPDATE users SET full_name = %s, updated_at = CURRENT_TIMESTAMP WHERE id = %s",
             (full_name, user_id)
+        )
+        conn.commit()
+    except Exception as e:
+        conn.rollback()
+        raise e
+    finally:
+        conn.close()
+
+
+def update_user_profile_info(user_id, full_name, phone=None, email=None):
+    conn = get_db()
+    try:
+        cur = dict_cursor(conn)
+        cur.execute(
+            """
+            UPDATE users
+            SET full_name = %s,
+                phone = %s,
+                email = %s,
+                updated_at = CURRENT_TIMESTAMP
+            WHERE id = %s
+            """,
+            (full_name, phone, email, user_id)
+        )
+        conn.commit()
+    except Exception as e:
+        conn.rollback()
+        raise e
+    finally:
+        conn.close()
+
+
+def set_user_profile_photo(user_id, profile_photo):
+    conn = get_db()
+    try:
+        cur = dict_cursor(conn)
+        cur.execute(
+            """
+            UPDATE users
+            SET profile_photo = %s,
+                updated_at = CURRENT_TIMESTAMP
+            WHERE id = %s
+            """,
+            (profile_photo, user_id)
         )
         conn.commit()
     except Exception as e:

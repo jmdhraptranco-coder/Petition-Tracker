@@ -9,6 +9,7 @@ import io
 import csv
 import re
 import copy
+from uuid import uuid4
 from werkzeug.utils import secure_filename
 try:
     from openpyxl import load_workbook
@@ -27,7 +28,10 @@ if os.getenv('SKIP_SCHEMA_UPDATES') != '1':
 BASE_UPLOAD_DIR = config.UPLOAD_BASE_DIR
 ERECEIPT_UPLOAD_DIR = os.path.join(BASE_UPLOAD_DIR, 'e_receipts')
 ENQUIRY_UPLOAD_DIR = os.path.join(BASE_UPLOAD_DIR, 'enquiry_reports')
+PROFILE_UPLOAD_DIR = os.path.join(BASE_UPLOAD_DIR, 'profile_photos')
 MAX_UPLOAD_SIZE_BYTES = config.MAX_UPLOAD_SIZE_MB * 1024 * 1024
+PROFILE_PHOTO_MAX_BYTES = 2 * 1024 * 1024
+PROFILE_PHOTO_EXTENSIONS = {'jpg', 'jpeg', 'png', 'webp'}
 VALID_RECEIVED_AT = {'jmd_office', 'cvo_apspdcl_tirupathi', 'cvo_apepdcl_vizag', 'cvo_apcpdcl_vijayawada'}
 VALID_TARGET_CVO = {'apspdcl', 'apepdcl', 'apcpdcl', 'headquarters'}
 VALID_ENQUIRY_TYPES = {'detailed', 'preliminary'}
@@ -159,6 +163,67 @@ def validate_email(email):
     if not email:
         return True
     return bool(EMAIL_RE.match(email))
+
+
+def ensure_upload_dirs():
+    os.makedirs(ERECEIPT_UPLOAD_DIR, exist_ok=True)
+    os.makedirs(ENQUIRY_UPLOAD_DIR, exist_ok=True)
+    os.makedirs(PROFILE_UPLOAD_DIR, exist_ok=True)
+
+
+def validate_profile_photo_upload(file_obj, user_id=None):
+    if not file_obj or not file_obj.filename:
+        return True, None, None
+
+    safe_name = secure_filename(file_obj.filename)
+    if not safe_name:
+        return False, None, 'Profile photo filename is invalid.'
+
+    ext = safe_name.rsplit('.', 1)[-1].lower() if '.' in safe_name else ''
+    if ext not in PROFILE_PHOTO_EXTENSIONS:
+        return False, None, 'Profile photo must be jpg, jpeg, png, or webp.'
+
+    file_obj.seek(0, os.SEEK_END)
+    size = file_obj.tell()
+    file_obj.seek(0)
+    if size <= 0:
+        return False, None, 'Profile photo file is empty.'
+    if size > PROFILE_PHOTO_MAX_BYTES:
+        return False, None, 'Profile photo must be below 2 MB.'
+
+    photo_user_id = user_id if user_id is not None else session.get('user_id', 'x')
+    stored_name = f"user_{photo_user_id}_{uuid4().hex}.{ext}"
+    return True, stored_name, None
+
+
+def delete_profile_photo_file(filename):
+    if not filename:
+        return
+    path = os.path.join(PROFILE_UPLOAD_DIR, filename)
+    try:
+        if os.path.isfile(path):
+            os.remove(path)
+    except Exception:
+        pass
+
+
+def refresh_session_user():
+    user_id = session.get('user_id')
+    if not user_id:
+        return
+    user = models.get_user_by_id(user_id)
+    if not user:
+        return
+    session['username'] = user.get('username')
+    session['full_name'] = user.get('full_name')
+    session['user_role'] = user.get('role')
+    session['cvo_office'] = user.get('cvo_office')
+    session['phone'] = user.get('phone')
+    session['email'] = user.get('email')
+    session['profile_photo'] = user.get('profile_photo')
+
+
+ensure_upload_dirs()
 
 
 def get_effective_form_field_configs():
@@ -340,6 +405,7 @@ def inject_globals():
     cfg = get_effective_form_field_configs()
     govt_options = cfg.get('deo_petition.govt_institution_type', {}).get('options', [])
     govt_labels = {o.get('value'): o.get('label') for o in govt_options if isinstance(o, dict)}
+    profile_photo = session.get('profile_photo')
     return dict(
         role_labels=role_labels,
         status_labels=status_labels,
@@ -354,8 +420,15 @@ def inject_globals():
         workflow_stage_labels=workflow_stage_labels,
         status_to_stage=status_to_stage,
         current_user_role=session.get('user_role'),
+        current_user_username=session.get('username'),
         current_user_name=session.get('full_name'),
         current_user_id=session.get('user_id'),
+        current_user_phone=session.get('phone'),
+        current_user_email=session.get('email'),
+        current_user_profile_photo=session.get('profile_photo'),
+        current_user_profile_photo_url=(
+            url_for('profile_photo_file', filename=profile_photo) if profile_photo else None
+        ),
         now=datetime.now()
     )
 
@@ -385,6 +458,9 @@ def login():
             session['full_name'] = user['full_name']
             session['user_role'] = user['role']
             session['cvo_office'] = user.get('cvo_office')
+            session['phone'] = user.get('phone')
+            session['email'] = user.get('email')
+            session['profile_photo'] = user.get('profile_photo')
             flash(f'Welcome, {user["full_name"]}!', 'success')
             try:
                 visible_petitions = models.get_petitions_for_user(
@@ -1182,6 +1258,98 @@ def ereceipt_file(filename):
 def enquiry_file(filename):
     return send_from_directory(ENQUIRY_UPLOAD_DIR, filename, as_attachment=False)
 
+
+@app.route('/profile-photos/<path:filename>')
+@login_required
+def profile_photo_file(filename):
+    return send_from_directory(PROFILE_UPLOAD_DIR, filename, as_attachment=False)
+
+
+@app.route('/profile', methods=['GET', 'POST'])
+@login_required
+def profile():
+    user = models.get_user_by_id(session['user_id'])
+    if not user:
+        flash('User profile not found.', 'danger')
+        return redirect(url_for('logout'))
+
+    if request.method == 'POST':
+        full_name = (request.form.get('full_name') or '').strip()
+        username = (request.form.get('username') or '').strip()
+        phone = (request.form.get('phone') or '').strip() or None
+        email = (request.form.get('email') or '').strip() or None
+        new_password = (request.form.get('new_password') or '').strip()
+        confirm_password = (request.form.get('confirm_password') or '').strip()
+        remove_photo = request.form.get('remove_photo') == 'on'
+        photo_upload = request.files.get('profile_photo')
+
+        if not full_name or len(full_name) < 3:
+            flash('Name must be at least 3 characters.', 'warning')
+            return redirect(url_for('profile'))
+        if not username or len(username) < 3:
+            flash('Username must be at least 3 characters.', 'warning')
+            return redirect(url_for('profile'))
+        if not re.match(r'^[A-Za-z0-9_.-]+$', username):
+            flash('Username can only contain letters, numbers, dot, underscore, and hyphen.', 'warning')
+            return redirect(url_for('profile'))
+        if not validate_contact(phone):
+            flash('Please provide a valid phone number.', 'warning')
+            return redirect(url_for('profile'))
+        if not validate_email(email):
+            flash('Please provide a valid email address.', 'warning')
+            return redirect(url_for('profile'))
+
+        if new_password:
+            if len(new_password) < 6:
+                flash('New password must be at least 6 characters.', 'warning')
+                return redirect(url_for('profile'))
+            if new_password != confirm_password:
+                flash('Password confirmation does not match.', 'warning')
+                return redirect(url_for('profile'))
+
+        ok_photo, stored_photo_name, photo_error = validate_profile_photo_upload(photo_upload, session['user_id'])
+        if not ok_photo:
+            flash(photo_error, 'warning')
+            return redirect(url_for('profile'))
+
+        old_photo = user.get('profile_photo')
+        photo_changed = False
+        try:
+            if username != user.get('username'):
+                models.set_username(session['user_id'], username)
+
+            models.update_user_profile_info(session['user_id'], full_name, phone, email)
+
+            if new_password:
+                models.set_user_password(session['user_id'], new_password)
+
+            if stored_photo_name and photo_upload:
+                ensure_upload_dirs()
+                photo_upload.save(os.path.join(PROFILE_UPLOAD_DIR, stored_photo_name))
+                models.set_user_profile_photo(session['user_id'], stored_photo_name)
+                photo_changed = True
+            elif remove_photo and old_photo:
+                models.set_user_profile_photo(session['user_id'], None)
+                photo_changed = True
+
+            if photo_changed and old_photo and old_photo != stored_photo_name:
+                delete_profile_photo_file(old_photo)
+
+            refresh_session_user()
+            flash('Profile updated successfully.', 'success')
+            return redirect(url_for('profile'))
+        except Exception as e:
+            if stored_photo_name:
+                delete_profile_photo_file(stored_photo_name)
+            error_text = str(e).lower()
+            if 'unique' in error_text or 'duplicate key' in error_text:
+                flash('Username already exists. Choose a different username.', 'danger')
+            else:
+                flash(f'Unable to update profile: {str(e)}', 'danger')
+            return redirect(url_for('profile'))
+
+    return render_template('profile.html', user=user)
+
 # ========================================
 # USER MANAGEMENT (SUPER ADMIN)
 # ========================================
@@ -1599,6 +1767,67 @@ def user_update_name(user_id):
         flash('Officer name updated successfully.', 'success')
     except Exception as e:
         flash(f'Error updating officer name: {str(e)}', 'danger')
+
+    return redirect(url_for('users_list'))
+
+
+@app.route('/users/<int:user_id>/update-contact', methods=['POST'])
+@login_required
+@role_required('super_admin')
+def user_update_contact(user_id):
+    try:
+        phone = (request.form.get('phone') or '').strip() or None
+        email = (request.form.get('email') or '').strip() or None
+        remove_photo = request.form.get('remove_photo') == 'on'
+        photo_upload = request.files.get('profile_photo')
+
+        if not validate_contact(phone):
+            flash('Please provide a valid phone number.', 'warning')
+            return redirect(url_for('users_list'))
+        if not validate_email(email):
+            flash('Please provide a valid email address.', 'warning')
+            return redirect(url_for('users_list'))
+
+        user = models.get_user_by_id(user_id)
+        if not user:
+            flash('User not found.', 'warning')
+            return redirect(url_for('users_list'))
+
+        ok_photo, stored_photo_name, photo_error = validate_profile_photo_upload(photo_upload, user_id)
+        if not ok_photo:
+            flash(photo_error, 'warning')
+            return redirect(url_for('users_list'))
+
+        old_photo = user.get('profile_photo')
+        photo_changed = False
+        try:
+            models.update_user_profile_info(
+                user_id,
+                user.get('full_name'),
+                phone,
+                email
+            )
+            if stored_photo_name and photo_upload:
+                ensure_upload_dirs()
+                photo_upload.save(os.path.join(PROFILE_UPLOAD_DIR, stored_photo_name))
+                models.set_user_profile_photo(user_id, stored_photo_name)
+                photo_changed = True
+            elif remove_photo and old_photo:
+                models.set_user_profile_photo(user_id, None)
+                photo_changed = True
+
+            if photo_changed and old_photo and old_photo != stored_photo_name:
+                delete_profile_photo_file(old_photo)
+
+            if session.get('user_id') == user_id:
+                refresh_session_user()
+            flash('User contact/profile photo updated.', 'success')
+        except Exception as e:
+            if stored_photo_name:
+                delete_profile_photo_file(stored_photo_name)
+            flash(f'Error updating contact/photo: {str(e)}', 'danger')
+    except Exception as e:
+        flash(f'Error updating contact/photo: {str(e)}', 'danger')
 
     return redirect(url_for('users_list'))
 
