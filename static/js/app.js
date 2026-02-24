@@ -5,6 +5,8 @@ document.addEventListener('DOMContentLoaded', () => {
     const themeToggle = document.getElementById('themeToggle');
     const themeStorageKey = 'ui_theme_mode';
     const rootEl = document.documentElement;
+    const viewportMobile = 768;
+    const viewportTablet = 1100;
 
     const applyTheme = (mode) => {
         rootEl.setAttribute('data-theme', mode);
@@ -72,6 +74,16 @@ document.addEventListener('DOMContentLoaded', () => {
     let sidebarFlowTimer = null;
 
     if (appLayout && sidebar && sidebarToggle) {
+        const applyViewportMode = () => {
+            const w = window.innerWidth || document.documentElement.clientWidth || 0;
+            const mode = w <= viewportMobile ? 'mobile' : (w <= viewportTablet ? 'tablet' : 'desktop');
+            rootEl.setAttribute('data-screen-size', mode);
+        };
+
+        applyViewportMode();
+        window.addEventListener('resize', applyViewportMode);
+        window.addEventListener('orientationchange', applyViewportMode);
+
         if (sessionStorage.getItem(attentionSeenKey) !== '1') {
             sidebarToggle.classList.add('attention');
         }

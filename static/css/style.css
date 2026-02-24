@@ -4218,6 +4218,11 @@ html[data-theme='dark'] .nav-item:hover {
         width: min(86vw, 320px);
         max-width: 320px;
         z-index: 120;
+        transform: translateX(-100%);
+    }
+
+    .sidebar.collapsed {
+        transform: translateX(0);
     }
 
     .main-content,
@@ -4226,6 +4231,21 @@ html[data-theme='dark'] .nav-item:hover {
         width: 100%;
         max-width: 100%;
         min-width: 0;
+    }
+
+    .sidebar-toggle {
+        top: 12px;
+        left: 10px;
+        transform: none;
+    }
+
+    .sidebar-toggle:hover {
+        transform: scale(1.03);
+    }
+
+    .sidebar.collapsed ~ .main-content .sidebar-toggle {
+        left: calc(min(86vw, 320px) - 18px);
+        top: 12px;
     }
 
     .top-bar {
