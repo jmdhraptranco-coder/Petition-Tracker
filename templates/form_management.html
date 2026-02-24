@@ -16,6 +16,78 @@
     </div>
  </div>
 
+<div class="card form-mgmt-hero">
+    <div class="card-header">
+        <h3>Field Editor Selection</h3>
+    </div>
+    <div class="form-mgmt-hero-body">
+        <div class="form-grid">
+            <div class="form-group">
+                <label>Form Group / Login Flow</label>
+                <select id="fmFormSelect" class="filter-select" onchange="applyFormFieldSelection()">
+                    <option value="">-- Select Form Group --</option>
+                    {% for fk, title in form_groups.items() %}
+                    <option value="{{ fk }}">{{ title }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="form-group">
+                <label>Field to Update</label>
+                <select id="fmFieldSelect" class="filter-select" onchange="applyFormFieldSelection()">
+                    <option value="">-- Select Field --</option>
+                </select>
+            </div>
+        </div>
+        <small id="fmFieldPrompt" class="form-help">Select form group and field. Only one field editor is shown at a time.</small>
+    </div>
+</div>
+
+<div class="card form-mgmt-section">
+    <div class="card-header">
+        <h3>Add New Field</h3>
+    </div>
+    <form method="POST" action="{{ url_for('form_management') }}" class="form-mgmt-field-card form-mgmt-add-card">
+        <input type="hidden" name="action" value="add_field">
+        <div class="form-mgmt-add-grid">
+            <div class="form-group form-mgmt-add-form">
+                <label>Required for Login / Workflow <span class="required">*</span></label>
+                <select name="new_form_key" required>
+                    <option value="">-- Select Form Group --</option>
+                    {% for fk, title in form_groups.items() %}
+                    <option value="{{ fk }}">{{ title }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="form-group form-mgmt-add-key">
+                <label>Field Key <span class="required">*</span></label>
+                <input type="text" name="new_field_key" required placeholder="example: vigilance_note">
+            </div>
+            <div class="form-group form-mgmt-add-label">
+                <label>Label <span class="required">*</span></label>
+                <input type="text" name="new_label" required placeholder="Field label">
+            </div>
+            <div class="form-group form-mgmt-add-type">
+                <label>Field Type</label>
+                <select name="new_field_type">
+                    {% for t in field_types %}
+                    <option value="{{ t }}">{{ t|upper }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="form-group form-mgmt-add-required">
+                <label class="form-mgmt-required-toggle">
+                    <input type="checkbox" name="new_is_required">
+                    Required Field
+                </label>
+            </div>
+            <div class="form-mgmt-add-actions">
+                <button type="submit" class="btn btn-primary btn-sm">Add Field</button>
+            </div>
+        </div>
+        <small class="form-mgmt-add-hint">Field key format: lowercase letters, numbers, and underscore only (example: <code>vigilance_note</code>).</small>
+    </form>
+</div>
+
 {% if not grouped_fields %}
 <div class="card">
     <div class="empty-state">No form fields configured.</div>
@@ -23,14 +95,15 @@
 {% endif %}
 
 {% for form_key, rows in grouped_fields.items() %}
-<div class="card form-mgmt-section">
+<div class="card form-mgmt-section" data-fm-section="{{ form_key }}">
     <div class="card-header">
         <h3>{{ form_groups.get(form_key, form_key) }}</h3>
         <span class="form-mgmt-count">{{ rows|length }} fields</span>
     </div>
     <div class="form-mgmt-grid">
         {% for r in rows %}
-        <form method="POST" action="{{ url_for('form_management') }}" class="form-mgmt-field-card">
+        <form method="POST" action="{{ url_for('form_management') }}" class="form-mgmt-field-card js-fm-card" data-fm-form="{{ r.form_key }}" data-fm-field="{{ r.field_key }}">
+            <input type="hidden" name="action" value="update_field">
             <input type="hidden" name="form_key" value="{{ r.form_key }}">
             <input type="hidden" name="field_key" value="{{ r.field_key }}">
 
@@ -92,6 +165,57 @@
 
 <script>
 (() => {
+    const formSelect = document.getElementById('fmFormSelect');
+    const fieldSelect = document.getElementById('fmFieldSelect');
+    const prompt = document.getElementById('fmFieldPrompt');
+    const cards = [...document.querySelectorAll('.js-fm-card')];
+    const sections = [...document.querySelectorAll('.form-mgmt-section[data-fm-section]')];
+
+    window.applyFormFieldSelection = function applyFormFieldSelection() {
+        const selectedForm = formSelect?.value || '';
+        const selectedField = fieldSelect?.value || '';
+
+        if (fieldSelect) {
+            const existingValue = fieldSelect.value;
+            fieldSelect.innerHTML = '<option value="">-- Select Field --</option>';
+            const seen = new Set();
+            cards
+                .filter((card) => card.dataset.fmForm === selectedForm)
+                .forEach((card) => {
+                    const field = card.dataset.fmField || '';
+                    if (!field || seen.has(field)) return;
+                    seen.add(field);
+                    const option = document.createElement('option');
+                    option.value = field;
+                    option.textContent = field;
+                    fieldSelect.appendChild(option);
+                });
+            if (existingValue && [...fieldSelect.options].some((opt) => opt.value === existingValue)) {
+                fieldSelect.value = existingValue;
+            }
+        }
+
+        cards.forEach((card) => {
+            const formOk = selectedForm && card.dataset.fmForm === selectedForm;
+            const fieldOk = selectedField && card.dataset.fmField === selectedField;
+            card.style.display = formOk && fieldOk ? '' : 'none';
+        });
+        sections.forEach((section) => {
+            section.style.display = selectedForm && section.dataset.fmSection === selectedForm ? '' : 'none';
+        });
+
+        if (prompt) {
+            prompt.style.display = (selectedForm && selectedField) ? 'none' : '';
+        }
+    };
+
+    formSelect?.addEventListener('change', () => {
+        if (fieldSelect) fieldSelect.value = '';
+        window.applyFormFieldSelection();
+    });
+    fieldSelect?.addEventListener('change', window.applyFormFieldSelection);
+    window.applyFormFieldSelection();
+
     document.querySelectorAll('.form-mgmt-field-card').forEach((card) => {
         const typeSelect = card.querySelector('.fm-field-type');
         const optionsWrap = card.querySelector('.fm-options-wrap');

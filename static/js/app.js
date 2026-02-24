@@ -20,11 +20,41 @@ document.addEventListener('DOMContentLoaded', () => {
 
     const savedTheme = localStorage.getItem(themeStorageKey);
     applyTheme(savedTheme === 'dark' ? 'dark' : 'light');
+
     if (themeToggle) {
         themeToggle.addEventListener('click', () => {
             const next = rootEl.getAttribute('data-theme') === 'dark' ? 'light' : 'dark';
             applyTheme(next);
             localStorage.setItem(themeStorageKey, next);
+        });
+    }
+
+    const notifToggle = document.getElementById('notifToggle');
+    const notifMenu = document.getElementById('notifMenu');
+    if (notifToggle && notifMenu) {
+        const closeNotif = () => {
+            notifMenu.hidden = true;
+            notifToggle.setAttribute('aria-expanded', 'false');
+        };
+        const openNotif = () => {
+            notifMenu.hidden = false;
+            notifToggle.setAttribute('aria-expanded', 'true');
+        };
+        notifToggle.addEventListener('click', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            const willOpen = notifMenu.hidden;
+            if (willOpen) openNotif();
+            else closeNotif();
+        });
+        document.addEventListener('click', (e) => {
+            if (notifMenu.hidden) return;
+            if (!notifMenu.contains(e.target) && !notifToggle.contains(e.target)) {
+                closeNotif();
+            }
+        });
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape') closeNotif();
         });
     }
 
@@ -163,6 +193,7 @@ document.addEventListener('DOMContentLoaded', () => {
     initActionPanelDrawers();
     initResponsiveTables();
     initReportCompactAccordion();
+    initPetitionRowNavigation();
 });
 
 function initStatCardAnimations() {
@@ -296,6 +327,26 @@ function initReportCompactAccordion() {
                     if (other !== item) other.open = false;
                 });
             });
+        });
+    });
+}
+
+function initPetitionRowNavigation() {
+    const rows = document.querySelectorAll('.js-petition-row[data-href]');
+    rows.forEach((row) => {
+        const href = row.getAttribute('data-href');
+        if (!href) return;
+
+        row.addEventListener('click', (event) => {
+            if (event.target.closest('a, button, input, select, textarea, label')) return;
+            window.location.href = href;
+        });
+
+        row.addEventListener('keydown', (event) => {
+            if (event.key !== 'Enter' && event.key !== ' ') return;
+            if (event.target.closest('a, button, input, select, textarea, label')) return;
+            event.preventDefault();
+            window.location.href = href;
         });
     });
 }

@@ -66,8 +66,8 @@
                     'cvo_apcpdcl_vijayawada': 'CVO APCPDCL'
                 } %}
                 {% for p in petitions %}
-                <tr>
-                    <td class="font-mono">{{ p.sno }}</td>
+                <tr class="js-petition-row" data-href="{{ url_for('petition_view', petition_id=p.id) }}" tabindex="0" role="link" aria-label="Open petition {{ p.sno }}">
+                    <td class="font-mono"><a href="{{ url_for('petition_view', petition_id=p.id) }}" class="petition-row-link">{{ p.sno }}</a></td>
                     <td>{{ p.efile_no or '-' }}</td>
                     <td>{{ p.petitioner_name }}</td>
                     <td>{{ p.place or '-' }}</td>

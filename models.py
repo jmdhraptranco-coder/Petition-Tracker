@@ -1562,6 +1562,12 @@ def get_dashboard_drilldown(user_role, user_id, cvo_office, metric):
         'closed': 6
     }
 
+    if metric == 'all':
+        return petitions[:500]
+
+    if metric == 'active':
+        return [p for p in petitions if (p.get('status') or '') != 'closed'][:500]
+
     if metric in {f'stage_{i}' for i in range(1, 7)}:
         stage_num = int(metric.split('_')[1])
         filtered = [p for p in petitions if stage_map.get(p.get('status'), 1) == stage_num]
@@ -1574,6 +1580,41 @@ def get_dashboard_drilldown(user_role, user_id, cvo_office, metric):
     if metric.startswith('multi:'):
         wanted = set(metric.split(':', 1)[1].split(','))
         return [p for p in petitions if p.get('status') in wanted][:500]
+
+    if metric.startswith('petition_type:'):
+        wanted = metric.split(':', 1)[1]
+        return [p for p in petitions if (p.get('petition_type') or '') == wanted][:500]
+
+    if metric.startswith('source:'):
+        wanted = metric.split(':', 1)[1]
+        return [p for p in petitions if (p.get('source_of_petition') or '') == wanted][:500]
+
+    if metric.startswith('mode:'):
+        wanted = metric.split(':', 1)[1]
+        if wanted == 'permission':
+            return [p for p in petitions if bool(p.get('requires_permission'))][:500]
+        if wanted == 'direct':
+            return [p for p in petitions if not bool(p.get('requires_permission'))][:500]
+        return []
+
+    if metric.startswith('received_at:'):
+        wanted = metric.split(':', 1)[1]
+        return [p for p in petitions if (p.get('received_at') or '') == wanted][:500]
+
+    if metric.startswith('officer:'):
+        raw_wanted = metric.split(':', 1)[1]
+        try:
+            wanted = int(raw_wanted)
+        except (TypeError, ValueError):
+            return []
+        return [p for p in petitions if int(p.get('assigned_inspector_id') or 0) == wanted][:500]
+
+    if metric.startswith('month:'):
+        wanted = metric.split(':', 1)[1]
+        return [
+            p for p in petitions
+            if p.get('received_date') and p.get('received_date').strftime('%Y-%m') == wanted
+        ][:500]
 
     if metric == 'po_permission_given':
         conn = get_db()

@@ -28,6 +28,7 @@ else:
 
 class Config:
     def __init__(self):
+        app_root = Path(__file__).resolve().parent
         self.APP_ENV = os.environ.get('APP_ENV', 'development').strip().lower()
         self.IS_PRODUCTION = self.APP_ENV == 'production'
 
@@ -54,12 +55,23 @@ class Config:
         self.HOST = os.environ.get('HOST', '0.0.0.0')
         self.PORT = int(os.environ.get('PORT', '5000'))
         self.DEBUG = os.environ.get('FLASK_DEBUG', '0') == '1' and not self.IS_PRODUCTION
+        self.BRAND_NAME = os.environ.get('BRAND_NAME', 'Nigaa').strip() or 'Nigaa'
+        self.BRAND_SUBTITLE = os.environ.get('BRAND_SUBTITLE', 'Petition Tracker').strip() or 'Petition Tracker'
+        self.BRAND_LOGO_FILE = os.environ.get('BRAND_LOGO_FILE', 'img/nigaa-logo.svg').strip() or 'img/nigaa-logo.svg'
+        self.BRAND_LOGO_FALLBACK = os.environ.get('BRAND_LOGO_FALLBACK', 'img/aptransco-logo-fallback.svg').strip() or 'img/aptransco-logo-fallback.svg'
 
         # Storage/session controls
-        self.UPLOAD_BASE_DIR = os.environ.get(
-            'UPLOAD_BASE_DIR',
-            os.path.join(os.path.dirname(__file__), 'uploads')
-        )
+        storage_path_raw = (
+            os.environ.get('FILE_STORAGE_PATH')
+            or os.environ.get('UPLOAD_BASE_DIR')
+            or 'uploads'
+        ).strip()
+        storage_path = Path(storage_path_raw)
+        if storage_path.is_absolute():
+            resolved_storage_path = storage_path
+        else:
+            resolved_storage_path = (app_root / storage_path).resolve()
+        self.UPLOAD_BASE_DIR = str(resolved_storage_path)
         self.MAX_UPLOAD_SIZE_MB = int(os.environ.get('MAX_UPLOAD_SIZE_MB', '10'))
         self.SESSION_COOKIE_SECURE = self.IS_PRODUCTION
 

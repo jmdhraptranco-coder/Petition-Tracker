@@ -99,44 +99,25 @@
             <h2>Officer Directory & Controls</h2>
             <div class="header-actions user-admin-tools">
                 <div class="filter-group">
-                    <label>Role</label>
-                    <select id="roleFilter" class="filter-select" onchange="applyUnifiedFilters()">
-                        <option value="all">All Roles</option>
-                        <option value="super_admin">Super Admin</option>
-                        <option value="data_entry">Data Entry</option>
-                        <option value="po">PO</option>
-                        <option value="cmd_apspdcl">CMD APSPDCL</option>
-                        <option value="cmd_apepdcl">CMD APEPDCL</option>
-                        <option value="cmd_apcpdcl">CMD APCPDCL</option>
-                        <option value="cgm_hr_transco">CGM/HR TRANSCO</option>
-                        <option value="dsp">DSP HQ</option>
-                        <option value="cvo_apspdcl">CVO APSPDCL</option>
-                        <option value="cvo_apepdcl">CVO APEPDCL</option>
-                        <option value="cvo_apcpdcl">CVO APCPDCL</option>
-                        <option value="inspector">Inspector</option>
+                    <label>Select User</label>
+                    <select id="userPicker" class="filter-select" onchange="applyUserSelection()">
+                        <option value="">-- Choose user to manage --</option>
+                        {% for u in users %}
+                        <option value="{{ u.id }}">{{ u.full_name }} (@{{ u.username }}) - {{ role_labels.get(u.role, u.role) }}</option>
+                        {% endfor %}
                     </select>
-                </div>
-                <div class="filter-group">
-                    <label>Status</label>
-                    <select id="statusFilter" class="filter-select" onchange="applyUnifiedFilters()">
-                        <option value="all">All</option>
-                        <option value="active">Active</option>
-                        <option value="inactive">Inactive</option>
-                    </select>
-                </div>
-                <div class="filter-group">
-                    <label>Search</label>
-                    <input id="searchFilter" type="text" class="filter-select" placeholder="Name / username / role" oninput="applyUnifiedFilters()">
                 </div>
             </div>
         </div>
         <div class="user-admin-hint">
-            Clean card-based controls for each user. Expand "Manage User" to update details, credentials, mapping, and status.
+            Select one user from the dropdown to edit details, credentials, mapping, and status.
         </div>
+        <div id="userSelectPrompt" class="user-admin-hint">No user selected yet.</div>
         <div id="userControlGrid" class="user-admin-grid">
             {% for u in users %}
             <article
                 class="user-admin-card {% if not u.is_active %}user-admin-card-inactive{% endif %}"
+                data-user-id="{{ u.id }}"
                 data-role="{{ u.role }}"
                 data-status="{% if u.is_active %}active{% else %}inactive{% endif %}"
                 data-search="{{ (u.username ~ ' ' ~ u.full_name ~ ' ' ~ role_labels.get(u.role, u.role)) | lower }}"
@@ -252,21 +233,21 @@ function toggleCVOFields(select) {
     }
 }
 
-function applyUnifiedFilters() {
-    const roleValue = document.getElementById('roleFilter').value;
-    const statusValue = document.getElementById('statusFilter').value;
-    const searchValue = (document.getElementById('searchFilter').value || '').trim().toLowerCase();
+function applyUserSelection() {
+    const picker = document.getElementById('userPicker');
+    const selectedUser = (picker && picker.value) ? picker.value : '';
+    const prompt = document.getElementById('userSelectPrompt');
     const cards = document.querySelectorAll('#userControlGrid .user-admin-card');
     cards.forEach(card => {
-        const roleOk = roleValue === 'all' || card.dataset.role === roleValue;
-        const statusOk = statusValue === 'all' || card.dataset.status === statusValue;
-        const searchOk = !searchValue || (card.dataset.search || '').includes(searchValue);
-        card.style.display = (roleOk && statusOk && searchOk) ? '' : 'none';
+        card.style.display = selectedUser && card.dataset.userId === selectedUser ? '' : 'none';
     });
+    if (prompt) {
+        prompt.style.display = selectedUser ? 'none' : '';
+    }
 }
 
 document.addEventListener('DOMContentLoaded', function () {
-    applyUnifiedFilters();
+    applyUserSelection();
 });
 </script>
 {% endblock %}

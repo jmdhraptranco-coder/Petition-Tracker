@@ -4,12 +4,94 @@
 
 {% block content %}
 <div class="dashboard dashboard-compact-board" data-user-role="{{ current_user_role }}">
-    <div class="card dashboard-hero">
-        <div class="dashboard-hero-main">
-            <h2>Unified Operations Dashboard</h2>
-            <p>Role-wise visibility, live workflow tracking, and SLA monitoring for assigned petitions.</p>
-        </div>
-        <span class="badge badge-role dashboard-role-chip">{{ role_labels.get(current_user_role, current_user_role) }}</span>
+    <div class="dashboard-filter-shell">
+        {% set hour_now = now.strftime('%H')|int %}
+        {% if hour_now < 12 %}
+            {% set wish_text = 'Good Morning' %}
+        {% elif hour_now < 17 %}
+            {% set wish_text = 'Good Afternoon' %}
+        {% elif hour_now < 21 %}
+            {% set wish_text = 'Good Evening' %}
+        {% else %}
+            {% set wish_text = 'Good Night' %}
+        {% endif %}
+        <form class="dashboard-filter-inline dashboard-filter-inline-compact" method="GET" action="{{ url_for('dashboard') }}">
+            <div class="dashboard-filter-main">
+                <div class="dashboard-filter-field">
+                    <label class="dashboard-filter-mini-label" for="dashboardFromDate">From Date</label>
+                    <input id="dashboardFromDate" class="filter-select dashboard-filter-input" type="date" name="from_date" value="{{ dashboard_filter.from_date if dashboard_filter else '' }}" aria-label="From date">
+                </div>
+                <div class="dashboard-filter-field">
+                    <label class="dashboard-filter-mini-label" for="dashboardToDate">To Date</label>
+                    <input id="dashboardToDate" class="filter-select dashboard-filter-input" type="date" name="to_date" value="{{ dashboard_filter.to_date if dashboard_filter else '' }}" aria-label="To date">
+                </div>
+                {% set office_labels = {
+                    'jmd_office': 'PO Office',
+                    'cvo_apspdcl_tirupathi': 'CVO APSPDCL',
+                    'cvo_apepdcl_vizag': 'CVO APEPDCL',
+                    'cvo_apcpdcl_vijayawada': 'CVO APCPDCL'
+                } %}
+                {% set cvo_labels = {
+                    'apspdcl': 'APSPDCL',
+                    'apepdcl': 'APEPDCL',
+                    'apcpdcl': 'APCPDCL',
+                    'headquarters': 'Headquarters'
+                } %}
+                <details class="dashboard-more-filters">
+                    <summary class="dashboard-filter-icon-btn" title="More filters">
+                        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6h18M6 12h12M10 18h4"/></svg>
+                        <span>Filters</span>
+                    </summary>
+                    <div class="dashboard-more-filters-panel">
+                        <select class="filter-select dashboard-filter-input" name="petition_type" aria-label="Petition type">
+                            <option value="all" {% if not dashboard_filter or dashboard_filter.petition_type == 'all' %}selected{% endif %}>All Types</option>
+                            {% for key, label in petition_types.items() %}
+                            <option value="{{ key }}" {% if dashboard_filter and dashboard_filter.petition_type == key %}selected{% endif %}>{{ label }}</option>
+                            {% endfor %}
+                        </select>
+                        <select class="filter-select dashboard-filter-input" name="source_of_petition" aria-label="Source of petition">
+                            <option value="all" {% if not dashboard_filter or dashboard_filter.source_of_petition == 'all' %}selected{% endif %}>All Sources</option>
+                            {% for key, label in petition_sources.items() %}
+                            <option value="{{ key }}" {% if dashboard_filter and dashboard_filter.source_of_petition == key %}selected{% endif %}>{{ label }}</option>
+                            {% endfor %}
+                        </select>
+                        <select class="filter-select dashboard-filter-input" name="received_at" aria-label="Received at office">
+                            <option value="all" {% if not dashboard_filter or dashboard_filter.received_at == 'all' %}selected{% endif %}>All Received Offices</option>
+                            {% for key, label in office_labels.items() %}
+                            <option value="{{ key }}" {% if dashboard_filter and dashboard_filter.received_at == key %}selected{% endif %}>{{ label }}</option>
+                            {% endfor %}
+                        </select>
+                        <select class="filter-select dashboard-filter-input" name="target_cvo" aria-label="Targeted CVO office">
+                            <option value="all" {% if not dashboard_filter or dashboard_filter.target_cvo == 'all' %}selected{% endif %}>All Enquiry Offices</option>
+                            {% for key, label in cvo_labels.items() %}
+                            <option value="{{ key }}" {% if dashboard_filter and dashboard_filter.target_cvo == key %}selected{% endif %}>{{ label }}</option>
+                            {% endfor %}
+                        </select>
+                        <select class="filter-select dashboard-filter-input" name="officer_id" aria-label="Officer name">
+                            <option value="all" {% if not dashboard_filter or dashboard_filter.officer_id == 'all' %}selected{% endif %}>All Officers</option>
+                            {% for officer in officer_options %}
+                            <option value="{{ officer.id }}" {% if dashboard_filter and dashboard_filter.officer_id == officer.id|string %}selected{% endif %}>{{ officer.name }}</option>
+                            {% endfor %}
+                        </select>
+                        <div class="dashboard-filter-actions">
+                            <button class="btn btn-sm btn-primary dashboard-filter-btn" type="submit">Apply</button>
+                            <a class="btn btn-sm btn-outline dashboard-filter-btn" href="{{ url_for('dashboard') }}">Clear</a>
+                        </div>
+                    </div>
+                </details>
+            </div>
+            <div class="dashboard-filter-art dashboard-filter-art-inline" aria-hidden="true">
+                <div class="officer-greet-wrap">
+                    <div class="officer-greet-icon" aria-hidden="true">
+                        <span class="officer-greet-emoji">&#128110;</span>
+                    </div>
+                    <div class="officer-greet-text">
+                        <div class="officer-greet-title">Hi! {{ current_user_name or 'Officer' }}</div>
+                        <div class="officer-greet-subtitle">{{ wish_text }}</div>
+                    </div>
+                </div>
+            </div>
+        </form>
     </div>
 
     <div class="stats-grid">
@@ -76,68 +158,76 @@
     <div class="analytics-grid">
         <div class="card analytics-card analytics-wide">
             <div class="card-header">
-                <h2>Petitions Trend (Last 6 Months)</h2>
+                <h2>Trend Pulse</h2>
             </div>
             <div class="analytics-canvas-wrap">
-                <canvas id="chartMonthlyTrend"></canvas>
+                <canvas id="chartPulseCombo"></canvas>
             </div>
         </div>
         <div class="card analytics-card">
             <div class="card-header">
-                <h2>Workflow Status Split</h2>
+                <h2>Status Ring</h2>
             </div>
             <div class="analytics-canvas-wrap">
-                <canvas id="chartStatusSplit"></canvas>
+                <canvas id="chartStatusRing"></canvas>
             </div>
         </div>
         <div class="card analytics-card">
             <div class="card-header">
-                <h2>Petition Type Split</h2>
+                <h2>Type Bloom</h2>
             </div>
             <div class="analytics-canvas-wrap">
-                <canvas id="chartTypeSplit"></canvas>
+                <canvas id="chartTypeBloom"></canvas>
             </div>
         </div>
         <div class="card analytics-card">
             <div class="card-header">
-                <h2>Source of Petition</h2>
+                <h2>Source Burst</h2>
             </div>
             <div class="analytics-canvas-wrap">
-                <canvas id="chartSourceSplit"></canvas>
+                <canvas id="chartSourceBurst"></canvas>
             </div>
         </div>
         <div class="card analytics-card">
             <div class="card-header">
-                <h2>Direct vs Permission</h2>
+                <h2>Mode Arc</h2>
             </div>
             <div class="analytics-canvas-wrap">
-                <canvas id="chartModeSplit"></canvas>
+                <canvas id="chartModeArc"></canvas>
+            </div>
+        </div>
+        <div class="card analytics-card analytics-wide analytics-officer-wide">
+            <div class="card-header">
+                <h2>Officer Wise Petitions</h2>
+            </div>
+            <div class="analytics-canvas-wrap">
+                <canvas id="chartOfficerWise"></canvas>
             </div>
         </div>
     </div>
 
     <div class="analytics-summary-grid">
-        <div class="analytics-summary-item">
+        <div class="analytics-summary-item is-drilldown" data-metric="all" data-title="Total Visible Petitions">
             <span class="analytics-summary-label">Total Visible</span>
             <strong class="analytics-summary-value">{{ analytics.summary.total_visible }}</strong>
         </div>
-        <div class="analytics-summary-item">
+        <div class="analytics-summary-item is-drilldown" data-metric="active" data-title="Active Cases">
             <span class="analytics-summary-label">Active Cases</span>
             <strong class="analytics-summary-value">{{ analytics.summary.active }}</strong>
         </div>
-        <div class="analytics-summary-item">
+        <div class="analytics-summary-item is-drilldown" data-metric="status:lodged" data-title="Lodged Cases">
             <span class="analytics-summary-label">Lodged</span>
             <strong class="analytics-summary-value">{{ analytics.summary.lodged }}</strong>
         </div>
-        <div class="analytics-summary-item">
+        <div class="analytics-summary-item is-drilldown" data-metric="status:closed" data-title="Closed Cases">
             <span class="analytics-summary-label">Closed</span>
             <strong class="analytics-summary-value">{{ analytics.summary.closed }}</strong>
         </div>
-        <div class="analytics-summary-item">
+        <div class="analytics-summary-item is-drilldown" data-metric="sla_within" data-title="SLA Within">
             <span class="analytics-summary-label">SLA Within</span>
             <strong class="analytics-summary-value">{{ analytics.summary.sla_within }}</strong>
         </div>
-        <div class="analytics-summary-item">
+        <div class="analytics-summary-item is-drilldown" data-metric="sla_breached" data-title="SLA Breached">
             <span class="analytics-summary-label">SLA Breached</span>
             <strong class="analytics-summary-value">{{ analytics.summary.sla_breached }}</strong>
         </div>
@@ -163,9 +253,9 @@
                     </tr>
                 </thead>
                 <tbody>
-                    {% for p in petitions[:10] %}
-                    <tr>
-                        <td class="font-mono">{{ p.sno }}</td>
+                    {% for p in petitions %}
+                    <tr class="js-petition-row" data-href="{{ url_for('petition_view', petition_id=p.id) }}" tabindex="0" role="link" aria-label="Open petition {{ p.sno }}">
+                        <td class="font-mono"><a href="{{ url_for('petition_view', petition_id=p.id) }}" class="petition-row-link">{{ p.sno }}</a></td>
                         <td>{{ p.efile_no or '-' }}</td>
                         <td>{{ p.petitioner_name }}</td>
                         <td class="text-truncate" title="{{ p.subject }}">{{ p.subject[:50] }}{% if p.subject|length > 50 %}...{% endif %}</td>
@@ -223,6 +313,9 @@
 <script>
 const analyticsData = {{ analytics|tojson }};
 let dashCurrentRows = [];
+let dashboardCharts = [];
+let dashboardResizeTimer = null;
+const moreFiltersEl = document.querySelector('.dashboard-more-filters');
 
 function escapeHtml(value) {
     return String(value || '')
@@ -340,144 +433,348 @@ function closeDashboardDrilldown() {
 
 function initAnalyticsDashboard() {
     if (!window.Chart || !analyticsData) return;
-    const palette = ['#2f6df6', '#5f95ff', '#18b46f', '#f59e0b', '#ef4444', '#8b5cf6', '#06b6d4', '#f97316'];
+    dashboardCharts.forEach((chart) => {
+        try { chart.destroy(); } catch (_) {}
+    });
+    dashboardCharts = [];
+
+    const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
+    const compactView = window.innerWidth <= 900;
+    const tabletView = window.innerWidth <= 1200;
+    const palette = ['#4f46e5', '#06b6d4', '#22c55e', '#f59e0b', '#ec4899', '#ef4444', '#8b5cf6', '#14b8a6'];
+    const axisColor = isDark ? '#b7c6e8' : '#5e739f';
+    const gridColor = isDark ? 'rgba(120, 145, 200, 0.22)' : '#e7efff';
+    const legendFontSize = compactView ? 11 : 12;
+    const axisFontSize = compactView ? 10 : 12;
     const commonLegend = {
+        position: compactView ? 'bottom' : 'top',
         labels: {
-            color: '#5e739f',
-            boxWidth: 12,
+            color: axisColor,
+            boxWidth: compactView ? 10 : 12,
             usePointStyle: true,
-            pointStyle: 'circle'
+            pointStyle: 'circle',
+            font: { size: legendFontSize }
         }
     };
-    const axisColor = '#a3b5da';
-    const gridColor = '#e7efff';
+    const interaction = {
+        mode: 'nearest',
+        intersect: false
+    };
 
-    const trendCtx = document.getElementById('chartMonthlyTrend');
-    if (trendCtx) {
-        const g = trendCtx.getContext('2d').createLinearGradient(0, 0, 0, 260);
-        g.addColorStop(0, 'rgba(47, 109, 246, 0.35)');
-        g.addColorStop(1, 'rgba(47, 109, 246, 0.02)');
-        new Chart(trendCtx, {
-            type: 'line',
+    const baseOptions = {
+        responsive: true,
+        maintainAspectRatio: false,
+        interaction
+    };
+
+    const truncateLabel = (value, maxLen = (compactView ? 12 : 18)) => {
+        const text = String(value || '');
+        return text.length > maxLen ? `${text.slice(0, maxLen - 1)}...` : text;
+    };
+
+    const statusMetricMap = {
+        'Received': 'status:received',
+        'Forwarded to CVO/DSP': 'status:forwarded_to_cvo',
+        'Sent for Permission': 'status:sent_for_permission',
+        'Permission Approved': 'status:permission_approved',
+        'Permission Rejected': 'status:permission_rejected',
+        'Assigned to Field Officer': 'status:assigned_to_inspector',
+        'Enquiry In Progress': 'status:enquiry_in_progress',
+        'Report Submitted': 'status:enquiry_report_submitted',
+        'CVO/DSP Comments Added': 'status:cvo_comments_added',
+        'Forwarded to PO': 'status:forwarded_to_po',
+        'Action Pending at CMD': 'status:action_instructed',
+        'Action Taken by CMD': 'status:action_taken',
+        'Lodged': 'status:lodged',
+        'Closed': 'status:closed'
+    };
+
+    const typeMetricMap = {
+        'Bribe': 'petition_type:bribe',
+        'Harassment': 'petition_type:harassment',
+        'Theft': 'petition_type:theft_of_materials',
+        'Adverse News': 'petition_type:adverse_news',
+        'Procedural Lapses': 'petition_type:procedural_lapses',
+        'Other': 'petition_type:other'
+    };
+
+    const sourceMetricMap = {
+        'Media': 'source:media',
+        'Public': 'source:public_individual',
+        'Govt': 'source:govt',
+        'Sumoto': 'source:sumoto'
+    };
+
+    const modeMetricMap = {
+        'Direct': 'mode:direct',
+        'Permission': 'mode:permission'
+    };
+
+    const chartClickToDrilldown = (event, elements, chart, metricByIndex, titlePrefix) => {
+        if (!elements || !elements.length) return;
+        const idx = elements[0].index;
+        const metric = metricByIndex(idx, chart);
+        if (!metric) return;
+        const label = (chart.data.labels && chart.data.labels[idx]) ? String(chart.data.labels[idx]) : 'Selection';
+        const title = `${titlePrefix}: ${label}`;
+        openDashboardDrilldown(metric, title, chart.canvas);
+    };
+
+    const pulseCtx = document.getElementById('chartPulseCombo');
+    if (pulseCtx) {
+        const g = pulseCtx.getContext('2d').createLinearGradient(0, 0, 0, 250);
+        g.addColorStop(0, 'rgba(79, 70, 229, 0.38)');
+        g.addColorStop(1, 'rgba(79, 70, 229, 0.04)');
+        const pulseChart = new Chart(pulseCtx, {
+            type: 'bar',
             data: {
                 labels: analyticsData.monthly_trend.labels,
-                datasets: [{
-                    label: 'Petitions',
-                    data: analyticsData.monthly_trend.values,
-                    borderColor: '#2f6df6',
-                    backgroundColor: g,
-                    fill: true,
-                    borderWidth: 3,
-                    pointRadius: 4,
-                    pointHoverRadius: 5,
-                    tension: 0.35
-                }]
+                datasets: [
+                    {
+                        type: 'bar',
+                        label: 'Volume',
+                        data: analyticsData.monthly_trend.values,
+                        backgroundColor: 'rgba(6, 182, 212, 0.55)',
+                        borderColor: '#06b6d4',
+                        borderWidth: 1,
+                        borderRadius: 12,
+                        maxBarThickness: 40
+                    },
+                    {
+                        type: 'line',
+                        label: 'Trend',
+                        data: analyticsData.monthly_trend.values,
+                        borderColor: '#4f46e5',
+                        backgroundColor: g,
+                        fill: true,
+                        borderWidth: 3,
+                        pointRadius: 3,
+                        pointHoverRadius: 5,
+                        pointBackgroundColor: '#ffffff',
+                        pointBorderColor: '#4f46e5',
+                        tension: 0.34
+                    }
+                ]
             },
             options: {
-                responsive: true,
-                maintainAspectRatio: false,
-                plugins: { legend: { display: false } },
+                ...baseOptions,
+                plugins: { legend: commonLegend },
                 scales: {
-                    x: { ticks: { color: axisColor }, grid: { color: gridColor } },
-                    y: { beginAtZero: true, ticks: { precision: 0, color: axisColor }, grid: { color: gridColor } }
-                }
+                    x: {
+                        ticks: {
+                            color: axisColor,
+                            autoSkip: true,
+                            maxRotation: compactView ? 35 : 0,
+                            font: { size: axisFontSize }
+                        },
+                        grid: { color: gridColor }
+                    },
+                    y: {
+                        beginAtZero: true,
+                        ticks: { precision: 0, color: axisColor, font: { size: axisFontSize } },
+                        grid: { color: gridColor }
+                    }
+                },
+                onClick: (event, elements, chart) =>
+                    chartClickToDrilldown(event, elements, chart, (idx) => {
+                        const key = analyticsData.monthly_trend.keys ? analyticsData.monthly_trend.keys[idx] : null;
+                        return key ? `month:${key}` : null;
+                    }, 'Month')
             }
         });
+        dashboardCharts.push(pulseChart);
     }
 
-    const statusCtx = document.getElementById('chartStatusSplit');
+    const statusCtx = document.getElementById('chartStatusRing');
     if (statusCtx) {
-        new Chart(statusCtx, {
+        const statusChart = new Chart(statusCtx, {
             type: 'doughnut',
             data: {
                 labels: analyticsData.status_split.labels,
                 datasets: [{
                     data: analyticsData.status_split.values,
                     backgroundColor: palette,
-                    borderColor: '#ffffff',
-                    borderWidth: 2
+                    borderColor: isDark ? '#101826' : '#ffffff',
+                    borderWidth: 2,
+                    hoverOffset: 8
                 }]
             },
             options: {
-                responsive: true,
-                maintainAspectRatio: false,
-                plugins: { legend: commonLegend }
+                ...baseOptions,
+                cutout: '64%',
+                plugins: { legend: commonLegend },
+                onClick: (event, elements, chart) =>
+                    chartClickToDrilldown(event, elements, chart, (idx) => {
+                        const label = String(chart.data.labels[idx] || '');
+                        return statusMetricMap[label] || null;
+                    }, 'Status')
             }
         });
+        dashboardCharts.push(statusChart);
     }
 
-    const typeCtx = document.getElementById('chartTypeSplit');
+    const typeCtx = document.getElementById('chartTypeBloom');
     if (typeCtx) {
-        new Chart(typeCtx, {
-            type: 'bar',
+        const typeChart = new Chart(typeCtx, {
+            type: 'radar',
             data: {
                 labels: analyticsData.type_split.labels,
                 datasets: [{
-                    label: 'Count',
+                    label: 'Type Mix',
                     data: analyticsData.type_split.values,
-                    backgroundColor: '#5f95ff',
-                    borderRadius: 8,
-                    maxBarThickness: 40
+                    backgroundColor: 'rgba(236, 72, 153, 0.22)',
+                    borderColor: '#ec4899',
+                    pointBackgroundColor: '#ec4899',
+                    pointBorderColor: '#ffffff',
+                    pointHoverRadius: 5
                 }]
             },
             options: {
-                responsive: true,
-                maintainAspectRatio: false,
-                plugins: { legend: { display: false } },
+                ...baseOptions,
+                plugins: { legend: commonLegend },
                 scales: {
-                    x: { ticks: { color: axisColor }, grid: { display: false } },
-                    y: { beginAtZero: true, ticks: { precision: 0, color: axisColor }, grid: { color: gridColor } }
-                }
+                    r: {
+                        ticks: { color: axisColor, font: { size: axisFontSize } },
+                        pointLabels: { color: axisColor, font: { size: axisFontSize } },
+                        grid: { color: gridColor },
+                        angleLines: { color: gridColor }
+                    }
+                },
+                onClick: (event, elements, chart) =>
+                    chartClickToDrilldown(event, elements, chart, (idx) => {
+                        const label = String(chart.data.labels[idx] || '');
+                        return typeMetricMap[label] || null;
+                    }, 'Petition Type')
             }
         });
+        dashboardCharts.push(typeChart);
     }
 
-    const sourceCtx = document.getElementById('chartSourceSplit');
+    const sourceCtx = document.getElementById('chartSourceBurst');
     if (sourceCtx) {
-        new Chart(sourceCtx, {
+        const sourceChart = new Chart(sourceCtx, {
             type: 'polarArea',
             data: {
                 labels: analyticsData.source_split.labels,
                 datasets: [{
                     data: analyticsData.source_split.values,
-                    backgroundColor: ['rgba(47,109,246,0.66)', 'rgba(24,180,111,0.64)', 'rgba(245,158,11,0.6)', 'rgba(239,68,68,0.58)', 'rgba(139,92,246,0.58)'],
-                    borderColor: '#ffffff',
+                    backgroundColor: ['rgba(79,70,229,0.68)', 'rgba(34,197,94,0.62)', 'rgba(245,158,11,0.66)', 'rgba(236,72,153,0.62)', 'rgba(6,182,212,0.66)'],
+                    borderColor: isDark ? '#101826' : '#ffffff',
                     borderWidth: 2
                 }]
             },
             options: {
-                responsive: true,
-                maintainAspectRatio: false,
+                ...baseOptions,
                 plugins: { legend: commonLegend },
-                scales: { r: { ticks: { color: axisColor }, grid: { color: gridColor } } }
+                scales: { r: { ticks: { color: axisColor, font: { size: axisFontSize } }, grid: { color: gridColor } } },
+                onClick: (event, elements, chart) =>
+                    chartClickToDrilldown(event, elements, chart, (idx) => {
+                        const label = String(chart.data.labels[idx] || '');
+                        return sourceMetricMap[label] || null;
+                    }, 'Source')
             }
         });
+        dashboardCharts.push(sourceChart);
     }
 
-    const modeCtx = document.getElementById('chartModeSplit');
+    const modeCtx = document.getElementById('chartModeArc');
     if (modeCtx) {
-        new Chart(modeCtx, {
-            type: 'bar',
+        const modeChart = new Chart(modeCtx, {
+            type: 'doughnut',
             data: {
                 labels: analyticsData.enquiry_mode_split.labels,
                 datasets: [{
-                    label: 'Petitions',
                     data: analyticsData.enquiry_mode_split.values,
-                    backgroundColor: ['#2f6df6', '#18b46f'],
-                    borderRadius: 10,
-                    maxBarThickness: 54
+                    backgroundColor: ['#22c55e', '#4f46e5'],
+                    borderColor: isDark ? '#101826' : '#ffffff',
+                    borderWidth: 2,
+                    hoverOffset: 8
                 }]
             },
             options: {
-                responsive: true,
-                maintainAspectRatio: false,
-                plugins: { legend: { display: false } },
-                scales: {
-                    x: { ticks: { color: axisColor }, grid: { display: false } },
-                    y: { beginAtZero: true, ticks: { precision: 0, color: axisColor }, grid: { color: gridColor } }
-                }
+                ...baseOptions,
+                rotation: -90,
+                circumference: 180,
+                cutout: '62%',
+                plugins: { legend: commonLegend },
+                onClick: (event, elements, chart) =>
+                    chartClickToDrilldown(event, elements, chart, (idx) => {
+                        const label = String(chart.data.labels[idx] || '');
+                        return modeMetricMap[label] || null;
+                    }, 'Enquiry Mode')
             }
         });
+        dashboardCharts.push(modeChart);
+    }
+
+    const officerCtx = document.getElementById('chartOfficerWise');
+    if (officerCtx) {
+        if (compactView && officerCtx.parentElement) {
+            const count = (analyticsData.officer_split.labels || []).length;
+            officerCtx.parentElement.style.height = `${Math.max(200, Math.min(330, 120 + (count * 26)))}px`;
+        }
+        const officerChart = new Chart(officerCtx, {
+            type: 'bar',
+            data: {
+                labels: analyticsData.officer_split.labels,
+                datasets: [{
+                    label: 'Petitions',
+                    data: analyticsData.officer_split.values,
+                    backgroundColor: ['rgba(59,130,246,0.72)', 'rgba(16,185,129,0.68)', 'rgba(139,92,246,0.68)', 'rgba(245,158,11,0.68)', 'rgba(236,72,153,0.68)', 'rgba(14,165,233,0.68)', 'rgba(99,102,241,0.68)', 'rgba(239,68,68,0.68)'],
+                    borderColor: ['#3b82f6', '#10b981', '#8b5cf6', '#f59e0b', '#ec4899', '#0ea5e9', '#6366f1', '#ef4444'],
+                    borderWidth: 1.5,
+                    borderRadius: 10,
+                    maxBarThickness: 40
+                }]
+            },
+            options: {
+                ...baseOptions,
+                indexAxis: compactView ? 'y' : 'x',
+                plugins: { legend: commonLegend },
+                scales: compactView ? {
+                    x: {
+                        beginAtZero: true,
+                        ticks: { precision: 0, color: axisColor, font: { size: axisFontSize } },
+                        grid: { color: gridColor }
+                    },
+                    y: {
+                        ticks: {
+                            color: axisColor,
+                            font: { size: axisFontSize },
+                            callback: function(value) {
+                                return truncateLabel(this.getLabelForValue(value), 16);
+                            }
+                        },
+                        grid: { color: 'rgba(0,0,0,0)' }
+                    }
+                } : {
+                    x: {
+                        ticks: {
+                            color: axisColor,
+                            font: { size: axisFontSize },
+                            autoSkip: false,
+                            maxRotation: tabletView ? 24 : 12,
+                            minRotation: tabletView ? 24 : 0,
+                            callback: function(value) {
+                                return truncateLabel(this.getLabelForValue(value), 20);
+                            }
+                        },
+                        grid: { color: gridColor }
+                    },
+                    y: {
+                        beginAtZero: true,
+                        ticks: { precision: 0, color: axisColor, font: { size: axisFontSize } },
+                        grid: { color: gridColor }
+                    }
+                },
+                onClick: (event, elements, chart) =>
+                    chartClickToDrilldown(event, elements, chart, (idx) => {
+                        const key = analyticsData.officer_split.keys ? analyticsData.officer_split.keys[idx] : null;
+                        return key ? `officer:${key}` : null;
+                    }, 'Officer')
+            }
+        });
+        dashboardCharts.push(officerChart);
     }
 }
 
@@ -488,10 +785,29 @@ document.querySelectorAll('.is-drilldown').forEach(card => {
 });
 
 document.addEventListener('keydown', (event) => {
-    if (event.key === 'Escape') closeDashboardDrilldown();
+    if (event.key === 'Escape') {
+        closeDashboardDrilldown();
+        if (moreFiltersEl) moreFiltersEl.removeAttribute('open');
+    }
+});
+
+document.addEventListener('click', (event) => {
+    if (!moreFiltersEl) return;
+    if (moreFiltersEl.hasAttribute('open') && !moreFiltersEl.contains(event.target)) {
+        moreFiltersEl.removeAttribute('open');
+    }
 });
 
 initAnalyticsDashboard();
+
+window.addEventListener('resize', () => {
+    clearTimeout(dashboardResizeTimer);
+    dashboardResizeTimer = setTimeout(() => {
+        initAnalyticsDashboard();
+    }, 180);
+});
 </script>
 {% endblock %}
+
+
 

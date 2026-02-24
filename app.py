@@ -54,6 +54,36 @@ VALID_USER_ROLES = {
     'dsp', 'cvo_apspdcl', 'cvo_apepdcl', 'cvo_apcpdcl', 'inspector'
 }
 VALID_CVO_OFFICES = {'apspdcl', 'apepdcl', 'apcpdcl', 'headquarters'}
+DEO_OFFICE_FLOW = {
+    'headquarters': {
+        'received_at': 'jmd_office',
+        'received_at_label': 'JMD Office',
+        'target_cvo': 'headquarters',
+        'target_cvo_label': 'Headquarters (DSP)',
+        'force_permission_required': True,
+    },
+    'apspdcl': {
+        'received_at': 'cvo_apspdcl_tirupathi',
+        'received_at_label': 'CVO (APSPDCL) - Tirupathi',
+        'target_cvo': 'apspdcl',
+        'target_cvo_label': 'APSPDCL (Tirupathi)',
+        'force_permission_required': False,
+    },
+    'apepdcl': {
+        'received_at': 'cvo_apepdcl_vizag',
+        'received_at_label': 'CVO (APEPDCL) - Vizag',
+        'target_cvo': 'apepdcl',
+        'target_cvo_label': 'APEPDCL (Vizag)',
+        'force_permission_required': False,
+    },
+    'apcpdcl': {
+        'received_at': 'cvo_apcpdcl_vijayawada',
+        'received_at_label': 'CVO (APCPDCL) - Vijayawada',
+        'target_cvo': 'apcpdcl',
+        'target_cvo_label': 'APCPDCL (Vijayawada)',
+        'force_permission_required': False,
+    },
+}
 PHONE_RE = re.compile(r'^[0-9+\-\s()]{7,20}$')
 EMAIL_RE = re.compile(r'^[^@\s]+@[^@\s]+\.[^@\s]+$')
 VALID_DYNAMIC_FIELD_TYPES = {'text', 'textarea', 'select', 'date', 'tel', 'email', 'file'}
@@ -123,6 +153,13 @@ def parse_date_input(value):
         return datetime.strptime(text, '%Y-%m-%d').date()
     except ValueError:
         return None
+
+
+def get_deo_office_flow(user_role, cvo_office):
+    if user_role != 'data_entry':
+        return None
+    office = (cvo_office or '').strip().lower()
+    return DEO_OFFICE_FLOW.get(office)
 
 
 def validate_pdf_upload(file_obj, label):
@@ -406,7 +443,46 @@ def inject_globals():
     govt_options = cfg.get('deo_petition.govt_institution_type', {}).get('options', [])
     govt_labels = {o.get('value'): o.get('label') for o in govt_options if isinstance(o, dict)}
     profile_photo = session.get('profile_photo')
+    notification = {
+        'received_count': 0,
+        'pending_count': 0,
+        'badge_count': 0,
+        'badge_text': '0',
+        'items': [],
+    }
+    user_id = session.get('user_id')
+    user_role = session.get('user_role')
+    if user_id and user_role:
+        try:
+            visible_petitions = models.get_petitions_for_user(user_id, user_role, session.get('cvo_office'), status_filter=None)
+            # Show notifications only for items that are currently in this login's queue.
+            pending_in_login = [
+                p for p in visible_petitions
+                if p.get('status') != 'closed' and p.get('current_handler_id') == user_id
+            ]
+            received_petitions = [p for p in pending_in_login if p.get('status') == 'received']
+            notification['received_count'] = len(received_petitions)
+            notification['pending_count'] = len(pending_in_login)
+            notification['badge_count'] = notification['pending_count']
+            notification['badge_text'] = '9+' if notification['badge_count'] > 9 else str(notification['badge_count'])
+            notification['items'] = [
+                {
+                    'id': p.get('id'),
+                    'sno': p.get('sno') or f"#{p.get('id')}",
+                    'status_label': status_labels.get(p.get('status'), str(p.get('status') or '-').replace('_', ' ').title()),
+                    'subject': p.get('subject') or 'No subject',
+                    'received_date': p.get('received_date').strftime('%d/%m/%Y') if p.get('received_date') else '-',
+                }
+                for p in pending_in_login[:6]
+                if p.get('id')
+            ]
+        except Exception:
+            pass
     return dict(
+        brand_name=config.BRAND_NAME,
+        brand_subtitle=config.BRAND_SUBTITLE,
+        brand_logo_file=config.BRAND_LOGO_FILE,
+        brand_logo_fallback=config.BRAND_LOGO_FALLBACK,
         role_labels=role_labels,
         status_labels=status_labels,
         status_colors=status_colors,
@@ -429,6 +505,7 @@ def inject_globals():
         current_user_profile_photo_url=(
             url_for('profile_photo_file', filename=profile_photo) if profile_photo else None
         ),
+        notification=notification,
         now=datetime.now()
     )
 
@@ -462,18 +539,6 @@ def login():
             session['email'] = user.get('email')
             session['profile_photo'] = user.get('profile_photo')
             flash(f'Welcome, {user["full_name"]}!', 'success')
-            try:
-                visible_petitions = models.get_petitions_for_user(
-                    user['id'],
-                    user['role'],
-                    user.get('cvo_office')
-                )
-                pending_count = sum(1 for p in visible_petitions if p.get('status') != 'closed')
-                if pending_count > 0:
-                    flash(f'Notification: {pending_count} petition(s) are currently pending in your login.', 'info')
-            except Exception:
-                # Notification fetch should never block login.
-                pass
             return redirect(url_for('dashboard'))
         else:
             flash('Invalid username or password.', 'danger')
@@ -496,12 +561,96 @@ def dashboard():
     user_role = session['user_role']
     user_id = session['user_id']
     cvo_office = session.get('cvo_office')
-    
-    stats = models.get_dashboard_stats(user_role, user_id, cvo_office)
+
+    from_date = parse_date_input(request.args.get('from_date'))
+    to_date = parse_date_input(request.args.get('to_date'))
+    if from_date and to_date and from_date > to_date:
+        from_date, to_date = to_date, from_date
+    petition_type_filter = (request.args.get('petition_type') or 'all').strip()
+    if petition_type_filter not in VALID_PETITION_TYPES and petition_type_filter != 'all':
+        petition_type_filter = 'all'
+    source_filter = (request.args.get('source_of_petition') or 'all').strip()
+    if source_filter not in VALID_SOURCE_OF_PETITION and source_filter != 'all':
+        source_filter = 'all'
+    received_at_filter = (request.args.get('received_at') or 'all').strip()
+    if received_at_filter not in VALID_RECEIVED_AT and received_at_filter != 'all':
+        received_at_filter = 'all'
+    target_cvo_filter = (request.args.get('target_cvo') or 'all').strip()
+    if target_cvo_filter not in VALID_TARGET_CVO and target_cvo_filter != 'all':
+        target_cvo_filter = 'all'
+    officer_filter_raw = (request.args.get('officer_id') or 'all').strip()
+
     petitions = models.get_petitions_for_user(user_id, user_role, cvo_office)
-    analytics = _build_dashboard_analytics(petitions, stats)
-    
-    return render_template('dashboard.html', stats=stats, petitions=petitions, analytics=analytics)
+    officer_lookup = {}
+    for p in petitions:
+        officer_id = p.get('assigned_inspector_id')
+        officer_name = (p.get('inspector_name') or '').strip()
+        if officer_id and officer_name:
+            officer_lookup[int(officer_id)] = officer_name
+    officer_options = [
+        {'id': oid, 'name': name}
+        for oid, name in sorted(officer_lookup.items(), key=lambda x: x[1].lower())
+    ]
+
+    officer_filter = None
+    if officer_filter_raw != 'all':
+        parsed_officer = parse_optional_int(officer_filter_raw)
+        if parsed_officer in officer_lookup:
+            officer_filter = parsed_officer
+        else:
+            officer_filter_raw = 'all'
+
+    filtered_petitions = []
+    for p in petitions:
+        received_date = p.get('received_date')
+        if from_date and (not received_date or received_date < from_date):
+            continue
+        if to_date and (not received_date or received_date > to_date):
+            continue
+        if petition_type_filter != 'all' and p.get('petition_type') != petition_type_filter:
+            continue
+        if source_filter != 'all' and p.get('source_of_petition') != source_filter:
+            continue
+        if received_at_filter != 'all' and p.get('received_at') != received_at_filter:
+            continue
+        if target_cvo_filter != 'all' and p.get('target_cvo') != target_cvo_filter:
+            continue
+        if officer_filter and int(p.get('assigned_inspector_id') or 0) != officer_filter:
+            continue
+        filtered_petitions.append(p)
+
+    stats = _build_filtered_dashboard_stats(user_role, user_id, petitions, filtered_petitions)
+    analytics = _build_dashboard_analytics(filtered_petitions, stats)
+
+    return render_template(
+        'dashboard.html',
+        stats=stats,
+        petitions=filtered_petitions,
+        analytics=analytics,
+        officer_options=officer_options,
+        dashboard_filter={
+            'from_date': from_date.strftime('%Y-%m-%d') if from_date else '',
+            'to_date': to_date.strftime('%Y-%m-%d') if to_date else '',
+            'petition_type': petition_type_filter,
+            'source_of_petition': source_filter,
+            'received_at': received_at_filter,
+            'target_cvo': target_cvo_filter,
+            'officer_id': str(officer_filter) if officer_filter else 'all',
+        },
+    )
+
+
+def _build_filtered_dashboard_stats(user_role, user_id, all_petitions, filtered_petitions):
+    base_stats = models.get_dashboard_stats(user_role, user_id, session.get('cvo_office'))
+    filtered_stats = dict(base_stats)
+    filtered_stats['total_visible'] = len(filtered_petitions)
+    filtered_stats['kpi_cards'] = models._build_role_kpi_cards(user_role, filtered_petitions, user_id)  # type: ignore[attr-defined]
+    filtered_stats.update(models._get_workflow_stage_stats(filtered_petitions))  # type: ignore[attr-defined]
+
+    # Keep original SLA stats when no filters are applied; otherwise recompute on filtered set.
+    if len(filtered_petitions) != len(all_petitions):
+        filtered_stats.update(models._get_sla_stats_for_petitions(filtered_petitions))  # type: ignore[attr-defined]
+    return filtered_stats
 
 
 def _build_dashboard_analytics(petitions, stats):
@@ -557,6 +706,8 @@ def _build_dashboard_analytics(petitions, stats):
     source_counts = Counter()
     permission_mode_counts = Counter({'Direct': 0, 'Permission': 0})
     office_counts = Counter()
+    officer_counts = Counter()
+    officer_label_by_id = {}
 
     for p in petitions:
         status = p.get('status')
@@ -575,6 +726,12 @@ def _build_dashboard_analytics(petitions, stats):
 
         received_at = p.get('received_at') or 'unknown'
         office_counts[str(received_at)] += 1
+        officer_id = p.get('assigned_inspector_id')
+        officer_name = (p.get('inspector_name') or '').strip()
+        if officer_id and officer_name:
+            oid = str(officer_id)
+            officer_label_by_id[oid] = officer_name
+            officer_counts[oid] += 1
 
         rd = p.get('received_date')
         if rd:
@@ -591,8 +748,11 @@ def _build_dashboard_analytics(petitions, stats):
             'values': [x[1] for x in series]
         }
 
+    officer_series = sorted(officer_counts.items(), key=lambda x: x[1], reverse=True)[:8]
+
     return {
         'monthly_trend': {
+            'keys': [m['key'] for m in months],
             'labels': [m['label'] for m in months],
             'values': [m['value'] for m in months]
         },
@@ -601,6 +761,11 @@ def _build_dashboard_analytics(petitions, stats):
         'source_split': _counter_to_series(source_counts, limit=8),
         'enquiry_mode_split': _counter_to_series(permission_mode_counts, limit=0),
         'office_split': _counter_to_series(office_counts, limit=6),
+        'officer_split': {
+            'keys': [k for k, _ in officer_series],
+            'labels': [officer_label_by_id.get(k, f'Officer {k}') for k, _ in officer_series],
+            'values': [v for _, v in officer_series],
+        },
         'summary': {
             'total_visible': len(petitions),
             'closed': status_counts.get('Closed', 0),
@@ -634,6 +799,14 @@ def petitions_list():
 @login_required
 @role_required('super_admin', 'data_entry')
 def petition_new():
+    deo_flow = get_deo_office_flow(session.get('user_role'), session.get('cvo_office'))
+
+    def render_petition_form():
+        return render_template(
+            'petition_form.html',
+            deo_flow=deo_flow,
+        )
+
     if request.method == 'POST':
         ereceipt_no = request.form.get('ereceipt_no', '').strip() or None
         ereceipt_file = request.files.get('ereceipt_file')
@@ -649,6 +822,16 @@ def petition_new():
         received_at = (request.form.get('received_at') or '').strip()
         target_cvo = (request.form.get('target_cvo') or '').strip()
         permission_request_type = (request.form.get('permission_request_type') or '').strip()
+
+        if session.get('user_role') == 'data_entry':
+            if not deo_flow:
+                flash('DEO office mapping is missing. Please contact admin.', 'danger')
+                return render_petition_form()
+            received_at = deo_flow['received_at']
+            target_cvo = deo_flow['target_cvo']
+            if deo_flow.get('force_permission_required'):
+                permission_request_type = 'permission_required'
+
         is_jmd_received = (received_at == 'jmd_office')
         received_date_raw = request.form.get('received_date')
         received_date = parse_date_input(received_date_raw)
@@ -663,69 +846,69 @@ def petition_new():
 
         if not received_date:
             flash('Please provide a valid received date.', 'warning')
-            return render_template('petition_form.html')
+            return render_petition_form()
         if received_at not in VALID_RECEIVED_AT:
             flash('Please select a valid received-at office.', 'warning')
-            return render_template('petition_form.html')
+            return render_petition_form()
         if not subject:
             flash(f"{cfg_subject.get('label', 'Subject')} is required.", 'warning')
-            return render_template('petition_form.html')
+            return render_petition_form()
         if petition_type not in VALID_PETITION_TYPES:
             flash('Please select a valid petition type.', 'warning')
-            return render_template('petition_form.html')
+            return render_petition_form()
         if source_of_petition not in VALID_SOURCE_OF_PETITION:
             flash('Please select a valid source of petition.', 'warning')
-            return render_template('petition_form.html')
+            return render_petition_form()
         govt_option_values = {o.get('value') for o in cfg_govt_institution.get('options', []) if isinstance(o, dict)}
         if source_of_petition == 'govt' and cfg_govt_institution.get('required') and not govt_institution_type:
             flash(f"Please select {cfg_govt_institution.get('label', 'Type of Institution')}.", 'warning')
-            return render_template('petition_form.html')
+            return render_petition_form()
         if source_of_petition == 'govt' and govt_institution_type and govt_institution_type not in govt_option_values:
             flash('Please select a valid Govt institution type.', 'warning')
-            return render_template('petition_form.html')
+            return render_petition_form()
         if cfg_petitioner.get('required') and not petitioner_name:
             flash(f"{cfg_petitioner.get('label', 'Petitioner Name')} is required.", 'warning')
-            return render_template('petition_form.html')
+            return render_petition_form()
         if cfg_contact.get('required') and not contact:
             flash(f"{cfg_contact.get('label', 'Contact Number')} is required.", 'warning')
-            return render_template('petition_form.html')
+            return render_petition_form()
         if cfg_place.get('required') and not place:
             flash(f"{cfg_place.get('label', 'Place')} is required.", 'warning')
-            return render_template('petition_form.html')
+            return render_petition_form()
         if cfg_remarks.get('required') and not remarks:
             flash(f"{cfg_remarks.get('label', 'Remarks')} is required.", 'warning')
-            return render_template('petition_form.html')
+            return render_petition_form()
         if not is_jmd_received:
             if permission_request_type not in VALID_PERMISSION_REQUEST_TYPES:
                 flash('Please select a valid permission request type.', 'warning')
-                return render_template('petition_form.html')
+                return render_petition_form()
             if target_cvo not in VALID_TARGET_CVO:
                 flash('Please select a valid Target CVO Jurisdiction.', 'warning')
-                return render_template('petition_form.html')
+                return render_petition_form()
         if petitioner_name and len(petitioner_name) > 255:
             flash('Petitioner name is too long.', 'warning')
-            return render_template('petition_form.html')
+            return render_petition_form()
         if len(subject) > 5000:
             flash('Subject is too long.', 'warning')
-            return render_template('petition_form.html')
+            return render_petition_form()
         if len(place) > 255:
             flash('Place is too long.', 'warning')
-            return render_template('petition_form.html')
+            return render_petition_form()
         if not validate_contact(contact):
             flash('Please provide a valid contact number.', 'warning')
-            return render_template('petition_form.html')
+            return render_petition_form()
         if ereceipt_no and len(ereceipt_no) > 100:
             flash('E-Receipt No is too long.', 'warning')
-            return render_template('petition_form.html')
+            return render_petition_form()
         if len(remarks) > 5000:
             flash('Remarks are too long.', 'warning')
-            return render_template('petition_form.html')
+            return render_petition_form()
 
         if ereceipt_file and ereceipt_file.filename:
             ok, upload_result = validate_pdf_upload(ereceipt_file, 'DEO e-receipt file')
             if not ok:
                 flash(upload_result, 'danger')
-                return render_template('petition_form.html')
+                return render_petition_form()
             original_name = upload_result
 
             os.makedirs(ERECEIPT_UPLOAD_DIR, exist_ok=True)
@@ -777,8 +960,8 @@ def petition_new():
             return redirect(url_for('petition_view', petition_id=result['id']))
         except Exception as e:
             flash(f'Error creating petition: {str(e)}', 'danger')
-    
-    return render_template('petition_form.html')
+
+    return render_petition_form()
 
 @app.route('/petitions/<int:petition_id>')
 @login_required
@@ -1382,14 +1565,53 @@ def users_list():
 @role_required('super_admin')
 def form_management():
     if request.method == 'POST':
+        action = (request.form.get('action') or 'update_field').strip()
+        if action == 'add_field':
+            form_key = (request.form.get('new_form_key') or '').strip()
+            field_key = (request.form.get('new_field_key') or '').strip().lower()
+            label = (request.form.get('new_label') or '').strip()
+            field_type = (request.form.get('new_field_type') or 'text').strip()
+            is_required = request.form.get('new_is_required') == 'on'
+            if form_key not in FORM_MANAGEMENT_GROUPS:
+                flash('Please select a valid form group.', 'danger')
+                return redirect(url_for('form_management'))
+            if not re.fullmatch(r'[a-z][a-z0-9_]{1,80}', field_key):
+                flash('Field key must use lowercase letters, numbers, underscore (2-81 chars).', 'warning')
+                return redirect(url_for('form_management'))
+            if not label:
+                flash('Field label is required.', 'warning')
+                return redirect(url_for('form_management'))
+            if field_type not in VALID_DYNAMIC_FIELD_TYPES:
+                flash('Invalid field type.', 'danger')
+                return redirect(url_for('form_management'))
+            config_key = f'{form_key}.{field_key}'
+            if config_key in get_effective_form_field_configs():
+                flash('Field key already exists for this form group.', 'warning')
+                return redirect(url_for('form_management'))
+            try:
+                models.upsert_form_field_config(
+                    form_key=form_key,
+                    field_key=field_key,
+                    label=label,
+                    field_type=field_type,
+                    is_required=is_required,
+                    options=[],
+                    updated_by=session['user_id']
+                )
+                flash('New form field added successfully.', 'success')
+            except Exception as e:
+                flash(f'Unable to add form field: {str(e)}', 'danger')
+            return redirect(url_for('form_management'))
+
         form_key = (request.form.get('form_key') or '').strip()
         field_key = (request.form.get('field_key') or '').strip()
         config_key = f'{form_key}.{field_key}'
-        if config_key not in DEFAULT_FORM_FIELD_CONFIGS:
+        effective_cfg = get_effective_form_field_configs()
+        if config_key not in effective_cfg:
             flash('Invalid form field selection.', 'danger')
             return redirect(url_for('form_management'))
 
-        label = (request.form.get('label') or '').strip() or DEFAULT_FORM_FIELD_CONFIGS[config_key]['label']
+        label = (request.form.get('label') or '').strip() or effective_cfg[config_key]['label']
         field_type = (request.form.get('field_type') or '').strip()
         if field_type not in VALID_DYNAMIC_FIELD_TYPES:
             flash('Invalid field type.', 'danger')
@@ -1397,7 +1619,7 @@ def form_management():
 
         is_required = request.form.get('is_required') == 'on'
         options = []
-        if DEFAULT_FORM_FIELD_CONFIGS[config_key]['type'] == 'select' or field_type == 'select':
+        if effective_cfg[config_key]['type'] == 'select' or field_type == 'select':
             raw_options = request.form.get('options_text', '')
             for line in raw_options.splitlines():
                 item = line.strip()
@@ -1414,7 +1636,7 @@ def form_management():
                     options.append({'value': value, 'label': label_text})
 
             if not options:
-                options = DEFAULT_FORM_FIELD_CONFIGS[config_key].get('options', [])
+                options = effective_cfg[config_key].get('options', [])
 
         try:
             models.upsert_form_field_config(
@@ -1483,6 +1705,11 @@ def user_create():
             if not assigned_cvo_id:
                 flash('Please assign inspector to a CVO/DSP.', 'warning')
                 return redirect(url_for('users_list'))
+        elif role == 'data_entry':
+            if not cvo_office:
+                flash('Office is required for Data Entry role.', 'warning')
+                return redirect(url_for('users_list'))
+            assigned_cvo_id = None
         elif role.startswith('cvo_') or role == 'dsp':
             if not cvo_office:
                 flash('Office is required for CVO/DSP role.', 'warning')
@@ -1609,6 +1836,10 @@ def users_upload():
             failed += 1
             errors.append(f'Row {i}: inspector requires cvo_office and assigned_cvo_username.')
             continue
+        if role == 'data_entry' and not cvo_office:
+            failed += 1
+            errors.append(f'Row {i}: data_entry requires cvo_office.')
+            continue
         if (role.startswith('cvo_') or role == 'dsp') and not cvo_office:
             failed += 1
             errors.append(f'Row {i}: cvo_office is required for {role}.')
@@ -1693,6 +1924,11 @@ def user_edit(user_id):
             if not assigned_cvo_id:
                 flash('Please assign inspector to a CVO/DSP.', 'warning')
                 return redirect(url_for('users_list'))
+        elif role == 'data_entry':
+            if not cvo_office:
+                flash('Office is required for Data Entry role.', 'warning')
+                return redirect(url_for('users_list'))
+            assigned_cvo_id = None
         elif role.startswith('cvo_') or role == 'dsp':
             if not cvo_office:
                 flash('Office is required for CVO/DSP role.', 'warning')

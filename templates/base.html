@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{% block title %}Petition Tracker{% endblock %}</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Merriweather:wght@700;900&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
 </head>
 <body>
@@ -15,11 +15,11 @@
         <aside class="sidebar" id="sidebar">
             <div class="sidebar-header">
                 <div class="logo-mark">
-                    <img src="{{ url_for('static', filename='img/aptransco-theme-logo.svg') }}" alt="APTRANSCO Logo" class="brand-logo" onerror="this.onerror=null;this.src='{{ url_for('static', filename='img/aptransco-logo-fallback.svg') }}';">
+                    <img src="{{ url_for('static', filename=brand_logo_file) }}" alt="{{ brand_name }} Logo" class="brand-logo" onerror="this.onerror=null;this.style.display='none';">
                 </div>
                 <div class="logo-text">
-                    <span class="logo-title">APTRANSCO</span>
-                    <span class="logo-subtitle">Petition Tracker</span>
+                    <span class="logo-title">{{ brand_name }}</span>
+                    <span class="logo-subtitle">{{ brand_subtitle }}</span>
                 </div>
             </div>
 
@@ -90,6 +90,40 @@
                 </button>
                 <h1 class="page-title">{% block page_title %}Dashboard{% endblock %}</h1>
                 <div class="top-bar-right">
+                    <div class="notif-wrap">
+                        <button id="notifToggle" class="notif-toggle" type="button" aria-label="Pending petition notifications" aria-expanded="false" title="Pending petitions">
+                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <path d="M15 17h5l-1.4-1.4A2 2 0 0 1 18 14.2V11a6 6 0 1 0-12 0v3.2a2 2 0 0 1-.6 1.4L4 17h5"/>
+                                <path d="M9 17a3 3 0 0 0 6 0"/>
+                            </svg>
+                            {% if notification['badge_count'] > 0 %}
+                            <span class="notif-badge">{{ notification['badge_text'] }}</span>
+                            {% endif %}
+                        </button>
+                        <div id="notifMenu" class="notif-menu" hidden>
+                            <div class="notif-head">
+                                <strong>Notifications</strong>
+                                <a href="{{ url_for('petitions_list') }}" class="notif-link">View all</a>
+                            </div>
+                            <div class="notif-summary">
+                                <span>Received: <b>{{ notification['received_count'] }}</b></span>
+                                <span>Pending: <b>{{ notification['pending_count'] }}</b></span>
+                            </div>
+                            <div class="notif-list">
+                                {% if notification['items'] %}
+                                    {% for item in notification['items'] %}
+                                    <a href="{{ url_for('petition_view', petition_id=item.id) }}" class="notif-item">
+                                        <span class="notif-item-top">{{ item.sno }} • {{ item.status_label }}</span>
+                                        <span class="notif-item-subject">{{ item.subject }}</span>
+                                        <span class="notif-item-date">{{ item.received_date }}</span>
+                                    </a>
+                                    {% endfor %}
+                                {% else %}
+                                    <div class="notif-empty">No pending petitions right now.</div>
+                                {% endif %}
+                            </div>
+                        </div>
+                    </div>
                     <span class="date-display">{{ now.strftime('%d %b %Y') }}</span>
                     <button id="themeToggle" class="theme-toggle" type="button" aria-label="Toggle night mode" aria-pressed="false" title="Toggle night mode">
                         <span class="theme-toggle-icon theme-toggle-sun" aria-hidden="true">
@@ -106,11 +140,16 @@
             {% with messages = get_flashed_messages(with_categories=true) %}
             {% if messages %}
             <div class="flash-container">
+                {% set ns = namespace(seen=[]) %}
                 {% for category, message in messages %}
+                {% set key = category ~ '|' ~ message %}
+                {% if key not in ns.seen %}
                 <div class="flash-msg flash-{{ category }}">
                     <span>{{ message }}</span>
                     <button onclick="this.parentElement.remove()" class="flash-close">&times;</button>
                 </div>
+                {% set ns.seen = ns.seen + [key] %}
+                {% endif %}
                 {% endfor %}
             </div>
             {% endif %}

@@ -9,6 +9,7 @@
 {% set f_subject = get_field_cfg('deo_petition', 'subject') %}
 {% set f_remarks = get_field_cfg('deo_petition', 'remarks') %}
 {% set f_govt_inst = get_field_cfg('deo_petition', 'govt_institution_type') %}
+{% set deo_locked = current_user_role == 'data_entry' and deo_flow %}
 <div class="card">
     <div class="card-header">
         <h2>Petition Entry Form</h2>
@@ -24,10 +25,14 @@
                 <label for="received_at">Received At <span class="required">*</span></label>
                 <select id="received_at" name="received_at" required>
                     <option value="">-- Select Office --</option>
+                    {% if deo_locked %}
+                    <option value="{{ deo_flow.received_at }}" selected>{{ deo_flow.received_at_label }}</option>
+                    {% else %}
                     <option value="jmd_office" {% if request.form.get('received_at') == 'jmd_office' %}selected{% endif %}>JMD Office</option>
                     <option value="cvo_apspdcl_tirupathi" {% if request.form.get('received_at') == 'cvo_apspdcl_tirupathi' %}selected{% endif %}>CVO (APSPDCL) - Tirupathi</option>
                     <option value="cvo_apepdcl_vizag" {% if request.form.get('received_at') == 'cvo_apepdcl_vizag' %}selected{% endif %}>CVO (APEPDCL) - Vizag</option>
                     <option value="cvo_apcpdcl_vijayawada" {% if request.form.get('received_at') == 'cvo_apcpdcl_vijayawada' %}selected{% endif %}>CVO (APCPDCL) - Vijayawada</option>
+                    {% endif %}
                 </select>
             </div>
 
@@ -45,18 +50,26 @@
                 <label for="target_cvo">Target CVO Jurisdiction</label>
                 <select id="target_cvo" name="target_cvo">
                     <option value="">-- Select CVO --</option>
+                    {% if deo_locked and deo_flow.received_at != 'jmd_office' %}
+                    <option value="{{ deo_flow.target_cvo }}" selected>{{ deo_flow.target_cvo_label }}</option>
+                    {% else %}
                     <option value="apspdcl" {% if request.form.get('target_cvo') == 'apspdcl' %}selected{% endif %}>APSPDCL (Tirupathi)</option>
                     <option value="apepdcl" {% if request.form.get('target_cvo') == 'apepdcl' %}selected{% endif %}>APEPDCL (Vizag)</option>
                     <option value="apcpdcl" {% if request.form.get('target_cvo') == 'apcpdcl' %}selected{% endif %}>APCPDCL (Vijayawada)</option>
                     <option value="headquarters" {% if request.form.get('target_cvo') == 'headquarters' %}selected{% endif %}>Headquarters (DSP)</option>
+                    {% endif %}
                 </select>
             </div>
 
             <div class="form-group" id="permission_request_group">
                 <label for="permission_request_type">Permission Request <span class="required">*</span></label>
                 <select id="permission_request_type" name="permission_request_type" required>
+                    {% if deo_locked and deo_flow.force_permission_required %}
+                    <option value="permission_required" selected>Permission Required (CVO sends to PO for approval)</option>
+                    {% else %}
                     <option value="direct_enquiry" {% if (request.form.get('permission_request_type') or 'direct_enquiry') == 'direct_enquiry' %}selected{% endif %}>Direct Enquiry (CVO sends copy and starts enquiry)</option>
                     <option value="permission_required" {% if request.form.get('permission_request_type') == 'permission_required' %}selected{% endif %}>Permission Required (CVO sends to PO for approval)</option>
+                    {% endif %}
                 </select>
             </div>
             
