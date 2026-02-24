@@ -523,14 +523,15 @@
                         <input type="hidden" name="action" value="assign_inspector">
                         <div class="form-group">
                             <label>Select Inspector (CI/SI)</label>
-                            <select name="inspector_id" required>
+                            <select name="inspector_id" required {% if not inspectors %}disabled aria-describedby="inspector-map-help"{% endif %}>
                                 <option value="">-- Select Inspector --</option>
                                 {% for insp in inspectors %}
                                 <option value="{{ insp.id }}">{{ insp.full_name }}</option>
-                                {% else %}
-                                <option value="" disabled>No mapped field inspectors found. Add/map in User Management.</option>
                                 {% endfor %}
                             </select>
+                            {% if not inspectors %}
+                            <small id="inspector-map-help" class="form-help">No field inspectors are mapped to this officer. Add/map in User Management.</small>
+                            {% endif %}
                         </div>
                         {% if not petition.requires_permission %}
                         <div class="form-group">
@@ -543,7 +544,7 @@
                         </div>
                         {% endif %}
                         <div class="form-group"><label>Instructions</label><textarea name="comments" rows="2" placeholder="Instructions for the inspector"></textarea></div>
-                        <button type="submit" class="btn btn-primary">Assign Inspector</button>
+                        <button type="submit" class="btn btn-primary" {% if not inspectors %}disabled title="Map field inspectors to this officer in User Management first"{% endif %}>Assign Inspector</button>
                     </form>
                 </div>
                 {% endif %}

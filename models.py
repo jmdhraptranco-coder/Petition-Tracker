@@ -156,8 +156,8 @@ def get_inspectors_by_cvo(cvo_user_id):
     conn = get_db()
     try:
         cur = dict_cursor(conn)
-        # Resolve current CVO office and role, then fetch inspectors mapped either
-        # by assigned_cvo_id or by cvo_office. This survives CVO account recreation.
+        # Fetch inspectors mapped to this exact CVO/DSP.
+        # Fallback: include office-matched inspectors only when explicit mapping is missing.
         cur.execute("SELECT id, role, cvo_office FROM users WHERE id = %s", (cvo_user_id,))
         cvo = cur.fetchone()
         if not cvo:
@@ -166,16 +166,14 @@ def get_inspectors_by_cvo(cvo_user_id):
         cur.execute("""
             SELECT DISTINCT i.*
             FROM users i
-            LEFT JOIN users c ON i.assigned_cvo_id = c.id
             WHERE i.role = 'inspector'
               AND i.is_active = TRUE
               AND (
                     i.assigned_cvo_id = %s
-                    OR (c.role = %s)
-                    OR (i.cvo_office IS NOT NULL AND i.cvo_office = %s)
+                    OR (i.assigned_cvo_id IS NULL AND i.cvo_office IS NOT NULL AND i.cvo_office = %s)
               )
             ORDER BY i.full_name
-        """, (cvo_user_id, cvo['role'], cvo['cvo_office']))
+        """, (cvo_user_id, cvo['cvo_office']))
         return [dict(row) for row in cur.fetchall()]
     finally:
         conn.close()

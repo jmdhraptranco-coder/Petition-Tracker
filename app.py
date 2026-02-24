@@ -791,11 +791,18 @@ def petition_view(petition_id):
     tracking = models.get_petition_tracking(petition_id)
     report = models.get_enquiry_report(petition_id)
     
-    # Get inspectors for CVO roles
+    # Get inspectors mapped to the relevant CVO/DSP officer
     inspectors = []
     cvo_users = []
-    if session['user_role'] in ('cvo_apspdcl', 'cvo_apepdcl', 'cvo_apcpdcl', 'dsp'):
+    cvo_like_roles = ('cvo_apspdcl', 'cvo_apepdcl', 'cvo_apcpdcl', 'dsp')
+    if session['user_role'] in cvo_like_roles:
         inspectors = models.get_inspectors_by_cvo(session['user_id'])
+    elif session['user_role'] == 'super_admin':
+        handler_id = petition.get('current_handler_id')
+        if handler_id:
+            handler_user = models.get_user_by_id(handler_id)
+            if handler_user and handler_user.get('role') in cvo_like_roles:
+                inspectors = models.get_inspectors_by_cvo(handler_id)
     if session['user_role'] in ('po', 'super_admin'):
         cvo_users = models.get_cvo_users()
     
