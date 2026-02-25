@@ -58,6 +58,44 @@ def ensure_schema_updates():
             ALTER TABLE users
             ADD COLUMN IF NOT EXISTS profile_photo VARCHAR(255)
         """)
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS user_signup_requests (
+                id SERIAL PRIMARY KEY,
+                username VARCHAR(100) NOT NULL,
+                password_hash VARCHAR(255) NOT NULL,
+                full_name VARCHAR(255) NOT NULL,
+                requested_role VARCHAR(50) NOT NULL,
+                cvo_office VARCHAR(30),
+                phone VARCHAR(30),
+                email VARCHAR(255),
+                status VARCHAR(20) NOT NULL DEFAULT 'pending',
+                decision_notes TEXT,
+                reviewed_by INTEGER REFERENCES users(id),
+                reviewed_at TIMESTAMP,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+        cur.execute("""
+            CREATE INDEX IF NOT EXISTS idx_signup_requests_status_created
+            ON user_signup_requests (status, created_at DESC)
+        """)
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS password_reset_requests (
+                id SERIAL PRIMARY KEY,
+                user_id INTEGER NOT NULL REFERENCES users(id),
+                username VARCHAR(100) NOT NULL,
+                requested_password_hash VARCHAR(255) NOT NULL,
+                status VARCHAR(20) NOT NULL DEFAULT 'pending',
+                decision_notes TEXT,
+                reviewed_by INTEGER REFERENCES users(id),
+                reviewed_at TIMESTAMP,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+        cur.execute("""
+            CREATE INDEX IF NOT EXISTS idx_password_reset_requests_status_created
+            ON password_reset_requests (status, created_at DESC)
+        """)
     except Exception:
         raise
     finally:
@@ -95,6 +133,105 @@ def create_user(username, password, full_name, role, cvo_office=None, assigned_c
     finally:
         conn.close()
 
+def create_signup_request(username, password, full_name, requested_role, cvo_office=None, phone=None, email=None):
+    conn = get_db()
+    try:
+        cur = dict_cursor(conn)
+        password_hash = generate_password_hash(password)
+        cur.execute("""
+            INSERT INTO user_signup_requests
+                (username, password_hash, full_name, requested_role, cvo_office, phone, email)
+            VALUES (%s, %s, %s, %s, %s, %s, %s)
+            RETURNING id
+        """, (username, password_hash, full_name, requested_role, cvo_office, phone, email))
+        request_id = cur.fetchone()['id']
+        conn.commit()
+        return request_id
+    except Exception as e:
+        conn.rollback()
+        raise e
+    finally:
+        conn.close()
+
+
+def get_pending_signup_requests():
+    conn = get_db()
+    try:
+        cur = dict_cursor(conn)
+        cur.execute("""
+            SELECT id, username, full_name, requested_role, cvo_office, phone, email, status, created_at
+            FROM user_signup_requests
+            WHERE status = 'pending'
+            ORDER BY created_at ASC
+        """)
+        return [dict(row) for row in cur.fetchall()]
+    finally:
+        conn.close()
+
+
+def approve_signup_request(request_id, reviewer_id):
+    conn = get_db()
+    try:
+        cur = dict_cursor(conn)
+        cur.execute("SELECT * FROM user_signup_requests WHERE id = %s FOR UPDATE", (request_id,))
+        req = cur.fetchone()
+        if not req:
+            raise ValueError('Signup request not found.')
+        req = dict(req)
+        if req.get('status') != 'pending':
+            raise ValueError('Signup request is already processed.')
+
+        cur.execute("""
+            INSERT INTO users (username, password_hash, full_name, role, cvo_office, assigned_cvo_id, phone, email)
+            VALUES (%s, %s, %s, %s, %s, NULL, %s, %s)
+            RETURNING id
+        """, (
+            req.get('username'),
+            req.get('password_hash'),
+            req.get('full_name'),
+            req.get('requested_role'),
+            req.get('cvo_office'),
+            req.get('phone'),
+            req.get('email'),
+        ))
+        user_id = cur.fetchone()['id']
+        cur.execute("""
+            UPDATE user_signup_requests
+            SET status = 'approved', reviewed_by = %s, reviewed_at = CURRENT_TIMESTAMP
+            WHERE id = %s
+        """, (reviewer_id, request_id))
+        conn.commit()
+        return user_id
+    except Exception as e:
+        conn.rollback()
+        raise e
+    finally:
+        conn.close()
+
+
+def reject_signup_request(request_id, reviewer_id, decision_notes=None):
+    conn = get_db()
+    try:
+        cur = dict_cursor(conn)
+        cur.execute("SELECT status FROM user_signup_requests WHERE id = %s", (request_id,))
+        row = cur.fetchone()
+        if not row:
+            raise ValueError('Signup request not found.')
+        if row.get('status') != 'pending':
+            raise ValueError('Signup request is already processed.')
+        cur.execute("""
+            UPDATE user_signup_requests
+            SET status = 'rejected', decision_notes = %s, reviewed_by = %s, reviewed_at = CURRENT_TIMESTAMP
+            WHERE id = %s
+        """, ((decision_notes or '').strip() or None, reviewer_id, request_id))
+        conn.commit()
+    except Exception as e:
+        conn.rollback()
+        raise e
+    finally:
+        conn.close()
+
+
 def authenticate_user(username, password):
     conn = get_db()
     try:
@@ -106,6 +243,106 @@ def authenticate_user(username, password):
         return None
     finally:
         conn.close()
+
+
+def create_password_reset_request(username, new_password):
+    conn = get_db()
+    try:
+        cur = dict_cursor(conn)
+        cur.execute("SELECT id, username FROM users WHERE username = %s", (username,))
+        user = cur.fetchone()
+        if not user:
+            raise ValueError('User not found.')
+        password_hash = generate_password_hash(new_password)
+        cur.execute("""
+            INSERT INTO password_reset_requests (user_id, username, requested_password_hash)
+            VALUES (%s, %s, %s)
+            RETURNING id
+        """, (user['id'], user['username'], password_hash))
+        request_id = cur.fetchone()['id']
+        conn.commit()
+        return request_id
+    except Exception as e:
+        conn.rollback()
+        raise e
+    finally:
+        conn.close()
+
+
+def get_pending_password_reset_requests():
+    conn = get_db()
+    try:
+        cur = dict_cursor(conn)
+        cur.execute("""
+            SELECT pr.id, pr.user_id, pr.username, pr.status, pr.created_at,
+                   u.full_name, u.role, u.is_active
+            FROM password_reset_requests pr
+            LEFT JOIN users u ON u.id = pr.user_id
+            WHERE pr.status = 'pending'
+            ORDER BY pr.created_at ASC
+        """)
+        return [dict(row) for row in cur.fetchall()]
+    finally:
+        conn.close()
+
+
+def approve_password_reset_request(request_id, reviewer_id):
+    conn = get_db()
+    try:
+        cur = dict_cursor(conn)
+        cur.execute("SELECT * FROM password_reset_requests WHERE id = %s FOR UPDATE", (request_id,))
+        req = cur.fetchone()
+        if not req:
+            raise ValueError('Password reset request not found.')
+        req = dict(req)
+        if req.get('status') != 'pending':
+            raise ValueError('Password reset request is already processed.')
+
+        cur.execute("SELECT id FROM users WHERE id = %s", (req['user_id'],))
+        user = cur.fetchone()
+        if not user:
+            raise ValueError('Target user no longer exists.')
+
+        cur.execute("""
+            UPDATE users
+            SET password_hash = %s, updated_at = CURRENT_TIMESTAMP
+            WHERE id = %s
+        """, (req['requested_password_hash'], req['user_id']))
+        cur.execute("""
+            UPDATE password_reset_requests
+            SET status = 'approved', reviewed_by = %s, reviewed_at = CURRENT_TIMESTAMP
+            WHERE id = %s
+        """, (reviewer_id, request_id))
+        conn.commit()
+    except Exception as e:
+        conn.rollback()
+        raise e
+    finally:
+        conn.close()
+
+
+def reject_password_reset_request(request_id, reviewer_id, decision_notes=None):
+    conn = get_db()
+    try:
+        cur = dict_cursor(conn)
+        cur.execute("SELECT status FROM password_reset_requests WHERE id = %s", (request_id,))
+        row = cur.fetchone()
+        if not row:
+            raise ValueError('Password reset request not found.')
+        if row.get('status') != 'pending':
+            raise ValueError('Password reset request is already processed.')
+        cur.execute("""
+            UPDATE password_reset_requests
+            SET status = 'rejected', decision_notes = %s, reviewed_by = %s, reviewed_at = CURRENT_TIMESTAMP
+            WHERE id = %s
+        """, ((decision_notes or '').strip() or None, reviewer_id, request_id))
+        conn.commit()
+    except Exception as e:
+        conn.rollback()
+        raise e
+    finally:
+        conn.close()
+
 
 def get_user_by_id(user_id):
     conn = get_db()

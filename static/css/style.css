@@ -1839,6 +1839,7 @@ iframe {
     box-shadow: 0 30px 64px rgba(39, 78, 161, 0.22);
     backdrop-filter: blur(8px);
     overflow: hidden;
+    min-height: 0;
 }
 
 .login-panel {
@@ -1847,7 +1848,11 @@ iframe {
     border-right: 1px solid rgba(194, 220, 253, 0.75);
     display: flex;
     flex-direction: column;
-    overflow: hidden;
+    overflow-y: auto;
+    overflow-x: hidden;
+    min-height: 0;
+    -webkit-overflow-scrolling: touch;
+    padding-bottom: clamp(14px, 2.2vh, 24px);
 }
 
 .login-tabs {
@@ -1858,6 +1863,10 @@ iframe {
     background: #edf6ff;
     margin-bottom: clamp(8px, 1.2vh, 12px);
     overflow: hidden;
+    flex: 0 0 auto;
+    position: sticky;
+    top: 0;
+    z-index: 4;
 }
 
 .login-tabs span {
@@ -1866,6 +1875,23 @@ iframe {
     font-weight: 700;
     color: #88a2c8;
     padding: 9px 6px;
+}
+
+.login-tabs button {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
+    min-height: 36px;
+    text-align: center;
+    font-size: 0.78rem;
+    font-weight: 700;
+    color: #88a2c8;
+    padding: 9px 6px;
+    border: 0;
+    background: transparent;
+    cursor: pointer;
+    font-family: var(--font);
 }
 
 .login-tabs .is-active {
@@ -1923,6 +1949,60 @@ iframe {
     letter-spacing: 0.2px;
     margin-bottom: 6px;
     display: block;
+}
+
+.login-captcha-box {
+    margin-bottom: 0;
+    padding: 9px 12px;
+    border-radius: 12px;
+    border: 1px solid rgba(51, 69, 112, 0.35);
+    background: linear-gradient(145deg, #1f2638, #10192f);
+    color: #f1f6ff;
+    font-weight: 800;
+    font-size: 1rem;
+    letter-spacing: 2px;
+    text-align: center;
+    min-height: 40px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.login-captcha-challenge-row {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    gap: 8px;
+    align-items: center;
+    margin-bottom: 8px;
+}
+
+.login-captcha-refresh {
+    width: 32px;
+    height: 32px;
+    border-radius: 8px;
+    border: 1px solid #b9d2f8;
+    background: #eaf2ff;
+    color: #2f5dad;
+    text-decoration: none;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1rem;
+    font-weight: 700;
+}
+
+.login-captcha-refresh:hover {
+    background: #dceaff;
+}
+
+.login-captcha-verify {
+    height: 34px !important;
+    border-radius: 10px !important;
+    margin-top: 0;
+    background: linear-gradient(90deg, #8fb6ff, #79c8ff) !important;
+    color: #1e4f9a !important;
+    box-shadow: 0 8px 14px rgba(94, 144, 226, 0.2) !important;
+    font-size: 0.9rem !important;
 }
 
 .login-page-modern .login-form input {
@@ -1983,6 +2063,11 @@ iframe {
     overflow: hidden;
 }
 
+.login-hero > * {
+    position: relative;
+    z-index: 1;
+}
+
 .login-hero::before {
     content: '';
     position: absolute;
@@ -1991,20 +2076,22 @@ iframe {
         radial-gradient(circle at 62% 44%, rgba(92, 139, 255, 0.26), transparent 58%),
         radial-gradient(circle at 76% 70%, rgba(40, 210, 235, 0.2), transparent 48%);
     pointer-events: none;
+    z-index: 0;
 }
 
 .login-hero::after {
     content: '';
     position: absolute;
-    right: -16%;
-    top: 10%;
+    right: -22%;
+    top: 14%;
     width: 62%;
     height: 80%;
     border-radius: 48px;
-    border: 1px solid rgba(143, 198, 248, 0.48);
+    border: 1px solid rgba(143, 198, 248, 0.28);
     background: linear-gradient(145deg, rgba(255, 255, 255, 0.16), rgba(145, 195, 255, 0.06));
-    transform: rotate(-10deg);
+    transform: rotate(-8deg);
     pointer-events: none;
+    z-index: 0;
 }
 
 .login-hero-mark {
@@ -2175,14 +2262,17 @@ iframe {
 
     .login-panel {
         padding: 10px;
+        padding-bottom: 22px;
     }
 
-    .login-tabs span {
+    .login-tabs span,
+    .login-tabs button {
         font-size: 0.7rem;
         padding: 8px 4px;
     }
 
-    .login-tabs span { padding: 7px 3px; }
+    .login-tabs span,
+    .login-tabs button { padding: 7px 3px; }
 }
 
 /* ========================================

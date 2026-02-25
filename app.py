@@ -2,13 +2,14 @@ from flask import Flask, render_template, request, redirect, url_for, session, f
 from functools import wraps
 from config import Config
 import models
-from datetime import datetime
+from datetime import datetime, date
 from collections import Counter
 import os
 import io
 import csv
 import re
 import copy
+import random
 from uuid import uuid4
 from werkzeug.utils import secure_filename
 try:
@@ -53,6 +54,12 @@ VALID_USER_ROLES = {
     'cgm_hr_transco',
     'dsp', 'cvo_apspdcl', 'cvo_apepdcl', 'cvo_apcpdcl', 'inspector'
 }
+VALID_PUBLIC_SIGNUP_ROLES = {
+    'data_entry', 'po',
+    'cmd_apspdcl', 'cmd_apepdcl', 'cmd_apcpdcl',
+    'cgm_hr_transco',
+    'dsp', 'cvo_apspdcl', 'cvo_apepdcl', 'cvo_apcpdcl', 'inspector'
+}
 VALID_CVO_OFFICES = {'apspdcl', 'apepdcl', 'apcpdcl', 'headquarters'}
 DEO_OFFICE_FLOW = {
     'headquarters': {
@@ -89,10 +96,68 @@ EMAIL_RE = re.compile(r'^[^@\s]+@[^@\s]+\.[^@\s]+$')
 VALID_DYNAMIC_FIELD_TYPES = {'text', 'textarea', 'select', 'date', 'tel', 'email', 'file'}
 
 DEFAULT_FORM_FIELD_CONFIGS = {
+    'deo_petition.received_date': {'label': 'Received Date', 'type': 'date', 'required': True, 'options': []},
+    'deo_petition.received_at': {
+        'label': 'Received At',
+        'type': 'select',
+        'required': True,
+        'options': [
+            {'value': 'jmd_office', 'label': 'JMD Office'},
+            {'value': 'cvo_apspdcl_tirupathi', 'label': 'CVO (APSPDCL) - Tirupathi'},
+            {'value': 'cvo_apepdcl_vizag', 'label': 'CVO (APEPDCL) - Vizag'},
+            {'value': 'cvo_apcpdcl_vijayawada', 'label': 'CVO (APCPDCL) - Vijayawada'},
+        ]
+    },
+    'deo_petition.ereceipt_no': {'label': 'E-Receipt No', 'type': 'text', 'required': False, 'options': []},
+    'deo_petition.ereceipt_file': {'label': 'Upload E-Receipt (PDF, max 10MB)', 'type': 'file', 'required': False, 'options': []},
+    'deo_petition.target_cvo': {
+        'label': 'Target CVO Jurisdiction',
+        'type': 'select',
+        'required': False,
+        'options': [
+            {'value': 'apspdcl', 'label': 'APSPDCL (Tirupathi)'},
+            {'value': 'apepdcl', 'label': 'APEPDCL (Vizag)'},
+            {'value': 'apcpdcl', 'label': 'APCPDCL (Vijayawada)'},
+            {'value': 'headquarters', 'label': 'Headquarters (DSP)'},
+        ]
+    },
+    'deo_petition.permission_request_type': {
+        'label': 'Permission Request',
+        'type': 'select',
+        'required': True,
+        'options': [
+            {'value': 'direct_enquiry', 'label': 'Direct Enquiry (CVO sends copy and starts enquiry)'},
+            {'value': 'permission_required', 'label': 'Permission Required (CVO sends to PO for approval)'},
+        ]
+    },
     'deo_petition.petitioner_name': {'label': 'Petitioner Name', 'type': 'text', 'required': False, 'options': []},
     'deo_petition.contact': {'label': 'Contact Number', 'type': 'tel', 'required': False, 'options': []},
     'deo_petition.place': {'label': 'Place', 'type': 'text', 'required': False, 'options': []},
     'deo_petition.subject': {'label': 'Subject', 'type': 'textarea', 'required': True, 'options': []},
+    'deo_petition.petition_type': {
+        'label': 'Type of Petition',
+        'type': 'select',
+        'required': True,
+        'options': [
+            {'value': 'bribe', 'label': 'Bribe'},
+            {'value': 'harassment', 'label': 'Harassment'},
+            {'value': 'theft_of_materials', 'label': 'Theft of Materials'},
+            {'value': 'adverse_news', 'label': 'Adverse News'},
+            {'value': 'procedural_lapses', 'label': 'Procedural Lapses'},
+            {'value': 'other', 'label': 'Other'},
+        ]
+    },
+    'deo_petition.source_of_petition': {
+        'label': 'Source of Petition',
+        'type': 'select',
+        'required': True,
+        'options': [
+            {'value': 'media', 'label': 'Media'},
+            {'value': 'public_individual', 'label': 'Public (Individual)'},
+            {'value': 'govt', 'label': 'Govt'},
+            {'value': 'sumoto', 'label': 'Sumoto'},
+        ]
+    },
     'deo_petition.remarks': {'label': 'Remarks', 'type': 'textarea', 'required': False, 'options': []},
     'deo_petition.govt_institution_type': {
         'label': 'Type of Institution',
@@ -153,6 +218,33 @@ def parse_date_input(value):
         return datetime.strptime(text, '%Y-%m-%d').date()
     except ValueError:
         return None
+
+
+def reset_login_captcha():
+    a = random.randint(1, 9)
+    b = random.randint(1, 9)
+    session['login_captcha_a'] = a
+    session['login_captcha_b'] = b
+    session['login_captcha_answer'] = a + b
+    return a, b
+
+
+def get_login_captcha():
+    a = session.get('login_captcha_a')
+    b = session.get('login_captcha_b')
+    ans = session.get('login_captcha_answer')
+    if a is None or b is None or ans is None:
+        return reset_login_captcha()
+    return a, b
+
+
+def validate_login_captcha(raw_answer):
+    try:
+        provided = int((raw_answer or '').strip())
+    except (TypeError, ValueError):
+        return False
+    expected = session.get('login_captcha_answer')
+    return expected is not None and provided == expected
 
 
 def get_deo_office_flow(user_role, cvo_office):
@@ -521,7 +613,16 @@ def index():
 
 @app.route('/login', methods=['GET', 'POST'])
 def login():
+    if request.method == 'GET' and request.args.get('refresh_captcha') == '1':
+        reset_login_captcha()
+
     if request.method == 'POST':
+        if not validate_login_captcha(request.form.get('captcha_answer')):
+            flash('Captcha answer is incorrect.', 'warning')
+            reset_login_captcha()
+            a, b = get_login_captcha()
+            return render_template('login.html', captcha_a=a, captcha_b=b)
+
         username = request.form.get('username', '').strip()
         password = request.form.get('password', '')
         
@@ -529,7 +630,11 @@ def login():
         if user:
             if user['role'] == 'jmd':
                 flash('JMD login is disabled. Please login using PO credentials.', 'warning')
+                reset_login_captcha()
                 return redirect(url_for('login'))
+            session.pop('login_captcha_a', None)
+            session.pop('login_captcha_b', None)
+            session.pop('login_captcha_answer', None)
             session['user_id'] = user['id']
             session['username'] = user['username']
             session['full_name'] = user['full_name']
@@ -542,8 +647,99 @@ def login():
             return redirect(url_for('dashboard'))
         else:
             flash('Invalid username or password.', 'danger')
-    
-    return render_template('login.html')
+            reset_login_captcha()
+
+    a, b = get_login_captcha()
+    return render_template('login.html', captcha_a=a, captcha_b=b)
+
+
+@app.route('/auth/request-signup', methods=['POST'])
+def request_signup():
+    username = (request.form.get('signup_username') or '').strip()
+    password = request.form.get('signup_password', '').strip()
+    confirm_password = request.form.get('signup_confirm_password', '').strip()
+    full_name = (request.form.get('signup_full_name') or '').strip()
+    role = (request.form.get('signup_role') or '').strip()
+    cvo_office = (request.form.get('signup_cvo_office') or '').strip().lower() or None
+    phone = (request.form.get('signup_phone') or '').strip() or None
+    email = (request.form.get('signup_email') or '').strip() or None
+
+    if not username or len(username) < 3:
+        flash('Username must be at least 3 characters.', 'warning')
+        return redirect(url_for('login'))
+    if not re.match(r'^[A-Za-z0-9_.-]+$', username):
+        flash('Username can only contain letters, numbers, dot, underscore, and hyphen.', 'warning')
+        return redirect(url_for('login'))
+    if not password or len(password) < 6:
+        flash('Password must be at least 6 characters.', 'warning')
+        return redirect(url_for('login'))
+    if password != confirm_password:
+        flash('Password and confirm password do not match.', 'warning')
+        return redirect(url_for('login'))
+    if not full_name or len(full_name) < 3:
+        flash('Officer name must be at least 3 characters.', 'warning')
+        return redirect(url_for('login'))
+    if role not in VALID_PUBLIC_SIGNUP_ROLES:
+        flash('Please select a valid role for signup request.', 'warning')
+        return redirect(url_for('login'))
+    if cvo_office and cvo_office not in VALID_CVO_OFFICES:
+        flash('Please select a valid office.', 'warning')
+        return redirect(url_for('login'))
+    if not validate_contact(phone):
+        flash('Please provide a valid phone number.', 'warning')
+        return redirect(url_for('login'))
+    if not validate_email(email):
+        flash('Please provide a valid email address.', 'warning')
+        return redirect(url_for('login'))
+    if role == 'inspector' and not cvo_office:
+        flash('Office is required for inspector signup request.', 'warning')
+        return redirect(url_for('login'))
+    if role == 'data_entry' and not cvo_office:
+        flash('Office is required for Data Entry signup request.', 'warning')
+        return redirect(url_for('login'))
+    if (role.startswith('cvo_') or role == 'dsp') and not cvo_office:
+        flash('Office is required for CVO/DSP signup request.', 'warning')
+        return redirect(url_for('login'))
+    if role in {'po', 'cmd_apspdcl', 'cmd_apepdcl', 'cmd_apcpdcl', 'cgm_hr_transco'}:
+        cvo_office = None
+
+    try:
+        if models.get_user_by_username(username):
+            flash('Username already exists. Please choose a different username.', 'danger')
+            return redirect(url_for('login'))
+        models.create_signup_request(username, password, full_name, role, cvo_office, phone, email)
+        flash('Signup request submitted. Wait for Super Admin approval.', 'success')
+    except Exception as e:
+        flash(f'Unable to submit signup request: {str(e)}', 'danger')
+    return redirect(url_for('login'))
+
+
+@app.route('/auth/request-recovery', methods=['POST'])
+def request_recovery():
+    username = (request.form.get('recovery_username') or '').strip()
+    new_password = request.form.get('recovery_password', '').strip()
+    confirm_password = request.form.get('recovery_confirm_password', '').strip()
+
+    if not username:
+        flash('Username is required for password recovery.', 'warning')
+        return redirect(url_for('login'))
+    if len(new_password) < 6:
+        flash('New password must be at least 6 characters.', 'warning')
+        return redirect(url_for('login'))
+    if new_password != confirm_password:
+        flash('Password and confirm password do not match.', 'warning')
+        return redirect(url_for('login'))
+
+    try:
+        models.create_password_reset_request(username, new_password)
+        flash('Password recovery request submitted. Wait for Super Admin approval.', 'success')
+    except Exception as e:
+        error_text = str(e).lower()
+        if 'not found' in error_text:
+            flash('Username not found.', 'warning')
+        else:
+            flash(f'Unable to submit recovery request: {str(e)}', 'danger')
+    return redirect(url_for('login'))
 
 @app.route('/logout')
 def logout():
@@ -837,27 +1033,47 @@ def petition_new():
         received_date = parse_date_input(received_date_raw)
         remarks = request.form.get('remarks', '').strip()
         petition_cfg = get_effective_form_field_configs()
+        cfg_received_date = petition_cfg.get('deo_petition.received_date', DEFAULT_FORM_FIELD_CONFIGS['deo_petition.received_date'])
+        cfg_received_at = petition_cfg.get('deo_petition.received_at', DEFAULT_FORM_FIELD_CONFIGS['deo_petition.received_at'])
+        cfg_ereceipt_no = petition_cfg.get('deo_petition.ereceipt_no', DEFAULT_FORM_FIELD_CONFIGS['deo_petition.ereceipt_no'])
+        cfg_ereceipt_file = petition_cfg.get('deo_petition.ereceipt_file', DEFAULT_FORM_FIELD_CONFIGS['deo_petition.ereceipt_file'])
+        cfg_target_cvo = petition_cfg.get('deo_petition.target_cvo', DEFAULT_FORM_FIELD_CONFIGS['deo_petition.target_cvo'])
+        cfg_permission_request = petition_cfg.get('deo_petition.permission_request_type', DEFAULT_FORM_FIELD_CONFIGS['deo_petition.permission_request_type'])
         cfg_petitioner = petition_cfg.get('deo_petition.petitioner_name', DEFAULT_FORM_FIELD_CONFIGS['deo_petition.petitioner_name'])
         cfg_contact = petition_cfg.get('deo_petition.contact', DEFAULT_FORM_FIELD_CONFIGS['deo_petition.contact'])
         cfg_place = petition_cfg.get('deo_petition.place', DEFAULT_FORM_FIELD_CONFIGS['deo_petition.place'])
         cfg_subject = petition_cfg.get('deo_petition.subject', DEFAULT_FORM_FIELD_CONFIGS['deo_petition.subject'])
+        cfg_petition_type = petition_cfg.get('deo_petition.petition_type', DEFAULT_FORM_FIELD_CONFIGS['deo_petition.petition_type'])
+        cfg_source = petition_cfg.get('deo_petition.source_of_petition', DEFAULT_FORM_FIELD_CONFIGS['deo_petition.source_of_petition'])
         cfg_remarks = petition_cfg.get('deo_petition.remarks', DEFAULT_FORM_FIELD_CONFIGS['deo_petition.remarks'])
         cfg_govt_institution = petition_cfg.get('deo_petition.govt_institution_type', DEFAULT_FORM_FIELD_CONFIGS['deo_petition.govt_institution_type'])
 
-        if not received_date:
-            flash('Please provide a valid received date.', 'warning')
+        if cfg_received_date.get('required') and not received_date:
+            flash(f"{cfg_received_date.get('label', 'Received Date')} is required.", 'warning')
+            return render_petition_form()
+        if received_date_raw and not received_date:
+            flash(f"Please provide a valid {cfg_received_date.get('label', 'Received Date').lower()}.", 'warning')
+            return render_petition_form()
+        if cfg_received_at.get('required') and not received_at:
+            flash(f"{cfg_received_at.get('label', 'Received At')} is required.", 'warning')
             return render_petition_form()
         if received_at not in VALID_RECEIVED_AT:
-            flash('Please select a valid received-at office.', 'warning')
+            flash(f"Please select a valid {cfg_received_at.get('label', 'Received At')}.", 'warning')
             return render_petition_form()
         if not subject:
             flash(f"{cfg_subject.get('label', 'Subject')} is required.", 'warning')
             return render_petition_form()
+        if cfg_petition_type.get('required') and not petition_type:
+            flash(f"{cfg_petition_type.get('label', 'Type of Petition')} is required.", 'warning')
+            return render_petition_form()
         if petition_type not in VALID_PETITION_TYPES:
-            flash('Please select a valid petition type.', 'warning')
+            flash(f"Please select a valid {cfg_petition_type.get('label', 'Type of Petition')}.", 'warning')
+            return render_petition_form()
+        if cfg_source.get('required') and not source_of_petition:
+            flash(f"{cfg_source.get('label', 'Source of Petition')} is required.", 'warning')
             return render_petition_form()
         if source_of_petition not in VALID_SOURCE_OF_PETITION:
-            flash('Please select a valid source of petition.', 'warning')
+            flash(f"Please select a valid {cfg_source.get('label', 'Source of Petition')}.", 'warning')
             return render_petition_form()
         govt_option_values = {o.get('value') for o in cfg_govt_institution.get('options', []) if isinstance(o, dict)}
         if source_of_petition == 'govt' and cfg_govt_institution.get('required') and not govt_institution_type:
@@ -879,11 +1095,17 @@ def petition_new():
             flash(f"{cfg_remarks.get('label', 'Remarks')} is required.", 'warning')
             return render_petition_form()
         if not is_jmd_received:
+            if cfg_permission_request.get('required') and not permission_request_type:
+                flash(f"{cfg_permission_request.get('label', 'Permission Request')} is required.", 'warning')
+                return render_petition_form()
             if permission_request_type not in VALID_PERMISSION_REQUEST_TYPES:
-                flash('Please select a valid permission request type.', 'warning')
+                flash(f"Please select a valid {cfg_permission_request.get('label', 'Permission Request')}.", 'warning')
+                return render_petition_form()
+            if cfg_target_cvo.get('required') and not target_cvo:
+                flash(f"{cfg_target_cvo.get('label', 'Target CVO Jurisdiction')} is required.", 'warning')
                 return render_petition_form()
             if target_cvo not in VALID_TARGET_CVO:
-                flash('Please select a valid Target CVO Jurisdiction.', 'warning')
+                flash(f"Please select a valid {cfg_target_cvo.get('label', 'Target CVO Jurisdiction')}.", 'warning')
                 return render_petition_form()
         if petitioner_name and len(petitioner_name) > 255:
             flash('Petitioner name is too long.', 'warning')
@@ -897,8 +1119,11 @@ def petition_new():
         if not validate_contact(contact):
             flash('Please provide a valid contact number.', 'warning')
             return render_petition_form()
+        if cfg_ereceipt_file.get('required') and (not ereceipt_file or not ereceipt_file.filename):
+            flash(f"{cfg_ereceipt_file.get('label', 'E-Receipt File')} is required.", 'warning')
+            return render_petition_form()
         if ereceipt_no and len(ereceipt_no) > 100:
-            flash('E-Receipt No is too long.', 'warning')
+            flash(f"{cfg_ereceipt_no.get('label', 'E-Receipt No')} is too long.", 'warning')
             return render_petition_form()
         if len(remarks) > 5000:
             flash('Remarks are too long.', 'warning')
@@ -927,7 +1152,7 @@ def petition_new():
             'received_at': received_at,
             'target_cvo': None if is_jmd_received else target_cvo,
             'permission_request_type': 'permission_required' if is_jmd_received else permission_request_type,
-            'received_date': received_date,
+            'received_date': received_date or date.today(),
             'remarks': remarks,
             'ereceipt_no': ereceipt_no,
             'ereceipt_file': ereceipt_filename
@@ -1552,13 +1777,74 @@ def users_list():
     cvo_users = models.get_cvo_users()
     role_login_users = models.get_role_login_users()
     inspector_mappings = models.get_inspector_mappings()
+    try:
+        signup_requests = models.get_pending_signup_requests()
+    except Exception:
+        signup_requests = []
+    try:
+        reset_requests = models.get_pending_password_reset_requests()
+    except Exception:
+        reset_requests = []
     return render_template(
         'users.html',
         users=users,
         cvo_users=cvo_users,
         role_login_users=role_login_users,
-        inspector_mappings=inspector_mappings
+        inspector_mappings=inspector_mappings,
+        signup_requests=signup_requests,
+        reset_requests=reset_requests,
     )
+
+
+@app.route('/users/signup-requests/<int:request_id>/approve', methods=['POST'])
+@login_required
+@role_required('super_admin')
+def approve_signup_request(request_id):
+    try:
+        models.approve_signup_request(request_id, session['user_id'])
+        flash('Signup request approved and user created.', 'success')
+    except Exception as e:
+        flash(f'Unable to approve signup request: {str(e)}', 'danger')
+    return redirect(url_for('users_list'))
+
+
+@app.route('/users/signup-requests/<int:request_id>/reject', methods=['POST'])
+@login_required
+@role_required('super_admin')
+def reject_signup_request(request_id):
+    note = (request.form.get('decision_notes') or '').strip()
+    try:
+        models.reject_signup_request(request_id, session['user_id'], note)
+        flash('Signup request rejected.', 'success')
+    except Exception as e:
+        flash(f'Unable to reject signup request: {str(e)}', 'danger')
+    return redirect(url_for('users_list'))
+
+
+@app.route('/users/password-reset-requests/<int:request_id>/approve', methods=['POST'])
+@login_required
+@role_required('super_admin')
+def approve_password_reset_request(request_id):
+    try:
+        models.approve_password_reset_request(request_id, session['user_id'])
+        flash('Password reset request approved.', 'success')
+    except Exception as e:
+        flash(f'Unable to approve password reset request: {str(e)}', 'danger')
+    return redirect(url_for('users_list'))
+
+
+@app.route('/users/password-reset-requests/<int:request_id>/reject', methods=['POST'])
+@login_required
+@role_required('super_admin')
+def reject_password_reset_request(request_id):
+    note = (request.form.get('decision_notes') or '').strip()
+    try:
+        models.reject_password_reset_request(request_id, session['user_id'], note)
+        flash('Password reset request rejected.', 'success')
+    except Exception as e:
+        flash(f'Unable to reject password reset request: {str(e)}', 'danger')
+    return redirect(url_for('users_list'))
+
 
 @app.route('/form-management', methods=['GET', 'POST'])
 @login_required

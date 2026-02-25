@@ -7,10 +7,10 @@
     <div class="login-grid"></div>
     <div class="login-shell">
         <section class="login-panel">
-            <div class="login-tabs" aria-hidden="true">
-                <span class="is-muted">Sign In</span>
-                <span class="is-active">Secure Login</span>
-                <span class="is-muted">Recovery</span>
+            <div class="login-tabs" role="tablist" aria-label="Login options">
+                <button type="button" class="is-muted" data-login-tab="signup" onclick="showLoginTab('signup')">Sign In</button>
+                <button type="button" class="is-active" data-login-tab="secure" onclick="showLoginTab('secure')">Secure Login</button>
+                <button type="button" class="is-muted" data-login-tab="recovery" onclick="showLoginTab('recovery')">Recovery</button>
             </div>
             <div class="login-header">
                 <div class="login-logo-wrap">
@@ -35,21 +35,99 @@
             {% endif %}
             {% endwith %}
 
-            <form method="POST" action="{{ url_for('login') }}" class="login-form">
+            <form method="POST" action="{{ url_for('login') }}" class="login-form" data-login-panel="secure">
                 <div class="form-group">
                     <label for="username">Username</label>
-                    <input type="text" id="username" name="username" required autofocus 
-                           placeholder="Enter your username">
+                    <input type="text" id="username" name="username" required autofocus
+                           placeholder="Enter your username" value="{{ request.form.get('username', '') }}">
                 </div>
                 <div class="form-group">
                     <label for="password">Password</label>
                     <input type="password" id="password" name="password" required
                            placeholder="Enter your password">
                 </div>
-                <button type="submit" class="btn btn-primary btn-full">
-                    Sign In
-                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14"/><path d="M12 5l7 7-7 7"/></svg>
+                <div class="form-group">
+                    <label for="captcha_answer">Security Verification</label>
+                    <div class="login-captcha-challenge-row">
+                        <div class="login-captcha-box" aria-live="polite">{{ captcha_a }} + {{ captcha_b }} = ?</div>
+                        <a href="{{ url_for('login', refresh_captcha='1') }}" class="login-captcha-refresh" title="Refresh captcha" aria-label="Refresh captcha">&#8635;</a>
+                    </div>
+                    <input type="text" id="captcha_answer" name="captcha_answer" required inputmode="numeric" pattern="[0-9]+" placeholder="Enter the CAPTCHA answer">
+                </div>
+                <button type="submit" class="btn btn-primary btn-full login-captcha-verify">
+                    Verify & Sign In
                 </button>
+            </form>
+
+            <form method="POST" action="{{ url_for('request_signup') }}" class="login-form" data-login-panel="signup" style="display:none;">
+                <div class="form-group">
+                    <label for="signup_full_name">Officer Name</label>
+                    <input type="text" id="signup_full_name" name="signup_full_name" minlength="3" placeholder="Your full name">
+                </div>
+                <div class="form-group">
+                    <label for="signup_username">Username</label>
+                    <input type="text" id="signup_username" name="signup_username" minlength="3" placeholder="Choose username">
+                </div>
+                <div class="form-group">
+                    <label for="signup_password">Password</label>
+                    <input type="password" id="signup_password" name="signup_password" minlength="6" placeholder="Create password">
+                </div>
+                <div class="form-group">
+                    <label for="signup_confirm_password">Confirm Password</label>
+                    <input type="password" id="signup_confirm_password" name="signup_confirm_password" minlength="6" placeholder="Confirm password">
+                </div>
+                <div class="form-group">
+                    <label for="signup_role">Requested Role</label>
+                    <select id="signup_role" name="signup_role" onchange="toggleSignupOffice()">
+                        <option value="">-- Select Role --</option>
+                        <option value="data_entry">Data Entry Operator</option>
+                        <option value="po">Personal Officer (Vigilance)</option>
+                        <option value="cmd_apspdcl">CMD - APSPDCL</option>
+                        <option value="cmd_apepdcl">CMD - APEPDCL</option>
+                        <option value="cmd_apcpdcl">CMD - APCPDCL</option>
+                        <option value="cgm_hr_transco">CGM/HR TRANSCO (Headquarters)</option>
+                        <option value="dsp">DSP (Headquarters)</option>
+                        <option value="cvo_apspdcl">CVO - APSPDCL (Tirupathi)</option>
+                        <option value="cvo_apepdcl">CVO - APEPDCL (Vizag)</option>
+                        <option value="cvo_apcpdcl">CVO - APCPDCL (Vijayawada)</option>
+                        <option value="inspector">Field Inspector (CI/SI)</option>
+                    </select>
+                </div>
+                <div class="form-group" id="signup_office_group" style="display:none;">
+                    <label for="signup_cvo_office">Office</label>
+                    <select id="signup_cvo_office" name="signup_cvo_office">
+                        <option value="">-- Select Office --</option>
+                        <option value="apspdcl">APSPDCL</option>
+                        <option value="apepdcl">APEPDCL</option>
+                        <option value="apcpdcl">APCPDCL</option>
+                        <option value="headquarters">Headquarters</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label for="signup_phone">Phone</label>
+                    <input type="text" id="signup_phone" name="signup_phone" placeholder="Phone number">
+                </div>
+                <div class="form-group">
+                    <label for="signup_email">Email</label>
+                    <input type="email" id="signup_email" name="signup_email" placeholder="Email address">
+                </div>
+                <button type="submit" class="btn btn-primary btn-full">Submit Signup Request</button>
+            </form>
+
+            <form method="POST" action="{{ url_for('request_recovery') }}" class="login-form" data-login-panel="recovery" style="display:none;">
+                <div class="form-group">
+                    <label for="recovery_username">Username</label>
+                    <input type="text" id="recovery_username" name="recovery_username" placeholder="Enter your username">
+                </div>
+                <div class="form-group">
+                    <label for="recovery_password">New Password</label>
+                    <input type="password" id="recovery_password" name="recovery_password" minlength="6" placeholder="Enter new password">
+                </div>
+                <div class="form-group">
+                    <label for="recovery_confirm_password">Confirm New Password</label>
+                    <input type="password" id="recovery_confirm_password" name="recovery_confirm_password" minlength="6" placeholder="Confirm new password">
+                </div>
+                <button type="submit" class="btn btn-primary btn-full">Submit Recovery Request</button>
             </form>
 
             <div class="login-footer">
@@ -75,5 +153,34 @@
         </aside>
     </div>
 </div>
+<script>
+function showLoginTab(tabName) {
+    const tabs = document.querySelectorAll('.login-tabs [data-login-tab]');
+    const panels = document.querySelectorAll('.login-form[data-login-panel]');
+    tabs.forEach(btn => {
+        const active = btn.dataset.loginTab === tabName;
+        btn.classList.toggle('is-active', active);
+        btn.classList.toggle('is-muted', !active);
+    });
+    panels.forEach(panel => {
+        panel.style.display = panel.dataset.loginPanel === tabName ? '' : 'none';
+    });
+}
+
+function toggleSignupOffice() {
+    const roleEl = document.getElementById('signup_role');
+    const officeGroup = document.getElementById('signup_office_group');
+    if (!roleEl || !officeGroup) return;
+    const role = roleEl.value || '';
+    const needsOffice = role === 'inspector' || role === 'data_entry' || role.startsWith('cvo_') || role === 'dsp';
+    officeGroup.style.display = needsOffice ? '' : 'none';
+}
+
+document.addEventListener('DOMContentLoaded', function () {
+    showLoginTab('secure');
+    toggleSignupOffice();
+});
+</script>
 {% endblock %}
+
 

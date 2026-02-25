@@ -3,10 +3,18 @@
 {% block page_title %}New Petition Entry{% endblock %}
 
 {% block content %}
+{% set f_received_date = get_field_cfg('deo_petition', 'received_date') %}
+{% set f_received_at = get_field_cfg('deo_petition', 'received_at') %}
+{% set f_ereceipt_no = get_field_cfg('deo_petition', 'ereceipt_no') %}
+{% set f_ereceipt_file = get_field_cfg('deo_petition', 'ereceipt_file') %}
+{% set f_target_cvo = get_field_cfg('deo_petition', 'target_cvo') %}
+{% set f_permission_request = get_field_cfg('deo_petition', 'permission_request_type') %}
 {% set f_petitioner_name = get_field_cfg('deo_petition', 'petitioner_name') %}
 {% set f_contact = get_field_cfg('deo_petition', 'contact') %}
 {% set f_place = get_field_cfg('deo_petition', 'place') %}
 {% set f_subject = get_field_cfg('deo_petition', 'subject') %}
+{% set f_petition_type = get_field_cfg('deo_petition', 'petition_type') %}
+{% set f_source = get_field_cfg('deo_petition', 'source_of_petition') %}
 {% set f_remarks = get_field_cfg('deo_petition', 'remarks') %}
 {% set f_govt_inst = get_field_cfg('deo_petition', 'govt_institution_type') %}
 {% set deo_locked = current_user_role == 'data_entry' and deo_flow %}
@@ -17,13 +25,17 @@
     <form method="POST" action="{{ url_for('petition_new') }}" class="petition-form" enctype="multipart/form-data">
         <div class="form-grid">
             <div class="form-group">
-                <label for="received_date">Received Date <span class="required">*</span></label>
-                <input type="date" id="received_date" name="received_date" value="{{ request.form.get('received_date') or now.strftime('%Y-%m-%d') }}" required>
+                <label for="received_date">{{ f_received_date.label }} {% if f_received_date.required %}<span class="required">*</span>{% endif %}</label>
+                {% if f_received_date.type == 'textarea' %}
+                <textarea id="received_date" name="received_date" rows="1" {% if f_received_date.required %}required{% endif %}>{{ request.form.get('received_date') or now.strftime('%Y-%m-%d') }}</textarea>
+                {% else %}
+                <input type="{{ f_received_date.type }}" id="received_date" name="received_date" value="{{ request.form.get('received_date') or now.strftime('%Y-%m-%d') }}" {% if f_received_date.required %}required{% endif %}>
+                {% endif %}
             </div>
             
             <div class="form-group">
-                <label for="received_at">Received At <span class="required">*</span></label>
-                <select id="received_at" name="received_at" required>
+                <label for="received_at">{{ f_received_at.label }} {% if f_received_at.required %}<span class="required">*</span>{% endif %}</label>
+                <select id="received_at" name="received_at" {% if f_received_at.required %}required{% endif %}>
                     <option value="">-- Select Office --</option>
                     {% if deo_locked %}
                     <option value="{{ deo_flow.received_at }}" selected>{{ deo_flow.received_at_label }}</option>
@@ -37,18 +49,18 @@
             </div>
 
             <div class="form-group">
-                <label for="ereceipt_no">E-Receipt No</label>
-                <input type="text" id="ereceipt_no" name="ereceipt_no" value="{{ request.form.get('ereceipt_no', '') }}" placeholder="Enter e-receipt number">
+                <label for="ereceipt_no">{{ f_ereceipt_no.label }} {% if f_ereceipt_no.required %}<span class="required">*</span>{% endif %}</label>
+                <input type="{{ f_ereceipt_no.type }}" id="ereceipt_no" name="ereceipt_no" value="{{ request.form.get('ereceipt_no', '') }}" {% if f_ereceipt_no.required %}required{% endif %} placeholder="Enter e-receipt number">
             </div>
 
             <div class="form-group">
-                <label for="ereceipt_file">Upload E-Receipt (PDF, max 10MB)</label>
-                <input type="file" id="ereceipt_file" name="ereceipt_file" accept=".pdf">
+                <label for="ereceipt_file">{{ f_ereceipt_file.label }} {% if f_ereceipt_file.required %}<span class="required">*</span>{% endif %}</label>
+                <input type="file" id="ereceipt_file" name="ereceipt_file" accept=".pdf" {% if f_ereceipt_file.required %}required{% endif %}>
             </div>
 
             <div class="form-group" id="target_cvo_group">
-                <label for="target_cvo">Target CVO Jurisdiction</label>
-                <select id="target_cvo" name="target_cvo">
+                <label for="target_cvo">{{ f_target_cvo.label }} {% if f_target_cvo.required %}<span class="required">*</span>{% endif %}</label>
+                <select id="target_cvo" name="target_cvo" {% if f_target_cvo.required %}required{% endif %}>
                     <option value="">-- Select CVO --</option>
                     {% if deo_locked and deo_flow.received_at != 'jmd_office' %}
                     <option value="{{ deo_flow.target_cvo }}" selected>{{ deo_flow.target_cvo_label }}</option>
@@ -62,8 +74,8 @@
             </div>
 
             <div class="form-group" id="permission_request_group">
-                <label for="permission_request_type">Permission Request <span class="required">*</span></label>
-                <select id="permission_request_type" name="permission_request_type" required>
+                <label for="permission_request_type">{{ f_permission_request.label }} {% if f_permission_request.required %}<span class="required">*</span>{% endif %}</label>
+                <select id="permission_request_type" name="permission_request_type" {% if f_permission_request.required %}required{% endif %}>
                     {% if deo_locked and deo_flow.force_permission_required %}
                     <option value="permission_required" selected>Permission Required (CVO sends to PO for approval)</option>
                     {% else %}
@@ -110,8 +122,8 @@
             </div>
             
             <div class="form-group">
-                <label for="petition_type">Type of Petition <span class="required">*</span></label>
-                <select id="petition_type" name="petition_type" required>
+                <label for="petition_type">{{ f_petition_type.label }} {% if f_petition_type.required %}<span class="required">*</span>{% endif %}</label>
+                <select id="petition_type" name="petition_type" {% if f_petition_type.required %}required{% endif %}>
                     <option value="">-- Select Type --</option>
                     <option value="bribe" {% if request.form.get('petition_type') == 'bribe' %}selected{% endif %}>Bribe</option>
                     <option value="harassment" {% if request.form.get('petition_type') == 'harassment' %}selected{% endif %}>Harassment</option>
@@ -123,8 +135,8 @@
             </div>
 
             <div class="form-group">
-                <label for="source_of_petition">Source of Petition <span class="required">*</span></label>
-                <select id="source_of_petition" name="source_of_petition" required>
+                <label for="source_of_petition">{{ f_source.label }} {% if f_source.required %}<span class="required">*</span>{% endif %}</label>
+                <select id="source_of_petition" name="source_of_petition" {% if f_source.required %}required{% endif %}>
                     <option value="media" {% if request.form.get('source_of_petition') == 'media' %}selected{% endif %}>Media</option>
                     <option value="public_individual" {% if (request.form.get('source_of_petition') or 'public_individual') == 'public_individual' %}selected{% endif %}>Public (Individual)</option>
                     <option value="govt" {% if request.form.get('source_of_petition') == 'govt' %}selected{% endif %}>Govt</option>
