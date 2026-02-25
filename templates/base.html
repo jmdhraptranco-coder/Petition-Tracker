@@ -127,6 +127,29 @@
                             </div>
                         </div>
                     </div>
+                    <div class="notif-wrap">
+                        <button id="profileMenuToggle" class="notif-toggle top-profile-btn" type="button" aria-label="Profile menu" aria-expanded="false" title="Profile menu">
+                            <img src="{{ url_for('static', filename='img/officer-icon.svg') }}" alt="Officer" class="top-profile-officer-icon">
+                        </button>
+                        <div id="profileMenu" class="notif-menu profile-menu" hidden>
+                            <div class="notif-head">
+                                <strong>{{ current_user_name or 'Officer' }}</strong>
+                            </div>
+                            <div class="notif-list">
+                                <a href="{{ url_for('profile') }}" class="notif-item">
+                                    <span class="notif-item-top">My Profile</span>
+                                </a>
+                                <a href="{{ url_for('logout') }}" class="notif-item">
+                                    <span class="notif-item-top">Logout</span>
+                                </a>
+                            </div>
+                        </div>
+                    </div>
+                    {% if dashboard_active_filter_count is defined and dashboard_active_filter_count > 0 %}
+                    <span class="top-filter-indicator" title="{{ dashboard_active_filter_labels|join(', ') }}">
+                        Filters: {{ dashboard_active_filter_count }}
+                    </span>
+                    {% endif %}
                     <span class="date-display">{{ now.strftime('%d %b %Y') }}</span>
                     <button id="themeToggle" class="theme-toggle" type="button" aria-label="Toggle night mode" aria-pressed="false" title="Toggle night mode">
                         <span class="theme-toggle-icon theme-toggle-sun" aria-hidden="true">

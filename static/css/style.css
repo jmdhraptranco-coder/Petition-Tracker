@@ -1117,6 +1117,28 @@ body {
     outline: none;
 }
 
+.filter-select,
+.dashboard-filter-input,
+.form-group select {
+    -webkit-text-fill-color: currentColor;
+    opacity: 1;
+}
+
+.filter-select option,
+.dashboard-filter-input option,
+.form-group select option {
+    color: #1f3f77;
+    background-color: #ffffff;
+    -webkit-text-fill-color: #1f3f77;
+}
+
+.filter-select option:disabled,
+.dashboard-filter-input option:disabled,
+.form-group select option:disabled {
+    color: #6f86b0;
+    -webkit-text-fill-color: #6f86b0;
+}
+
 .header-actions {
     display: flex;
     align-items: center;
@@ -3984,6 +4006,52 @@ html[data-theme='dark'] .report-card .report-quick-file {
     gap: 10px;
 }
 
+.top-profile-btn {
+    text-decoration: none;
+}
+
+.top-profile-btn svg {
+    width: 18px;
+    height: 18px;
+}
+
+.top-profile-officer-icon {
+    width: 22px;
+    height: 22px;
+    border-radius: 50%;
+    object-fit: cover;
+}
+
+.profile-menu {
+    width: min(220px, calc(100vw - 24px));
+}
+
+.profile-menu .notif-head {
+    justify-content: flex-start;
+}
+
+.profile-menu .notif-item {
+    padding: 10px 12px;
+}
+
+.profile-menu .notif-item-top {
+    font-size: 0.8rem;
+}
+
+.top-filter-indicator {
+    display: inline-flex;
+    align-items: center;
+    min-height: 28px;
+    padding: 0 10px;
+    border-radius: 999px;
+    border: 1px solid rgba(166, 191, 236, 0.9);
+    background: rgba(238, 246, 255, 0.95);
+    color: #355891;
+    font-size: 0.78rem;
+    font-weight: 700;
+    white-space: nowrap;
+}
+
 .notif-wrap {
     position: relative;
 }
@@ -4189,6 +4257,31 @@ html[data-theme='dark'] .notif-toggle {
     border-color: #36405a;
     color: #d7e4ff;
     box-shadow: 0 7px 14px rgba(3, 8, 18, 0.45);
+}
+
+html[data-theme='dark'] .filter-select option,
+html[data-theme='dark'] .dashboard-filter-input option,
+html[data-theme='dark'] .form-group select option {
+    color: #e8f0ff;
+    background-color: #1b2436;
+    -webkit-text-fill-color: #e8f0ff;
+}
+
+html[data-theme='dark'] .filter-select option:disabled,
+html[data-theme='dark'] .dashboard-filter-input option:disabled,
+html[data-theme='dark'] .form-group select option:disabled {
+    color: #95a8c8;
+    -webkit-text-fill-color: #95a8c8;
+}
+
+html[data-theme='dark'] .top-filter-indicator {
+    background: rgba(30, 46, 74, 0.9);
+    border-color: rgba(108, 137, 194, 0.8);
+    color: #d7e6ff;
+}
+
+html[data-theme='dark'] .profile-menu .notif-head {
+    color: #dfeaff;
 }
 
 html[data-theme='dark'] .notif-badge {
@@ -4782,7 +4875,7 @@ html[data-theme='dark'] .info-value {
 
 .dashboard-filter-art-inline .officer-greet-wrap {
     min-height: 36px;
-    gap: 9px;
+    gap: 6px;
     padding: 2px 1px;
 }
 

@@ -815,6 +815,48 @@ def dashboard():
             continue
         filtered_petitions.append(p)
 
+    petition_type_labels = {
+        'bribe': 'Bribe',
+        'harassment': 'Harassment',
+        'theft_of_materials': 'Theft of Materials',
+        'adverse_news': 'Adverse News',
+        'procedural_lapses': 'Procedural Lapses',
+        'other': 'Other',
+    }
+    source_labels = {
+        'media': 'Media',
+        'public_individual': 'Public (Individual)',
+        'govt': 'Govt',
+        'sumoto': 'Sumoto',
+    }
+    office_labels = {
+        'jmd_office': 'PO Office',
+        'cvo_apspdcl_tirupathi': 'CVO APSPDCL',
+        'cvo_apepdcl_vizag': 'CVO APEPDCL',
+        'cvo_apcpdcl_vijayawada': 'CVO APCPDCL',
+    }
+    cvo_labels = {
+        'apspdcl': 'APSPDCL',
+        'apepdcl': 'APEPDCL',
+        'apcpdcl': 'APCPDCL',
+        'headquarters': 'Headquarters',
+    }
+    active_filter_labels = []
+    if from_date:
+        active_filter_labels.append(f"From: {from_date.strftime('%d %b %Y')}")
+    if to_date:
+        active_filter_labels.append(f"To: {to_date.strftime('%d %b %Y')}")
+    if petition_type_filter != 'all':
+        active_filter_labels.append(f"Type: {petition_type_labels.get(petition_type_filter, petition_type_filter)}")
+    if source_filter != 'all':
+        active_filter_labels.append(f"Source: {source_labels.get(source_filter, source_filter)}")
+    if received_at_filter != 'all':
+        active_filter_labels.append(f"Received: {office_labels.get(received_at_filter, received_at_filter)}")
+    if target_cvo_filter != 'all':
+        active_filter_labels.append(f"Office: {cvo_labels.get(target_cvo_filter, target_cvo_filter)}")
+    if officer_filter:
+        active_filter_labels.append(f"Officer: {officer_lookup.get(officer_filter, str(officer_filter))}")
+
     stats = _build_filtered_dashboard_stats(user_role, user_id, petitions, filtered_petitions)
     analytics = _build_dashboard_analytics(filtered_petitions, stats)
 
@@ -833,6 +875,8 @@ def dashboard():
             'target_cvo': target_cvo_filter,
             'officer_id': str(officer_filter) if officer_filter else 'all',
         },
+        dashboard_active_filter_count=len(active_filter_labels),
+        dashboard_active_filter_labels=active_filter_labels,
     )
 
 

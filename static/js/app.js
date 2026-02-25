@@ -31,6 +31,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
     const notifToggle = document.getElementById('notifToggle');
     const notifMenu = document.getElementById('notifMenu');
+    const profileMenuToggle = document.getElementById('profileMenuToggle');
+    const profileMenu = document.getElementById('profileMenu');
     if (notifToggle && notifMenu) {
         const closeNotif = () => {
             notifMenu.hidden = true;
@@ -55,6 +57,33 @@ document.addEventListener('DOMContentLoaded', () => {
         });
         document.addEventListener('keydown', (e) => {
             if (e.key === 'Escape') closeNotif();
+        });
+    }
+
+    if (profileMenuToggle && profileMenu) {
+        const closeProfileMenu = () => {
+            profileMenu.hidden = true;
+            profileMenuToggle.setAttribute('aria-expanded', 'false');
+        };
+        const openProfileMenu = () => {
+            profileMenu.hidden = false;
+            profileMenuToggle.setAttribute('aria-expanded', 'true');
+        };
+        profileMenuToggle.addEventListener('click', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            const willOpen = profileMenu.hidden;
+            if (willOpen) openProfileMenu();
+            else closeProfileMenu();
+        });
+        document.addEventListener('click', (e) => {
+            if (profileMenu.hidden) return;
+            if (!profileMenu.contains(e.target) && !profileMenuToggle.contains(e.target)) {
+                closeProfileMenu();
+            }
+        });
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape') closeProfileMenu();
         });
     }
 

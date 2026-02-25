@@ -40,7 +40,7 @@
                 <details class="dashboard-more-filters">
                     <summary class="dashboard-filter-icon-btn" title="More filters">
                         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6h18M6 12h12M10 18h4"/></svg>
-                        <span>Filters</span>
+                        <span>Filters{% if dashboard_active_filter_count is defined and dashboard_active_filter_count > 0 %} ({{ dashboard_active_filter_count }}){% endif %}</span>
                     </summary>
                     <div class="dashboard-more-filters-panel">
                         <select class="filter-select dashboard-filter-input" name="petition_type" aria-label="Petition type">
@@ -82,9 +82,6 @@
             </div>
             <div class="dashboard-filter-art dashboard-filter-art-inline" aria-hidden="true">
                 <div class="officer-greet-wrap">
-                    <div class="officer-greet-icon" aria-hidden="true">
-                        <span class="officer-greet-emoji">&#128110;</span>
-                    </div>
                     <div class="officer-greet-text">
                         <div class="officer-greet-title">Hi! {{ current_user_name or 'Officer' }}</div>
                         <div class="officer-greet-subtitle">{{ wish_text }}</div>
