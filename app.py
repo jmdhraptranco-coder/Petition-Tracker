@@ -864,24 +864,6 @@ def dashboard():
     user_id = session['user_id']
     cvo_office = session.get('cvo_office')
 
-    from_date = parse_date_input(request.args.get('from_date'))
-    to_date = parse_date_input(request.args.get('to_date'))
-    if from_date and to_date and from_date > to_date:
-        from_date, to_date = to_date, from_date
-    petition_type_filter = (request.args.get('petition_type') or 'all').strip()
-    if petition_type_filter not in VALID_PETITION_TYPES and petition_type_filter != 'all':
-        petition_type_filter = 'all'
-    source_filter = (request.args.get('source_of_petition') or 'all').strip()
-    if source_filter not in VALID_SOURCE_OF_PETITION and source_filter != 'all':
-        source_filter = 'all'
-    received_at_filter = (request.args.get('received_at') or 'all').strip()
-    if received_at_filter not in VALID_RECEIVED_AT and received_at_filter != 'all':
-        received_at_filter = 'all'
-    target_cvo_filter = (request.args.get('target_cvo') or 'all').strip()
-    if target_cvo_filter not in VALID_TARGET_CVO and target_cvo_filter != 'all':
-        target_cvo_filter = 'all'
-    officer_filter_raw = (request.args.get('officer_id') or 'all').strip()
-
     petitions = get_petitions_for_user_cached(user_id, user_role, cvo_office)
     officer_lookup = {}
     for p in petitions:
@@ -893,33 +875,8 @@ def dashboard():
         {'id': oid, 'name': name}
         for oid, name in sorted(officer_lookup.items(), key=lambda x: x[1].lower())
     ]
-
-    officer_filter = None
-    if officer_filter_raw != 'all':
-        parsed_officer = parse_optional_int(officer_filter_raw)
-        if parsed_officer in officer_lookup:
-            officer_filter = parsed_officer
-        else:
-            officer_filter_raw = 'all'
-
-    filtered_petitions = []
-    for p in petitions:
-        received_date = p.get('received_date')
-        if from_date and (not received_date or received_date < from_date):
-            continue
-        if to_date and (not received_date or received_date > to_date):
-            continue
-        if petition_type_filter != 'all' and p.get('petition_type') != petition_type_filter:
-            continue
-        if source_filter != 'all' and p.get('source_of_petition') != source_filter:
-            continue
-        if received_at_filter != 'all' and p.get('received_at') != received_at_filter:
-            continue
-        if target_cvo_filter != 'all' and p.get('target_cvo') != target_cvo_filter:
-            continue
-        if officer_filter and int(p.get('assigned_inspector_id') or 0) != officer_filter:
-            continue
-        filtered_petitions.append(p)
+    dashboard_filter = _extract_dashboard_filters(request.args, officer_lookup)
+    filtered_petitions = _apply_dashboard_filters(petitions, dashboard_filter)
 
     petition_type_labels = {
         'bribe': 'Bribe',
@@ -953,42 +910,119 @@ def dashboard():
         'headquarters': 'Headquarters',
     }
     active_filter_labels = []
-    if from_date:
-        active_filter_labels.append(f"From: {from_date.strftime('%d %b %Y')}")
-    if to_date:
-        active_filter_labels.append(f"To: {to_date.strftime('%d %b %Y')}")
-    if petition_type_filter != 'all':
-        active_filter_labels.append(f"Type: {petition_type_labels.get(petition_type_filter, petition_type_filter)}")
-    if source_filter != 'all':
-        active_filter_labels.append(f"Source: {source_labels.get(source_filter, source_filter)}")
-    if received_at_filter != 'all':
-        active_filter_labels.append(f"Received: {office_labels.get(received_at_filter, received_at_filter)}")
-    if target_cvo_filter != 'all':
-        active_filter_labels.append(f"Office: {cvo_labels.get(target_cvo_filter, target_cvo_filter)}")
-    if officer_filter:
-        active_filter_labels.append(f"Officer: {officer_lookup.get(officer_filter, str(officer_filter))}")
+    if dashboard_filter['from_date']:
+        active_filter_labels.append(f"From: {dashboard_filter['from_date'].strftime('%d %b %Y')}")
+    if dashboard_filter['to_date']:
+        active_filter_labels.append(f"To: {dashboard_filter['to_date'].strftime('%d %b %Y')}")
+    if dashboard_filter['petition_type'] != 'all':
+        active_filter_labels.append(f"Type: {petition_type_labels.get(dashboard_filter['petition_type'], dashboard_filter['petition_type'])}")
+    if dashboard_filter['source_of_petition'] != 'all':
+        active_filter_labels.append(f"Source: {source_labels.get(dashboard_filter['source_of_petition'], dashboard_filter['source_of_petition'])}")
+    if dashboard_filter['received_at'] != 'all':
+        active_filter_labels.append(f"Received: {office_labels.get(dashboard_filter['received_at'], dashboard_filter['received_at'])}")
+    if dashboard_filter['target_cvo'] != 'all':
+        active_filter_labels.append(f"Office: {cvo_labels.get(dashboard_filter['target_cvo'], dashboard_filter['target_cvo'])}")
+    if dashboard_filter['officer_id']:
+        active_filter_labels.append(f"Officer: {officer_lookup.get(dashboard_filter['officer_id'], str(dashboard_filter['officer_id']))}")
 
     stats = _build_filtered_dashboard_stats(user_role, user_id, petitions, filtered_petitions)
-    analytics = _build_dashboard_analytics(filtered_petitions, stats)
+    analytics = _build_dashboard_analytics([], {'sla_within': 0, 'sla_breached': 0})
+
+    total_items = len(filtered_petitions)
+    page_size = min(100, max(10, parse_optional_int(request.args.get('page_size')) or 20))
+    total_pages = max(1, (total_items + page_size - 1) // page_size)
+    page = min(total_pages, max(1, parse_optional_int(request.args.get('page')) or 1))
+    start = (page - 1) * page_size
+    end = start + page_size
+    paged_petitions = filtered_petitions[start:end]
 
     return render_template(
         'dashboard.html',
         stats=stats,
-        petitions=filtered_petitions,
+        petitions=paged_petitions,
         analytics=analytics,
         officer_options=officer_options,
         dashboard_filter={
-            'from_date': from_date.strftime('%Y-%m-%d') if from_date else '',
-            'to_date': to_date.strftime('%Y-%m-%d') if to_date else '',
-            'petition_type': petition_type_filter,
-            'source_of_petition': source_filter,
-            'received_at': received_at_filter,
-            'target_cvo': target_cvo_filter,
-            'officer_id': str(officer_filter) if officer_filter else 'all',
+            'from_date': dashboard_filter['from_date'].strftime('%Y-%m-%d') if dashboard_filter['from_date'] else '',
+            'to_date': dashboard_filter['to_date'].strftime('%Y-%m-%d') if dashboard_filter['to_date'] else '',
+            'petition_type': dashboard_filter['petition_type'],
+            'source_of_petition': dashboard_filter['source_of_petition'],
+            'received_at': dashboard_filter['received_at'],
+            'target_cvo': dashboard_filter['target_cvo'],
+            'officer_id': str(dashboard_filter['officer_id']) if dashboard_filter['officer_id'] else 'all',
+            'page': page,
+            'page_size': page_size,
         },
         dashboard_active_filter_count=len(active_filter_labels),
         dashboard_active_filter_labels=active_filter_labels,
+        dashboard_pagination={
+            'page': page,
+            'page_size': page_size,
+            'total_items': total_items,
+            'total_pages': total_pages,
+            'start_item': (start + 1) if total_items else 0,
+            'end_item': min(end, total_items),
+        }
     )
+
+
+def _extract_dashboard_filters(args, officer_lookup):
+    from_date = parse_date_input(args.get('from_date'))
+    to_date = parse_date_input(args.get('to_date'))
+    if from_date and to_date and from_date > to_date:
+        from_date, to_date = to_date, from_date
+
+    petition_type_filter = (args.get('petition_type') or 'all').strip()
+    if petition_type_filter not in VALID_PETITION_TYPES and petition_type_filter != 'all':
+        petition_type_filter = 'all'
+    source_filter = (args.get('source_of_petition') or 'all').strip()
+    if source_filter not in VALID_SOURCE_OF_PETITION and source_filter != 'all':
+        source_filter = 'all'
+    received_at_filter = (args.get('received_at') or 'all').strip()
+    if received_at_filter not in VALID_RECEIVED_AT and received_at_filter != 'all':
+        received_at_filter = 'all'
+    target_cvo_filter = (args.get('target_cvo') or 'all').strip()
+    if target_cvo_filter not in VALID_TARGET_CVO and target_cvo_filter != 'all':
+        target_cvo_filter = 'all'
+
+    officer_filter = None
+    officer_filter_raw = (args.get('officer_id') or 'all').strip()
+    if officer_filter_raw != 'all':
+        parsed_officer = parse_optional_int(officer_filter_raw)
+        if parsed_officer in officer_lookup:
+            officer_filter = parsed_officer
+
+    return {
+        'from_date': from_date,
+        'to_date': to_date,
+        'petition_type': petition_type_filter,
+        'source_of_petition': source_filter,
+        'received_at': received_at_filter,
+        'target_cvo': target_cvo_filter,
+        'officer_id': officer_filter,
+    }
+
+
+def _apply_dashboard_filters(petitions, filters):
+    filtered = []
+    for p in petitions:
+        received_date = p.get('received_date')
+        if filters['from_date'] and (not received_date or received_date < filters['from_date']):
+            continue
+        if filters['to_date'] and (not received_date or received_date > filters['to_date']):
+            continue
+        if filters['petition_type'] != 'all' and p.get('petition_type') != filters['petition_type']:
+            continue
+        if filters['source_of_petition'] != 'all' and p.get('source_of_petition') != filters['source_of_petition']:
+            continue
+        if filters['received_at'] != 'all' and p.get('received_at') != filters['received_at']:
+            continue
+        if filters['target_cvo'] != 'all' and p.get('target_cvo') != filters['target_cvo']:
+            continue
+        if filters['officer_id'] and int(p.get('assigned_inspector_id') or 0) != filters['officer_id']:
+            continue
+        filtered.append(p)
+    return filtered
 
 
 def _build_filtered_dashboard_stats(user_role, user_id, all_petitions, filtered_petitions):
@@ -2758,6 +2792,26 @@ def api_dashboard_drilldown():
             'received_date': p.get('received_date').strftime('%d/%m/%Y') if p.get('received_date') else '-'
         })
     return jsonify({'items': items})
+
+
+@app.route('/api/dashboard-analytics')
+@login_required
+def api_dashboard_analytics():
+    user_role = session['user_role']
+    user_id = session['user_id']
+    cvo_office = session.get('cvo_office')
+    petitions = get_petitions_for_user_cached(user_id, user_role, cvo_office)
+    officer_lookup = {}
+    for p in petitions:
+        officer_id = p.get('assigned_inspector_id')
+        officer_name = (p.get('inspector_name') or '').strip()
+        if officer_id and officer_name:
+            officer_lookup[int(officer_id)] = officer_name
+    dashboard_filter = _extract_dashboard_filters(request.args, officer_lookup)
+    filtered_petitions = _apply_dashboard_filters(petitions, dashboard_filter)
+    stats = _build_filtered_dashboard_stats(user_role, user_id, petitions, filtered_petitions)
+    analytics = _build_dashboard_analytics(filtered_petitions, stats)
+    return jsonify({'analytics': analytics, 'summary': analytics.get('summary', {})})
 
 @app.route('/healthz')
 def healthz():

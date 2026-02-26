@@ -123,6 +123,15 @@ def ensure_schema_updates():
             ALTER TABLE petition_tracking
             ADD COLUMN IF NOT EXISTS attachment_file VARCHAR(255)
         """)
+        # Dashboard / listing performance indexes
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_petitions_status ON petitions(status)")
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_petitions_received_date ON petitions(received_date DESC)")
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_petitions_target_cvo_status ON petitions(target_cvo, status)")
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_petitions_received_at_status ON petitions(received_at, status)")
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_petitions_assigned_inspector ON petitions(assigned_inspector_id)")
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_petitions_current_handler ON petitions(current_handler_id)")
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_petitions_type_source ON petitions(petition_type, source_of_petition)")
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_petitions_requires_permission ON petitions(requires_permission)")
     except Exception:
         raise
     finally:

@@ -6,6 +6,7 @@
 <div class="dashboard dashboard-compact-board" data-user-role="{{ current_user_role }}">
     <div class="dashboard-filter-shell">
         <form class="dashboard-filter-inline dashboard-filter-inline-compact" method="GET" action="{{ url_for('dashboard') }}">
+            <input type="hidden" name="page" value="1">
             <div class="dashboard-filter-main">
                 <div class="dashboard-filter-field">
                     <label class="dashboard-filter-mini-label" for="dashboardFromDate" data-i18n="dash.from_date">From Date</label>
@@ -205,27 +206,27 @@
     <div class="analytics-summary-grid">
         <div class="analytics-summary-item is-drilldown" data-metric="all" data-title="Total Visible Petitions">
             <span class="analytics-summary-label" data-i18n="dash.total_visible">Total Visible</span>
-            <strong class="analytics-summary-value">{{ analytics.summary.total_visible }}</strong>
+            <strong class="analytics-summary-value" id="dashSummaryTotal">{{ analytics.summary.total_visible }}</strong>
         </div>
         <div class="analytics-summary-item is-drilldown" data-metric="active" data-title="Active Cases">
             <span class="analytics-summary-label" data-i18n="dash.active_cases">Active Cases</span>
-            <strong class="analytics-summary-value">{{ analytics.summary.active }}</strong>
+            <strong class="analytics-summary-value" id="dashSummaryActive">{{ analytics.summary.active }}</strong>
         </div>
         <div class="analytics-summary-item is-drilldown" data-metric="status:lodged" data-title="Lodged Cases">
             <span class="analytics-summary-label" data-i18n="dash.lodged">Lodged</span>
-            <strong class="analytics-summary-value">{{ analytics.summary.lodged }}</strong>
+            <strong class="analytics-summary-value" id="dashSummaryLodged">{{ analytics.summary.lodged }}</strong>
         </div>
         <div class="analytics-summary-item is-drilldown" data-metric="status:closed" data-title="Closed Cases">
             <span class="analytics-summary-label" data-i18n="dash.closed">Closed</span>
-            <strong class="analytics-summary-value">{{ analytics.summary.closed }}</strong>
+            <strong class="analytics-summary-value" id="dashSummaryClosed">{{ analytics.summary.closed }}</strong>
         </div>
         <div class="analytics-summary-item is-drilldown" data-metric="sla_within" data-title="SLA Within">
             <span class="analytics-summary-label" data-i18n="dash.sla_within">SLA Within</span>
-            <strong class="analytics-summary-value">{{ analytics.summary.sla_within }}</strong>
+            <strong class="analytics-summary-value" id="dashSummarySlaWithin">{{ analytics.summary.sla_within }}</strong>
         </div>
         <div class="analytics-summary-item is-drilldown" data-metric="sla_breached" data-title="SLA Breached">
             <span class="analytics-summary-label" data-i18n="dash.sla_breached">SLA Breached</span>
-            <strong class="analytics-summary-value">{{ analytics.summary.sla_breached }}</strong>
+            <strong class="analytics-summary-value" id="dashSummarySlaBreached">{{ analytics.summary.sla_breached }}</strong>
         </div>
     </div>
 
@@ -268,6 +269,78 @@
                 </tbody>
             </table>
         </div>
+        {% if dashboard_pagination %}
+        <div class="table-footer dashboard-pagination-bar">
+            <span class="dashboard-pagination-meta">Showing {{ dashboard_pagination.start_item }}-{{ dashboard_pagination.end_item }} of {{ dashboard_pagination.total_items }}</span>
+            <div class="dashboard-pagination-controls">
+                <form method="GET" action="{{ url_for('dashboard') }}" class="dashboard-rows-form">
+                    <input type="hidden" name="from_date" value="{{ dashboard_filter.from_date if dashboard_filter else '' }}">
+                    <input type="hidden" name="to_date" value="{{ dashboard_filter.to_date if dashboard_filter else '' }}">
+                    <input type="hidden" name="petition_type" value="{{ dashboard_filter.petition_type if dashboard_filter else 'all' }}">
+                    <input type="hidden" name="source_of_petition" value="{{ dashboard_filter.source_of_petition if dashboard_filter else 'all' }}">
+                    <input type="hidden" name="received_at" value="{{ dashboard_filter.received_at if dashboard_filter else 'all' }}">
+                    <input type="hidden" name="target_cvo" value="{{ dashboard_filter.target_cvo if dashboard_filter else 'all' }}">
+                    <input type="hidden" name="officer_id" value="{{ dashboard_filter.officer_id if dashboard_filter else 'all' }}">
+                    <input type="hidden" name="page" value="1">
+                    <label for="dashboardPageSize">Rows</label>
+                    {% set _ps = (dashboard_filter.page_size if dashboard_filter and dashboard_filter.page_size else 20) %}
+                    <select id="dashboardPageSize" class="filter-select dashboard-page-size-select" name="page_size" onchange="this.form.submit()">
+                        <option value="10" {% if _ps == 10 %}selected{% endif %}>10</option>
+                        <option value="20" {% if _ps == 20 %}selected{% endif %}>20</option>
+                        <option value="50" {% if _ps == 50 %}selected{% endif %}>50</option>
+                        <option value="100" {% if _ps == 100 %}selected{% endif %}>100</option>
+                    </select>
+                </form>
+                <div class="dashboard-pagination-nav">
+                <a class="btn btn-xs btn-outline dashboard-page-edge {% if dashboard_pagination.page <= 1 %}disabled{% endif %}" href="{{ url_for('dashboard',
+                    from_date=(dashboard_filter.from_date if dashboard_filter else ''),
+                    to_date=(dashboard_filter.to_date if dashboard_filter else ''),
+                    petition_type=(dashboard_filter.petition_type if dashboard_filter else 'all'),
+                    source_of_petition=(dashboard_filter.source_of_petition if dashboard_filter else 'all'),
+                    received_at=(dashboard_filter.received_at if dashboard_filter else 'all'),
+                    target_cvo=(dashboard_filter.target_cvo if dashboard_filter else 'all'),
+                    officer_id=(dashboard_filter.officer_id if dashboard_filter else 'all'),
+                    page_size=(dashboard_filter.page_size if dashboard_filter else 20),
+                    page=1
+                ) }}">First</a>
+                <a class="btn btn-xs btn-outline {% if dashboard_pagination.page <= 1 %}disabled{% endif %}" href="{{ url_for('dashboard',
+                    from_date=(dashboard_filter.from_date if dashboard_filter else ''),
+                    to_date=(dashboard_filter.to_date if dashboard_filter else ''),
+                    petition_type=(dashboard_filter.petition_type if dashboard_filter else 'all'),
+                    source_of_petition=(dashboard_filter.source_of_petition if dashboard_filter else 'all'),
+                    received_at=(dashboard_filter.received_at if dashboard_filter else 'all'),
+                    target_cvo=(dashboard_filter.target_cvo if dashboard_filter else 'all'),
+                    officer_id=(dashboard_filter.officer_id if dashboard_filter else 'all'),
+                    page_size=(dashboard_filter.page_size if dashboard_filter else 20),
+                    page=(dashboard_pagination.page - 1 if dashboard_pagination.page > 1 else 1)
+                ) }}">Prev</a>
+                <span class="dashboard-pagination-page">Page {{ dashboard_pagination.page }} / {{ dashboard_pagination.total_pages }}</span>
+                <a class="btn btn-xs btn-outline dashboard-page-edge {% if dashboard_pagination.page >= dashboard_pagination.total_pages %}disabled{% endif %}" href="{{ url_for('dashboard',
+                    from_date=(dashboard_filter.from_date if dashboard_filter else ''),
+                    to_date=(dashboard_filter.to_date if dashboard_filter else ''),
+                    petition_type=(dashboard_filter.petition_type if dashboard_filter else 'all'),
+                    source_of_petition=(dashboard_filter.source_of_petition if dashboard_filter else 'all'),
+                    received_at=(dashboard_filter.received_at if dashboard_filter else 'all'),
+                    target_cvo=(dashboard_filter.target_cvo if dashboard_filter else 'all'),
+                    officer_id=(dashboard_filter.officer_id if dashboard_filter else 'all'),
+                    page_size=(dashboard_filter.page_size if dashboard_filter else 20),
+                    page=(dashboard_pagination.page + 1 if dashboard_pagination.page < dashboard_pagination.total_pages else dashboard_pagination.total_pages)
+                ) }}">Next</a>
+                <a class="btn btn-xs btn-outline {% if dashboard_pagination.page >= dashboard_pagination.total_pages %}disabled{% endif %}" href="{{ url_for('dashboard',
+                    from_date=(dashboard_filter.from_date if dashboard_filter else ''),
+                    to_date=(dashboard_filter.to_date if dashboard_filter else ''),
+                    petition_type=(dashboard_filter.petition_type if dashboard_filter else 'all'),
+                    source_of_petition=(dashboard_filter.source_of_petition if dashboard_filter else 'all'),
+                    received_at=(dashboard_filter.received_at if dashboard_filter else 'all'),
+                    target_cvo=(dashboard_filter.target_cvo if dashboard_filter else 'all'),
+                    officer_id=(dashboard_filter.officer_id if dashboard_filter else 'all'),
+                    page_size=(dashboard_filter.page_size if dashboard_filter else 20),
+                    page=dashboard_pagination.total_pages
+                ) }}">Last</a>
+                </div>
+            </div>
+        </div>
+        {% endif %}
     </div>
 </div>
 
@@ -307,7 +380,7 @@
 
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.6/dist/chart.umd.min.js"></script>
 <script>
-const analyticsData = {{ analytics|tojson }};
+let analyticsData = {{ analytics|tojson }};
 let dashCurrentRows = [];
 let dashboardCharts = [];
 let dashboardResizeTimer = null;
@@ -799,7 +872,31 @@ document.addEventListener('click', (event) => {
     }
 });
 
-initAnalyticsDashboard();
+async function loadDashboardAnalytics() {
+    const params = new URLSearchParams(window.location.search);
+    try {
+        const res = await fetch(`{{ url_for('api_dashboard_analytics') }}?${params.toString()}`);
+        const payload = await res.json();
+        if (!payload || !payload.analytics) return;
+        analyticsData = payload.analytics;
+        const summary = payload.summary || {};
+        const setText = (id, value) => {
+            const el = document.getElementById(id);
+            if (el) el.textContent = String(value ?? 0);
+        };
+        setText('dashSummaryTotal', summary.total_visible || 0);
+        setText('dashSummaryActive', summary.active || 0);
+        setText('dashSummaryLodged', summary.lodged || 0);
+        setText('dashSummaryClosed', summary.closed || 0);
+        setText('dashSummarySlaWithin', summary.sla_within || 0);
+        setText('dashSummarySlaBreached', summary.sla_breached || 0);
+        initAnalyticsDashboard();
+    } catch (_) {
+        initAnalyticsDashboard();
+    }
+}
+
+loadDashboardAnalytics();
 
 window.addEventListener('resize', () => {
     clearTimeout(dashboardResizeTimer);
