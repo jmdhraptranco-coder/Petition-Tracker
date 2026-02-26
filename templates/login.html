@@ -35,6 +35,10 @@
         <div class="login-nav-links">
             <a href="{{ url_for('index') }}#features">Features</a>
             <a href="{{ url_for('index') }}#stats">Dashboard</a>
+            <div class="lang-toggle" role="group" aria-label="Language switch">
+                <button type="button" class="lang-pill" data-lang="en">EN</button>
+                <button type="button" class="lang-pill" data-lang="te">తె</button>
+            </div>
             <button id="themeToggle" class="theme-toggle" type="button" aria-label="Toggle night mode" aria-pressed="false" title="Toggle night mode">
                 <span class="theme-toggle-icon theme-toggle-sun" aria-hidden="true">
                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="4"/><path d="M12 2v2"/><path d="M12 20v2"/><path d="M4.93 4.93l1.41 1.41"/><path d="M17.66 17.66l1.41 1.41"/><path d="M2 12h2"/><path d="M20 12h2"/><path d="M6.34 17.66l-1.41 1.41"/><path d="M19.07 4.93l-1.41 1.41"/></svg>
