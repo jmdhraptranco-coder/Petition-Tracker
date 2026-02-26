@@ -1,16 +1,56 @@
-{% extends "base.html" %}
+﻿{% extends "base.html" %}
 {% block title %}Login - Petition Tracker{% endblock %}
 
 {% block fullpage %}
 <div class="login-page login-page-modern">
     <div class="login-aurora"></div>
     <div class="login-grid"></div>
+    <nav class="login-top-nav" id="loginTopNav">
+        <a href="{{ url_for('index') }}" class="login-nav-brand">
+            <span class="login-nav-shield">
+                <img src="{{ url_for('static', filename='img/nigaa-logo.svg') }}" alt="NIGAA Logo">
+            </span>
+            <div>
+                <h1 class="login-nav-title login-brand-anim" aria-label="NIGAA">
+                    <span class="brand-letter brand-n">N</span>
+                    <span class="brand-letter brand-i">I</span>
+                    <span class="brand-letter brand-g">G</span>
+                    <span class="brand-letter brand-a">
+                        A
+                        <span class="brand-cap"></span>
+                        <span class="brand-eye-wrap">
+                            <span class="brand-eye"><span class="brand-pupil"></span></span>
+                        </span>
+                    </span>
+                    <span class="brand-letter brand-a">
+                        A
+                        <span class="brand-eye-wrap">
+                            <span class="brand-eye"><span class="brand-pupil"></span></span>
+                        </span>
+                    </span>
+                </h1>
+                <div class="login-nav-sub">Vigilance Portal</div>
+            </div>
+        </a>
+        <div class="login-nav-links">
+            <a href="{{ url_for('index') }}#features">Features</a>
+            <a href="{{ url_for('index') }}#stats">Dashboard</a>
+            <button id="themeToggle" class="theme-toggle" type="button" aria-label="Toggle night mode" aria-pressed="false" title="Toggle night mode">
+                <span class="theme-toggle-icon theme-toggle-sun" aria-hidden="true">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="4"/><path d="M12 2v2"/><path d="M12 20v2"/><path d="M4.93 4.93l1.41 1.41"/><path d="M17.66 17.66l1.41 1.41"/><path d="M2 12h2"/><path d="M20 12h2"/><path d="M6.34 17.66l-1.41 1.41"/><path d="M19.07 4.93l-1.41 1.41"/></svg>
+                </span>
+                <span class="theme-toggle-icon theme-toggle-moon" aria-hidden="true">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12.79A9 9 0 1 1 11.21 3a7 7 0 0 0 9.79 9.79z"/></svg>
+                </span>
+            </button>
+            <a href="{{ url_for('index') }}" class="login-btn-launch"><span>▶</span> Home</a>
+        </div>
+    </nav>
     <div class="login-shell">
         <section class="login-panel">
             <div class="login-tabs" role="tablist" aria-label="Login options">
-                <button type="button" class="is-muted" data-login-tab="signup" onclick="showLoginTab('signup')">Sign In</button>
-                <button type="button" class="is-active" data-login-tab="secure" onclick="showLoginTab('secure')">Secure Login</button>
-                <button type="button" class="is-muted" data-login-tab="recovery" onclick="showLoginTab('recovery')">Recovery</button>
+                <button type="button" class="is-active" data-login-tab="secure" onclick="showLoginTab('secure')" data-i18n="login.tab_secure">Secure Login</button>
+                <button type="button" class="is-muted" data-login-tab="recovery" onclick="showLoginTab('recovery')" data-i18n="login.tab_recovery">Recovery</button>
             </div>
             <div class="login-header">
                 <div class="login-logo-wrap">
@@ -36,102 +76,66 @@
             {% endwith %}
 
             <form method="POST" action="{{ url_for('login') }}" class="login-form" data-login-panel="secure">
+                {% if otp_required %}
+                <input type="hidden" name="otp_step" value="1">
                 <div class="form-group">
-                    <label for="username">Username</label>
-                    <input type="text" id="username" name="username" required autofocus
-                           placeholder="Enter your username" value="{{ request.form.get('username', '') }}">
-                </div>
-                <div class="form-group">
-                    <label for="password">Password</label>
-                    <input type="password" id="password" name="password" required
-                           placeholder="Enter your password">
-                </div>
-                <div class="form-group">
-                    <label for="captcha_answer">Security Verification</label>
-                    <div class="login-captcha-challenge-row">
-                        <div class="login-captcha-box" aria-live="polite">{{ captcha_a }} + {{ captcha_b }} = ?</div>
-                        <a href="{{ url_for('login', refresh_captcha='1') }}" class="login-captcha-refresh" title="Refresh captcha" aria-label="Refresh captcha">&#8635;</a>
-                    </div>
-                    <input type="text" id="captcha_answer" name="captcha_answer" required inputmode="numeric" pattern="[0-9]+" placeholder="Enter the CAPTCHA answer">
+                    <label for="otp_code">One-Time Password (OTP)</label>
+                    <input type="text" id="otp_code" name="otp_code" required autofocus
+                           inputmode="numeric" pattern="[0-9]{4,8}" maxlength="8"
+                           placeholder="Enter OTP sent to {{ otp_delivery_hint or 'your email' }}">
                 </div>
                 <button type="submit" class="btn btn-primary btn-full login-captcha-verify">
-                    Verify & Sign In
+                    <span>Verify OTP & Sign In</span>
                 </button>
-            </form>
-
-            <form method="POST" action="{{ url_for('request_signup') }}" class="login-form" data-login-panel="signup" style="display:none;">
-                <div class="form-group">
-                    <label for="signup_full_name">Officer Name</label>
-                    <input type="text" id="signup_full_name" name="signup_full_name" minlength="3" placeholder="Your full name">
+                <div style="margin-top: 10px; display: flex; justify-content: space-between; gap: 10px;">
+                    <button type="submit" formaction="{{ url_for('login_resend_otp') }}" formmethod="post" class="btn btn-secondary" style="padding: 8px 12px;">Resend OTP</button>
+                    <a href="{{ url_for('login', start_over='1') }}" class="btn btn-secondary" style="padding: 8px 12px;">Start Over</a>
                 </div>
+                {% else %}
                 <div class="form-group">
-                    <label for="signup_username">Username</label>
-                    <input type="text" id="signup_username" name="signup_username" minlength="3" placeholder="Choose username">
-                </div>
-                <div class="form-group">
-                    <label for="signup_password">Password</label>
-                    <input type="password" id="signup_password" name="signup_password" minlength="6" placeholder="Create password">
+                    <label for="username" data-i18n="login.username">Username</label>
+                    <input type="text" id="username" name="username" required autofocus
+                           placeholder="Enter your username" data-i18n-placeholder="login.ph_username" value="{{ request.form.get('username', '') }}">
                 </div>
                 <div class="form-group">
-                    <label for="signup_confirm_password">Confirm Password</label>
-                    <input type="password" id="signup_confirm_password" name="signup_confirm_password" minlength="6" placeholder="Confirm password">
+                    <label for="password" data-i18n="login.password">Password</label>
+                    <input type="password" id="password" name="password" required
+                           placeholder="Enter your password" data-i18n-placeholder="login.ph_password">
                 </div>
                 <div class="form-group">
-                    <label for="signup_role">Requested Role</label>
-                    <select id="signup_role" name="signup_role" onchange="toggleSignupOffice()">
-                        <option value="">-- Select Role --</option>
-                        <option value="data_entry">Data Entry Operator</option>
-                        <option value="po">Personal Officer (Vigilance)</option>
-                        <option value="cmd_apspdcl">CMD - APSPDCL</option>
-                        <option value="cmd_apepdcl">CMD - APEPDCL</option>
-                        <option value="cmd_apcpdcl">CMD - APCPDCL</option>
-                        <option value="cgm_hr_transco">CGM/HR TRANSCO (Headquarters)</option>
-                        <option value="dsp">DSP (Headquarters)</option>
-                        <option value="cvo_apspdcl">CVO - APSPDCL (Tirupathi)</option>
-                        <option value="cvo_apepdcl">CVO - APEPDCL (Vizag)</option>
-                        <option value="cvo_apcpdcl">CVO - APCPDCL (Vijayawada)</option>
-                        <option value="inspector">Field Inspector (CI/SI)</option>
-                    </select>
+                    <label for="captcha_answer" data-i18n="login.security_verification">Security Verification</label>
+                    <div class="login-captcha-row">
+                        <div class="login-captcha-box" aria-live="polite">
+                            <span class="login-captcha-text">{{ captcha_a }} + {{ captcha_b }} = ?</span>
+                            <a href="{{ url_for('login', refresh_captcha='1') }}" class="login-captcha-refresh" title="Refresh captcha" aria-label="Refresh captcha">&#8635;</a>
+                        </div>
+                        <input type="text" id="captcha_answer" name="captcha_answer" required inputmode="numeric" pattern="[0-9]+" placeholder="Enter the CAPTCHA answer" data-i18n-placeholder="login.ph_captcha">
+                    </div>
                 </div>
-                <div class="form-group" id="signup_office_group" style="display:none;">
-                    <label for="signup_cvo_office">Office</label>
-                    <select id="signup_cvo_office" name="signup_cvo_office">
-                        <option value="">-- Select Office --</option>
-                        <option value="apspdcl">APSPDCL</option>
-                        <option value="apepdcl">APEPDCL</option>
-                        <option value="apcpdcl">APCPDCL</option>
-                        <option value="headquarters">Headquarters</option>
-                    </select>
-                </div>
-                <div class="form-group">
-                    <label for="signup_phone">Phone</label>
-                    <input type="text" id="signup_phone" name="signup_phone" placeholder="Phone number">
-                </div>
-                <div class="form-group">
-                    <label for="signup_email">Email</label>
-                    <input type="email" id="signup_email" name="signup_email" placeholder="Email address">
-                </div>
-                <button type="submit" class="btn btn-primary btn-full">Submit Signup Request</button>
+                <button type="submit" class="btn btn-primary btn-full login-captcha-verify">
+                    <span data-i18n="login.verify_signin">Verify & Sign In</span>
+                </button>
+                {% endif %}
             </form>
 
             <form method="POST" action="{{ url_for('request_recovery') }}" class="login-form" data-login-panel="recovery" style="display:none;">
                 <div class="form-group">
-                    <label for="recovery_username">Username</label>
-                    <input type="text" id="recovery_username" name="recovery_username" placeholder="Enter your username">
+                    <label for="recovery_username" data-i18n="login.username">Username</label>
+                    <input type="text" id="recovery_username" name="recovery_username" placeholder="Enter your username" data-i18n-placeholder="login.ph_username">
                 </div>
                 <div class="form-group">
-                    <label for="recovery_password">New Password</label>
-                    <input type="password" id="recovery_password" name="recovery_password" minlength="6" placeholder="Enter new password">
+                    <label for="recovery_password" data-i18n="login.new_password">New Password</label>
+                    <input type="password" id="recovery_password" name="recovery_password" minlength="6" placeholder="Enter new password" data-i18n-placeholder="login.ph_new_password">
                 </div>
                 <div class="form-group">
-                    <label for="recovery_confirm_password">Confirm New Password</label>
-                    <input type="password" id="recovery_confirm_password" name="recovery_confirm_password" minlength="6" placeholder="Confirm new password">
+                    <label for="recovery_confirm_password" data-i18n="login.confirm_new_password">Confirm New Password</label>
+                    <input type="password" id="recovery_confirm_password" name="recovery_confirm_password" minlength="6" placeholder="Confirm new password" data-i18n-placeholder="login.ph_confirm_new_password">
                 </div>
-                <button type="submit" class="btn btn-primary btn-full">Submit Recovery Request</button>
+                <button type="submit" class="btn btn-primary btn-full" data-i18n="login.submit_recovery">Submit Recovery Request</button>
             </form>
 
             <div class="login-footer">
-                <p>PO Office - Vigilance Wing</p>
+                <p>Vigilance Wing</p>
             </div>
         </section>
         <aside class="login-hero">
@@ -167,20 +171,12 @@ function showLoginTab(tabName) {
     });
 }
 
-function toggleSignupOffice() {
-    const roleEl = document.getElementById('signup_role');
-    const officeGroup = document.getElementById('signup_office_group');
-    if (!roleEl || !officeGroup) return;
-    const role = roleEl.value || '';
-    const needsOffice = role === 'inspector' || role === 'data_entry' || role.startsWith('cvo_') || role === 'dsp';
-    officeGroup.style.display = needsOffice ? '' : 'none';
-}
-
 document.addEventListener('DOMContentLoaded', function () {
     showLoginTab('secure');
-    toggleSignupOffice();
 });
 </script>
 {% endblock %}
+
+
 
 

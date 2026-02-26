@@ -191,6 +191,12 @@ def test_petition_actions_success_paths(monkeypatch):
             {"cvo_comments": "remarks", "consolidated_report_file": _pdf("cvo.pdf")},
             multipart=True,
         ).status_code == 302
+        assert _post_action(
+            client,
+            "cvo_apspdcl",
+            "cvo_send_back_reenquiry",
+            {"inspector_id": "8", "comments": "redo enquiry"},
+        ).status_code == 302
 
         stub.petition = {"id": 1, "status": "enquiry_report_submitted", "enquiry_type": "preliminary", "efile_no": None}
         assert _post_action(
@@ -208,6 +214,12 @@ def test_petition_actions_success_paths(monkeypatch):
         ).status_code == 302
 
         stub.petition = {"id": 1, "status": "forwarded_to_po", "efile_no": None, "requires_permission": False}
+        assert _post_action(
+            client,
+            "po",
+            "po_send_back_reenquiry",
+            {"comments": "insufficient report"},
+        ).status_code == 302
         assert _post_action(
             client,
             "po",
@@ -477,6 +489,17 @@ def test_petition_action_negative_matrix(monkeypatch):
         assert _post_action(client, "cvo_apspdcl", "request_detailed_enquiry", {"cvo_comments": "x"}).status_code == 302
         stub.petition = {"id": 1, "enquiry_type": "preliminary"}
         assert _post_action(client, "cvo_apspdcl", "request_detailed_enquiry", {"cvo_comments": ""}).status_code == 302
+        assert _post_action(client, "po", "cvo_send_back_reenquiry", {"inspector_id": "8", "comments": "x"}).status_code == 302
+        stub.petition = {"id": 1, "status": "forwarded_to_po"}
+        assert _post_action(client, "cvo_apspdcl", "cvo_send_back_reenquiry", {"inspector_id": "8", "comments": "x"}).status_code == 302
+        stub.petition = {"id": 1, "status": "enquiry_report_submitted"}
+        assert _post_action(client, "cvo_apspdcl", "cvo_send_back_reenquiry", {"inspector_id": "", "comments": "x"}).status_code == 302
+        assert _post_action(client, "cvo_apspdcl", "cvo_send_back_reenquiry", {"inspector_id": "8", "comments": ""}).status_code == 302
+        assert _post_action(client, "inspector", "po_send_back_reenquiry", {"comments": "x"}).status_code == 302
+        stub.petition = {"id": 1, "status": "action_taken"}
+        assert _post_action(client, "po", "po_send_back_reenquiry", {"comments": "x"}).status_code == 302
+        stub.petition = {"id": 1, "status": "forwarded_to_po"}
+        assert _post_action(client, "po", "po_send_back_reenquiry", {"comments": ""}).status_code == 302
 
         assert _post_action(client, "inspector", "give_conclusion").status_code == 302
         stub.petition = None

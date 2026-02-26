@@ -1,4 +1,4 @@
-from flask import Flask, render_template, request, redirect, url_for, session, flash, jsonify, send_from_directory
+from flask import Flask, render_template, request, redirect, url_for, session, flash, jsonify, send_from_directory, g, has_request_context
 from functools import wraps
 from config import Config
 import models
@@ -10,8 +10,11 @@ import csv
 import re
 import copy
 import random
+import smtplib
 from uuid import uuid4
+from email.message import EmailMessage
 from werkzeug.utils import secure_filename
+from werkzeug.security import generate_password_hash, check_password_hash
 try:
     from openpyxl import load_workbook
 except Exception:
@@ -23,6 +26,13 @@ app.config['SECRET_KEY'] = config.SECRET_KEY
 app.config['SESSION_COOKIE_HTTPONLY'] = True
 app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
 app.config['SESSION_COOKIE_SECURE'] = config.SESSION_COOKIE_SECURE
+
+if config.OTP_ENABLED and not config.SMTP_HOST:
+    app.logger.warning(
+        "OTP is enabled but SMTP_HOST is not configured. "
+        "Email OTP delivery will fail; development fallback may show OTP in flash."
+    )
+
 if os.getenv('SKIP_SCHEMA_UPDATES') != '1':
     models.ensure_schema_updates()
 
@@ -36,7 +46,7 @@ PROFILE_PHOTO_EXTENSIONS = {'jpg', 'jpeg', 'png', 'webp'}
 VALID_RECEIVED_AT = {'jmd_office', 'cvo_apspdcl_tirupathi', 'cvo_apepdcl_vizag', 'cvo_apcpdcl_vijayawada'}
 VALID_TARGET_CVO = {'apspdcl', 'apepdcl', 'apcpdcl', 'headquarters'}
 VALID_ENQUIRY_TYPES = {'detailed', 'preliminary'}
-VALID_SOURCE_OF_PETITION = {'media', 'public_individual', 'govt', 'sumoto'}
+VALID_SOURCE_OF_PETITION = {'media', 'public_individual', 'govt', 'sumoto', 'cmd_office'}
 VALID_GOVT_INSTITUTIONS = {
     'aprc',
     'governor',
@@ -45,7 +55,18 @@ VALID_GOVT_INSTITUTIONS = {
     'cmo',
     'energy_department',
 }
-VALID_PETITION_TYPES = {'bribe', 'harassment', 'theft_of_materials', 'adverse_news', 'procedural_lapses', 'other'}
+VALID_PETITION_TYPES = {
+    'bribe',
+    'corruption',
+    'harassment',
+    'misconduct',
+    'works_related',
+    'irregularities_in_tenders',
+    'illegal_assets',
+    'fake_certificates',
+    'theft_misappropriation_materials',
+    'other',
+}
 VALID_PERMISSION_REQUEST_TYPES = {'direct_enquiry', 'permission_required'}
 DIRECT_ENQUIRY_EFILE_EDITABLE_STATUSES = {'received', 'forwarded_to_cvo', 'assigned_to_inspector', 'enquiry_in_progress'}
 VALID_USER_ROLES = {
@@ -71,25 +92,44 @@ DEO_OFFICE_FLOW = {
     },
     'apspdcl': {
         'received_at': 'cvo_apspdcl_tirupathi',
-        'received_at_label': 'CVO (APSPDCL) - Tirupathi',
+        'received_at_label': 'CVO/DSP (APSPDCL) - Tirupathi',
         'target_cvo': 'apspdcl',
         'target_cvo_label': 'APSPDCL (Tirupathi)',
         'force_permission_required': False,
     },
     'apepdcl': {
         'received_at': 'cvo_apepdcl_vizag',
-        'received_at_label': 'CVO (APEPDCL) - Vizag',
+        'received_at_label': 'CVO/DSP (APEPDCL) - Vizag',
         'target_cvo': 'apepdcl',
         'target_cvo_label': 'APEPDCL (Vizag)',
         'force_permission_required': False,
     },
     'apcpdcl': {
         'received_at': 'cvo_apcpdcl_vijayawada',
-        'received_at_label': 'CVO (APCPDCL) - Vijayawada',
+        'received_at_label': 'CVO/DSP (APCPDCL) - Vijayawada',
         'target_cvo': 'apcpdcl',
         'target_cvo_label': 'APCPDCL (Vijayawada)',
         'force_permission_required': False,
     },
+}
+DEO_COMBINED_TARGET_FLOW = {
+    # APSPDCL DEO handles both APSPDCL and APCPDCL entries.
+    'apspdcl': [
+        {
+            'received_at': 'cvo_apspdcl_tirupathi',
+            'received_at_label': 'CVO/DSP (APSPDCL) - Tirupathi',
+            'target_cvo': 'apspdcl',
+            'target_cvo_label': 'APSPDCL (Tirupathi)',
+            'force_permission_required': False,
+        },
+        {
+            'received_at': 'cvo_apcpdcl_vijayawada',
+            'received_at_label': 'CVO/DSP (APCPDCL) - Vijayawada',
+            'target_cvo': 'apcpdcl',
+            'target_cvo_label': 'APCPDCL (Vijayawada)',
+            'force_permission_required': False,
+        },
+    ],
 }
 PHONE_RE = re.compile(r'^[0-9+\-\s()]{7,20}$')
 EMAIL_RE = re.compile(r'^[^@\s]+@[^@\s]+\.[^@\s]+$')
@@ -103,15 +143,15 @@ DEFAULT_FORM_FIELD_CONFIGS = {
         'required': True,
         'options': [
             {'value': 'jmd_office', 'label': 'JMD Office'},
-            {'value': 'cvo_apspdcl_tirupathi', 'label': 'CVO (APSPDCL) - Tirupathi'},
-            {'value': 'cvo_apepdcl_vizag', 'label': 'CVO (APEPDCL) - Vizag'},
-            {'value': 'cvo_apcpdcl_vijayawada', 'label': 'CVO (APCPDCL) - Vijayawada'},
+            {'value': 'cvo_apspdcl_tirupathi', 'label': 'CVO/DSP (APSPDCL) - Tirupathi'},
+            {'value': 'cvo_apepdcl_vizag', 'label': 'CVO/DSP (APEPDCL) - Vizag'},
+            {'value': 'cvo_apcpdcl_vijayawada', 'label': 'CVO/DSP (APCPDCL) - Vijayawada'},
         ]
     },
     'deo_petition.ereceipt_no': {'label': 'E-Receipt No', 'type': 'text', 'required': False, 'options': []},
     'deo_petition.ereceipt_file': {'label': 'Upload E-Receipt (PDF, max 10MB)', 'type': 'file', 'required': False, 'options': []},
     'deo_petition.target_cvo': {
-        'label': 'Target CVO Jurisdiction',
+        'label': 'Target CVO/DSP Jurisdiction',
         'type': 'select',
         'required': False,
         'options': [
@@ -126,8 +166,8 @@ DEFAULT_FORM_FIELD_CONFIGS = {
         'type': 'select',
         'required': True,
         'options': [
-            {'value': 'direct_enquiry', 'label': 'Direct Enquiry (CVO sends copy and starts enquiry)'},
-            {'value': 'permission_required', 'label': 'Permission Required (CVO sends to PO for approval)'},
+            {'value': 'direct_enquiry', 'label': 'Direct Enquiry (CVO/DSP sends copy and starts enquiry)'},
+            {'value': 'permission_required', 'label': 'Permission Required (CVO/DSP sends to PO for approval)'},
         ]
     },
     'deo_petition.petitioner_name': {'label': 'Petitioner Name', 'type': 'text', 'required': False, 'options': []},
@@ -140,10 +180,14 @@ DEFAULT_FORM_FIELD_CONFIGS = {
         'required': True,
         'options': [
             {'value': 'bribe', 'label': 'Bribe'},
+            {'value': 'corruption', 'label': 'Corruption'},
             {'value': 'harassment', 'label': 'Harassment'},
-            {'value': 'theft_of_materials', 'label': 'Theft of Materials'},
-            {'value': 'adverse_news', 'label': 'Adverse News'},
-            {'value': 'procedural_lapses', 'label': 'Procedural Lapses'},
+            {'value': 'misconduct', 'label': 'Misconduct'},
+            {'value': 'works_related', 'label': 'Works Related'},
+            {'value': 'irregularities_in_tenders', 'label': 'Irregularities in Tenders'},
+            {'value': 'illegal_assets', 'label': 'Illegal Assets'},
+            {'value': 'fake_certificates', 'label': 'Fake Certificates'},
+            {'value': 'theft_misappropriation_materials', 'label': 'Theft/Misappropriation of Materials'},
             {'value': 'other', 'label': 'Other'},
         ]
     },
@@ -156,6 +200,7 @@ DEFAULT_FORM_FIELD_CONFIGS = {
             {'value': 'public_individual', 'label': 'Public (Individual)'},
             {'value': 'govt', 'label': 'Govt'},
             {'value': 'sumoto', 'label': 'Sumoto'},
+            {'value': 'cmd_office', 'label': 'O/o CMD'},
         ]
     },
     'deo_petition.remarks': {'label': 'Remarks', 'type': 'textarea', 'required': False, 'options': []},
@@ -175,7 +220,19 @@ DEFAULT_FORM_FIELD_CONFIGS = {
     'inspector_report.report_text': {'label': 'Conclusion of Enquiry Report', 'type': 'textarea', 'required': True, 'options': []},
     'inspector_report.recommendation': {'label': 'Recommendations / Suggestions', 'type': 'textarea', 'required': True, 'options': []},
     'inspector_report.report_file': {'label': 'Enquiry File (PDF, max 10MB)', 'type': 'file', 'required': True, 'options': []},
-    'cvo_review.cvo_comments': {'label': 'CVO Comments on Enquiry Report', 'type': 'textarea', 'required': True, 'options': []},
+    'inspector_report.request_detailed_permission': {
+        'label': 'Ask permission to convert this preliminary enquiry into detailed enquiry',
+        'type': 'text',
+        'required': False,
+        'options': []
+    },
+    'inspector_report.detailed_request_reason': {
+        'label': 'Reason for Detailed Enquiry Request',
+        'type': 'textarea',
+        'required': True,
+        'options': []
+    },
+    'cvo_review.cvo_comments': {'label': 'CVO/DSP Comments on Enquiry Report', 'type': 'textarea', 'required': True, 'options': []},
     'cvo_review.consolidated_report_file': {'label': 'Consolidated Report File (PDF, Optional, max 10MB)', 'type': 'file', 'required': False, 'options': []},
     'cmd_action.action_taken': {'label': 'Action Taken Details', 'type': 'textarea', 'required': True, 'options': []},
     'cmd_action.action_report_file': {'label': 'Upload Action Report Copy (PDF, Optional, max 10MB)', 'type': 'file', 'required': False, 'options': []},
@@ -193,7 +250,7 @@ DEFAULT_FORM_FIELD_CONFIGS = {
 FORM_MANAGEMENT_GROUPS = {
     'deo_petition': 'DEO Petition Form',
     'inspector_report': 'Inspector Enquiry Form',
-    'cvo_review': 'CVO Review Form',
+    'cvo_review': 'CVO/DSP Review Form',
     'cmd_action': 'CMD/CGM-HR Action Form',
     'po_decision': 'PO Decision Form',
 }
@@ -252,6 +309,17 @@ def get_deo_office_flow(user_role, cvo_office):
         return None
     office = (cvo_office or '').strip().lower()
     return DEO_OFFICE_FLOW.get(office)
+
+
+def get_deo_target_options(user_role, cvo_office):
+    if user_role != 'data_entry':
+        return []
+    office = (cvo_office or '').strip().lower()
+    merged = DEO_COMBINED_TARGET_FLOW.get(office)
+    if merged:
+        return merged
+    flow = DEO_OFFICE_FLOW.get(office)
+    return [flow] if flow else []
 
 
 def validate_pdf_upload(file_obj, label):
@@ -356,6 +424,11 @@ ensure_upload_dirs()
 
 
 def get_effective_form_field_configs():
+    if has_request_context():
+        cached_cfg = getattr(g, '_effective_form_field_configs', None)
+        if isinstance(cached_cfg, dict):
+            return cached_cfg
+
     merged = copy.deepcopy(DEFAULT_FORM_FIELD_CONFIGS)
     try:
         overrides = models.get_form_field_configs()
@@ -385,7 +458,26 @@ def get_effective_form_field_configs():
                             valid_options.append({'value': value, 'label': label})
                     if valid_options:
                         merged[key]['options'] = valid_options
+    if has_request_context():
+        g._effective_form_field_configs = merged
     return merged
+
+
+def get_petitions_for_user_cached(user_id, user_role, cvo_office=None, status_filter=None, enquiry_mode='all'):
+    if not has_request_context():
+        return models.get_petitions_for_user(user_id, user_role, cvo_office, status_filter, enquiry_mode)
+
+    cache = getattr(g, '_petitions_for_user_cache', None)
+    if not isinstance(cache, dict):
+        cache = {}
+        g._petitions_for_user_cache = cache
+
+    cache_key = (user_id, user_role, cvo_office, status_filter, enquiry_mode)
+    if cache_key not in cache:
+        cache[cache_key] = models.get_petitions_for_user(
+            user_id, user_role, cvo_office, status_filter, enquiry_mode
+        )
+    return cache[cache_key]
 
 
 def get_form_field_config(form_key, field_key):
@@ -411,6 +503,93 @@ def resolve_efile_no_for_action(petition, incoming_efile_no, required_message=No
         return None, 'E-Office File No is too long.'
 
     return incoming, None
+
+
+def clear_login_otp_state():
+    for key in (
+        'pending_login_user',
+        'login_otp_hash',
+        'login_otp_expires_at',
+        'login_otp_attempts',
+        'otp_delivery_hint',
+    ):
+        session.pop(key, None)
+
+
+def mask_email(email):
+    text = (email or '').strip()
+    if not text or '@' not in text:
+        return ''
+    user, domain = text.split('@', 1)
+    if len(user) <= 2:
+        masked_user = user[:1] + '*'
+    else:
+        masked_user = user[:2] + ('*' * max(1, len(user) - 2))
+    return f'{masked_user}@{domain}'
+
+
+def send_login_otp_email(recipient_email, otp_code):
+    recipient = (recipient_email or '').strip()
+    if not recipient:
+        return False, 'Recipient email is missing.'
+    if not config.SMTP_HOST:
+        return False, 'SMTP is not configured.'
+    sender = (config.SMTP_FROM or config.SMTP_USERNAME or 'no-reply@localhost').strip()
+    msg = EmailMessage()
+    msg['Subject'] = f'{config.BRAND_NAME} Login OTP'
+    msg['From'] = sender
+    msg['To'] = recipient
+    msg.set_content(
+        f"Your one-time password (OTP) for {config.BRAND_NAME} login is: {otp_code}\n\n"
+        f"This OTP is valid for {max(1, int(config.OTP_EXPIRY_SECONDS // 60))} minute(s). "
+        "Do not share this code with anyone."
+    )
+    try:
+        use_ssl = (not config.SMTP_USE_TLS) and int(config.SMTP_PORT) == 465
+        if use_ssl:
+            with smtplib.SMTP_SSL(config.SMTP_HOST, config.SMTP_PORT, timeout=15) as smtp:
+                if config.SMTP_USERNAME:
+                    smtp.login(config.SMTP_USERNAME, config.SMTP_PASSWORD)
+                smtp.send_message(msg)
+        else:
+            with smtplib.SMTP(config.SMTP_HOST, config.SMTP_PORT, timeout=15) as smtp:
+                if config.SMTP_USE_TLS:
+                    smtp.starttls()
+                if config.SMTP_USERNAME:
+                    smtp.login(config.SMTP_USERNAME, config.SMTP_PASSWORD)
+                smtp.send_message(msg)
+        return True, None
+    except Exception as e:
+        return False, str(e)
+
+
+def issue_login_otp(user):
+    otp_length = min(max(config.OTP_LENGTH, 4), 8)
+    otp_code = ''.join(random.choice('0123456789') for _ in range(otp_length))
+    expires_at = datetime.now().timestamp() + max(60, config.OTP_EXPIRY_SECONDS)
+
+    session['pending_login_user'] = {
+        'id': user['id'],
+        'username': user['username'],
+        'full_name': user['full_name'],
+        'role': user['role'],
+        'cvo_office': user.get('cvo_office'),
+        'phone': user.get('phone'),
+        'email': user.get('email'),
+        'profile_photo': user.get('profile_photo'),
+    }
+    session['login_otp_hash'] = generate_password_hash(otp_code)
+    session['login_otp_expires_at'] = expires_at
+    session['login_otp_attempts'] = 0
+    session['otp_delivery_hint'] = mask_email(user.get('email'))
+
+    ok, err = send_login_otp_email(user.get('email'), otp_code)
+    if ok:
+        return True, None
+
+    if not config.IS_PRODUCTION and config.OTP_DEV_FALLBACK_FLASH:
+        return True, otp_code
+    return False, err or 'Unable to deliver OTP.'
 
 # ========================================
 # AUTH DECORATORS
@@ -451,21 +630,22 @@ def inject_globals():
         'cmd_apcpdcl': 'CMD - APCPDCL',
         'cgm_hr_transco': 'CGM/HR TRANSCO (Headquarters)',
         'dsp': 'DSP (Deputy Superintendent of Police) - Headquarters',
-        'cvo_apspdcl': 'CVO - APSPDCL (Tirupathi)',
-        'cvo_apepdcl': 'CVO - APEPDCL (Vizag)',
-        'cvo_apcpdcl': 'CVO - APCPDCL (Vijayawada)',
+        'cvo_apspdcl': 'CVO/DSP - APSPDCL (Tirupathi)',
+        'cvo_apepdcl': 'CVO/DSP - APEPDCL (Vizag)',
+        'cvo_apcpdcl': 'CVO/DSP - APCPDCL (Vijayawada)',
         'inspector': 'Field Inspector (CI/SI)'
     }
     status_labels = {
         'received': 'Received',
-        'forwarded_to_cvo': 'Forwarded to CVO',
+        'forwarded_to_cvo': 'Forwarded to CVO/DSP',
         'sent_for_permission': 'Sent for Permission',
         'permission_approved': 'Permission Approved',
         'permission_rejected': 'Permission Rejected',
         'assigned_to_inspector': 'Assigned to Inspector',
+        'sent_back_for_reenquiry': 'Sent Back for Re-enquiry',
         'enquiry_in_progress': 'Enquiry In Progress',
         'enquiry_report_submitted': 'Enquiry Report Submitted',
-        'cvo_comments_added': 'CVO Comments Added',
+        'cvo_comments_added': 'CVO/DSP Comments Added',
         'forwarded_to_jmd': 'Forwarded to PO (Legacy)',
         'forwarded_to_po': 'Forwarded to PO',
         'conclusion_given': 'Conclusion Given',
@@ -481,6 +661,7 @@ def inject_globals():
         'permission_approved': '#10b981',
         'permission_rejected': '#ef4444',
         'assigned_to_inspector': '#6366f1',
+        'sent_back_for_reenquiry': '#f97316',
         'enquiry_in_progress': '#0ea5e9',
         'enquiry_report_submitted': '#14b8a6',
         'cvo_comments_added': '#8b5cf6',
@@ -507,6 +688,7 @@ def inject_globals():
         'permission_approved': 1,
         'permission_rejected': 1,
         'assigned_to_inspector': 2,
+        'sent_back_for_reenquiry': 2,
         'enquiry_in_progress': 2,
         'enquiry_report_submitted': 3,
         'cvo_comments_added': 3,
@@ -519,17 +701,22 @@ def inject_globals():
     }
     petition_types = {
         'bribe': 'Bribe',
+        'corruption': 'Corruption',
         'harassment': 'Harassment',
-        'theft_of_materials': 'Theft of Materials',
-        'adverse_news': 'Adverse News',
-        'procedural_lapses': 'Procedural Lapses',
+        'misconduct': 'Misconduct',
+        'works_related': 'Works Related',
+        'irregularities_in_tenders': 'Irregularities in Tenders',
+        'illegal_assets': 'Illegal Assets',
+        'fake_certificates': 'Fake Certificates',
+        'theft_misappropriation_materials': 'Theft/Misappropriation of Materials',
         'other': 'Other'
     }
     petition_sources = {
         'media': 'Media',
         'public_individual': 'Public (Individual)',
         'govt': 'Govt',
-        'sumoto': 'Sumoto'
+        'sumoto': 'Sumoto',
+        'cmd_office': 'O/o CMD',
     }
     cfg = get_effective_form_field_configs()
     govt_options = cfg.get('deo_petition.govt_institution_type', {}).get('options', [])
@@ -546,7 +733,9 @@ def inject_globals():
     user_role = session.get('user_role')
     if user_id and user_role:
         try:
-            visible_petitions = models.get_petitions_for_user(user_id, user_role, session.get('cvo_office'), status_filter=None)
+            visible_petitions = get_petitions_for_user_cached(
+                user_id, user_role, session.get('cvo_office'), status_filter=None
+            )
             # Show notifications only for items that are currently in this login's queue.
             pending_in_login = [
                 p for p in visible_petitions
@@ -609,108 +798,241 @@ def inject_globals():
 def index():
     if 'user_id' in session:
         return redirect(url_for('dashboard'))
-    return redirect(url_for('login'))
+    landing_stats = {
+        'petitions_tracked': 0,
+        'offices_covered': 0,
+        'resolution_rate': 0,
+        'active_monitoring': 0,
+    }
+    live_status = {
+        'resolved_today': 0,
+        'under_review': 0,
+        'urgent_pending': 0,
+    }
+    try:
+        petitions = models.get_all_petitions()
+        today = date.today()
+        total_petitions = len(petitions)
+        closed_petitions = sum(1 for p in petitions if p.get('status') == 'closed')
+        office_keys = set()
+        review_statuses = {
+            'forwarded_to_cvo',
+            'sent_for_permission',
+            'permission_approved',
+            'assigned_to_inspector',
+            'sent_back_for_reenquiry',
+            'enquiry_in_progress',
+            'enquiry_report_submitted',
+            'cvo_comments_added',
+            'forwarded_to_po',
+            'forwarded_to_jmd',
+            'action_instructed',
+        }
+        urgent_age_days = 30
+        resolved_today = 0
+        under_review = 0
+        urgent_pending = 0
+
+        for petition in petitions:
+            for key in ('target_cvo', 'received_at'):
+                raw_value = petition.get(key)
+                value = str(raw_value).strip() if raw_value is not None else ''
+                if value:
+                    office_keys.add(value)
+            status = petition.get('status')
+            if status in review_statuses:
+                under_review += 1
+            updated_at = petition.get('updated_at')
+            if status == 'closed' and updated_at and getattr(updated_at, 'date', None):
+                if updated_at.date() == today:
+                    resolved_today += 1
+            if status != 'closed':
+                received_date = petition.get('received_date')
+                if received_date and ((today - received_date).days >= urgent_age_days):
+                    urgent_pending += 1
+
+        landing_stats = {
+            'petitions_tracked': total_petitions,
+            'offices_covered': len(office_keys),
+            'resolution_rate': int(round((closed_petitions / total_petitions) * 100)) if total_petitions else 0,
+            'active_monitoring': max(0, total_petitions - closed_petitions),
+        }
+        live_status = {
+            'resolved_today': resolved_today,
+            'under_review': under_review,
+            'urgent_pending': urgent_pending,
+        }
+    except Exception:
+        # Keep landing page accessible even if database is not reachable.
+        pass
+
+    return render_template('landing.html', landing_stats=landing_stats, live_status=live_status)
 
 @app.route('/login', methods=['GET', 'POST'])
 def login():
+    if request.method == 'GET' and request.args.get('start_over') == '1':
+        clear_login_otp_state()
+        reset_login_captcha()
+        return redirect(url_for('login'))
+
     if request.method == 'GET' and request.args.get('refresh_captcha') == '1':
         reset_login_captcha()
 
-    if request.method == 'POST':
-        if not validate_login_captcha(request.form.get('captcha_answer')):
-            flash('Captcha answer is incorrect.', 'warning')
-            reset_login_captcha()
-            a, b = get_login_captcha()
-            return render_template('login.html', captcha_a=a, captcha_b=b)
+    otp_required = bool(session.get('pending_login_user') and session.get('login_otp_hash'))
 
-        username = request.form.get('username', '').strip()
-        password = request.form.get('password', '')
-        
-        user = models.authenticate_user(username, password)
-        if user:
-            if user['role'] == 'jmd':
-                flash('JMD login is disabled. Please login using PO credentials.', 'warning')
-                reset_login_captcha()
+    if request.method == 'POST':
+        otp_step = request.form.get('otp_step') == '1'
+        if otp_step:
+            pending = session.get('pending_login_user') or {}
+            otp_hash = session.get('login_otp_hash')
+            expires_at = session.get('login_otp_expires_at')
+            attempts = int(session.get('login_otp_attempts') or 0)
+            now_ts = datetime.now().timestamp()
+            if not pending or not otp_hash or not expires_at:
+                clear_login_otp_state()
+                flash('OTP session expired. Please login again.', 'warning')
                 return redirect(url_for('login'))
-            session.pop('login_captcha_a', None)
-            session.pop('login_captcha_b', None)
-            session.pop('login_captcha_answer', None)
-            session['user_id'] = user['id']
-            session['username'] = user['username']
-            session['full_name'] = user['full_name']
-            session['user_role'] = user['role']
-            session['cvo_office'] = user.get('cvo_office')
-            session['phone'] = user.get('phone')
-            session['email'] = user.get('email')
-            session['profile_photo'] = user.get('profile_photo')
-            flash(f'Welcome, {user["full_name"]}!', 'success')
-            return redirect(url_for('dashboard'))
+            if now_ts > float(expires_at):
+                clear_login_otp_state()
+                flash('OTP has expired. Please login again.', 'warning')
+                return redirect(url_for('login'))
+            if attempts >= max(1, config.OTP_MAX_ATTEMPTS):
+                clear_login_otp_state()
+                flash('Maximum OTP attempts exceeded. Please login again.', 'danger')
+                return redirect(url_for('login'))
+
+            otp_code = (request.form.get('otp_code') or '').strip()
+            if not otp_code or not check_password_hash(otp_hash, otp_code):
+                session['login_otp_attempts'] = attempts + 1
+                remaining = max(0, max(1, config.OTP_MAX_ATTEMPTS) - session['login_otp_attempts'])
+                flash(f'Invalid OTP. Attempts remaining: {remaining}.', 'danger')
+                otp_required = True
+            else:
+                session.pop('login_captcha_a', None)
+                session.pop('login_captcha_b', None)
+                session.pop('login_captcha_answer', None)
+                session['user_id'] = pending['id']
+                session['username'] = pending['username']
+                session['full_name'] = pending['full_name']
+                session['user_role'] = pending['role']
+                session['cvo_office'] = pending.get('cvo_office')
+                session['phone'] = pending.get('phone')
+                session['email'] = pending.get('email')
+                session['profile_photo'] = pending.get('profile_photo')
+                clear_login_otp_state()
+                flash(f'Welcome, {session.get("full_name")}!', 'success')
+                return redirect(url_for('dashboard'))
         else:
-            flash('Invalid username or password.', 'danger')
-            reset_login_captcha()
+            clear_login_otp_state()
+            if not validate_login_captcha(request.form.get('captcha_answer')):
+                flash('Captcha answer is incorrect.', 'warning')
+                reset_login_captcha()
+                a, b = get_login_captcha()
+                return render_template(
+                    'login.html',
+                    captcha_a=a,
+                    captcha_b=b,
+                    otp_required=False,
+                    otp_delivery_hint='',
+                )
+
+            username = request.form.get('username', '').strip()
+            password = request.form.get('password', '')
+            user = models.authenticate_user(username, password)
+            if user:
+                if user['role'] == 'jmd':
+                    flash('JMD login is disabled. Please login using PO credentials.', 'warning')
+                    reset_login_captcha()
+                    return redirect(url_for('login'))
+                if not config.OTP_ENABLED:
+                    session.pop('login_captcha_a', None)
+                    session.pop('login_captcha_b', None)
+                    session.pop('login_captcha_answer', None)
+                    session['user_id'] = user['id']
+                    session['username'] = user['username']
+                    session['full_name'] = user['full_name']
+                    session['user_role'] = user['role']
+                    session['cvo_office'] = user.get('cvo_office')
+                    session['phone'] = user.get('phone')
+                    session['email'] = user.get('email')
+                    session['profile_photo'] = user.get('profile_photo')
+                    flash(f'Welcome, {user["full_name"]}!', 'success')
+                    return redirect(url_for('dashboard'))
+
+                # Special-case: Super Admin should not be blocked if email is missing.
+                if user.get('role') == 'super_admin' and not user.get('email'):
+                    session.pop('login_captcha_a', None)
+                    session.pop('login_captcha_b', None)
+                    session.pop('login_captcha_answer', None)
+                    session['user_id'] = user['id']
+                    session['username'] = user['username']
+                    session['full_name'] = user['full_name']
+                    session['user_role'] = user['role']
+                    session['cvo_office'] = user.get('cvo_office')
+                    session['phone'] = user.get('phone')
+                    session['email'] = user.get('email')
+                    session['profile_photo'] = user.get('profile_photo')
+                    flash(f'Welcome, {user["full_name"]}!', 'success')
+                    return redirect(url_for('dashboard'))
+
+                if not user.get('email'):
+                    flash('Email is required for OTP login. Contact Super Admin.', 'warning')
+                    reset_login_captcha()
+                else:
+                    issued, delivery_info = issue_login_otp(user)
+                    if issued:
+                        otp_required = True
+                        if delivery_info and delivery_info.isdigit():
+                            flash(f'Development OTP: {delivery_info}', 'info')
+                        else:
+                            flash('OTP sent to your registered email.', 'success')
+                    else:
+                        clear_login_otp_state()
+                        flash(f'Unable to send OTP: {delivery_info}', 'danger')
+                        reset_login_captcha()
+            else:
+                flash('Invalid username or password.', 'danger')
+                reset_login_captcha()
 
     a, b = get_login_captcha()
-    return render_template('login.html', captcha_a=a, captcha_b=b)
+    return render_template(
+        'login.html',
+        captcha_a=a,
+        captcha_b=b,
+        otp_required=otp_required,
+        otp_delivery_hint=session.get('otp_delivery_hint', ''),
+    )
+
+
+@app.route('/login/otp/resend', methods=['POST'])
+def login_resend_otp():
+    pending = session.get('pending_login_user') or {}
+    if not pending:
+        flash('Login session not found. Please login again.', 'warning')
+        return redirect(url_for('login'))
+    user = models.get_user_by_id(pending.get('id'))
+    if not user:
+        clear_login_otp_state()
+        flash('User no longer exists. Please login again.', 'warning')
+        return redirect(url_for('login'))
+    if not user.get('email'):
+        clear_login_otp_state()
+        flash('Email is required for OTP login. Contact Super Admin.', 'warning')
+        return redirect(url_for('login'))
+    issued, delivery_info = issue_login_otp(user)
+    if issued:
+        if delivery_info and delivery_info.isdigit():
+            flash(f'Development OTP: {delivery_info}', 'info')
+        else:
+            flash('OTP resent to your registered email.', 'success')
+    else:
+        flash(f'Unable to resend OTP: {delivery_info}', 'danger')
+    return redirect(url_for('login'))
 
 
 @app.route('/auth/request-signup', methods=['POST'])
 def request_signup():
-    username = (request.form.get('signup_username') or '').strip()
-    password = request.form.get('signup_password', '').strip()
-    confirm_password = request.form.get('signup_confirm_password', '').strip()
-    full_name = (request.form.get('signup_full_name') or '').strip()
-    role = (request.form.get('signup_role') or '').strip()
-    cvo_office = (request.form.get('signup_cvo_office') or '').strip().lower() or None
-    phone = (request.form.get('signup_phone') or '').strip() or None
-    email = (request.form.get('signup_email') or '').strip() or None
-
-    if not username or len(username) < 3:
-        flash('Username must be at least 3 characters.', 'warning')
-        return redirect(url_for('login'))
-    if not re.match(r'^[A-Za-z0-9_.-]+$', username):
-        flash('Username can only contain letters, numbers, dot, underscore, and hyphen.', 'warning')
-        return redirect(url_for('login'))
-    if not password or len(password) < 6:
-        flash('Password must be at least 6 characters.', 'warning')
-        return redirect(url_for('login'))
-    if password != confirm_password:
-        flash('Password and confirm password do not match.', 'warning')
-        return redirect(url_for('login'))
-    if not full_name or len(full_name) < 3:
-        flash('Officer name must be at least 3 characters.', 'warning')
-        return redirect(url_for('login'))
-    if role not in VALID_PUBLIC_SIGNUP_ROLES:
-        flash('Please select a valid role for signup request.', 'warning')
-        return redirect(url_for('login'))
-    if cvo_office and cvo_office not in VALID_CVO_OFFICES:
-        flash('Please select a valid office.', 'warning')
-        return redirect(url_for('login'))
-    if not validate_contact(phone):
-        flash('Please provide a valid phone number.', 'warning')
-        return redirect(url_for('login'))
-    if not validate_email(email):
-        flash('Please provide a valid email address.', 'warning')
-        return redirect(url_for('login'))
-    if role == 'inspector' and not cvo_office:
-        flash('Office is required for inspector signup request.', 'warning')
-        return redirect(url_for('login'))
-    if role == 'data_entry' and not cvo_office:
-        flash('Office is required for Data Entry signup request.', 'warning')
-        return redirect(url_for('login'))
-    if (role.startswith('cvo_') or role == 'dsp') and not cvo_office:
-        flash('Office is required for CVO/DSP signup request.', 'warning')
-        return redirect(url_for('login'))
-    if role in {'po', 'cmd_apspdcl', 'cmd_apepdcl', 'cmd_apcpdcl', 'cgm_hr_transco'}:
-        cvo_office = None
-
-    try:
-        if models.get_user_by_username(username):
-            flash('Username already exists. Please choose a different username.', 'danger')
-            return redirect(url_for('login'))
-        models.create_signup_request(username, password, full_name, role, cvo_office, phone, email)
-        flash('Signup request submitted. Wait for Super Admin approval.', 'success')
-    except Exception as e:
-        flash(f'Unable to submit signup request: {str(e)}', 'danger')
+    flash('Self signup is disabled. Contact Super Admin to create your account.', 'warning')
     return redirect(url_for('login'))
 
 
@@ -776,7 +1098,7 @@ def dashboard():
         target_cvo_filter = 'all'
     officer_filter_raw = (request.args.get('officer_id') or 'all').strip()
 
-    petitions = models.get_petitions_for_user(user_id, user_role, cvo_office)
+    petitions = get_petitions_for_user_cached(user_id, user_role, cvo_office)
     officer_lookup = {}
     for p in petitions:
         officer_id = p.get('assigned_inspector_id')
@@ -817,10 +1139,14 @@ def dashboard():
 
     petition_type_labels = {
         'bribe': 'Bribe',
+        'corruption': 'Corruption',
         'harassment': 'Harassment',
-        'theft_of_materials': 'Theft of Materials',
-        'adverse_news': 'Adverse News',
-        'procedural_lapses': 'Procedural Lapses',
+        'misconduct': 'Misconduct',
+        'works_related': 'Works Related',
+        'irregularities_in_tenders': 'Irregularities in Tenders',
+        'illegal_assets': 'Illegal Assets',
+        'fake_certificates': 'Fake Certificates',
+        'theft_misappropriation_materials': 'Theft/Misappropriation of Materials',
         'other': 'Other',
     }
     source_labels = {
@@ -828,12 +1154,13 @@ def dashboard():
         'public_individual': 'Public (Individual)',
         'govt': 'Govt',
         'sumoto': 'Sumoto',
+        'cmd_office': 'O/o CMD',
     }
     office_labels = {
         'jmd_office': 'PO Office',
-        'cvo_apspdcl_tirupathi': 'CVO APSPDCL',
-        'cvo_apepdcl_vizag': 'CVO APEPDCL',
-        'cvo_apcpdcl_vijayawada': 'CVO APCPDCL',
+        'cvo_apspdcl_tirupathi': 'CVO/DSP APSPDCL',
+        'cvo_apepdcl_vizag': 'CVO/DSP APEPDCL',
+        'cvo_apcpdcl_vijayawada': 'CVO/DSP APCPDCL',
     }
     cvo_labels = {
         'apspdcl': 'APSPDCL',
@@ -881,7 +1208,12 @@ def dashboard():
 
 
 def _build_filtered_dashboard_stats(user_role, user_id, all_petitions, filtered_petitions):
-    base_stats = models.get_dashboard_stats(user_role, user_id, session.get('cvo_office'))
+    base_stats = {
+        'total_visible': len(all_petitions),
+    }
+    base_stats.update(models._get_workflow_stage_stats(all_petitions))  # type: ignore[attr-defined]
+    base_stats.update(models._get_sla_stats_for_petitions(all_petitions))  # type: ignore[attr-defined]
+    base_stats['kpi_cards'] = models._build_role_kpi_cards(user_role, all_petitions, user_id)  # type: ignore[attr-defined]
     filtered_stats = dict(base_stats)
     filtered_stats['total_visible'] = len(filtered_petitions)
     filtered_stats['kpi_cards'] = models._build_role_kpi_cards(user_role, filtered_petitions, user_id)  # type: ignore[attr-defined]
@@ -901,6 +1233,7 @@ def _build_dashboard_analytics(petitions, stats):
         'permission_approved': 'Permission Approved',
         'permission_rejected': 'Permission Rejected',
         'assigned_to_inspector': 'Assigned to Field Officer',
+        'sent_back_for_reenquiry': 'Sent Back for Re-enquiry',
         'enquiry_in_progress': 'Enquiry In Progress',
         'enquiry_report_submitted': 'Report Submitted',
         'cvo_comments_added': 'CVO/DSP Comments Added',
@@ -912,17 +1245,22 @@ def _build_dashboard_analytics(petitions, stats):
     }
     petition_type_labels = {
         'bribe': 'Bribe',
+        'corruption': 'Corruption',
         'harassment': 'Harassment',
-        'theft_of_materials': 'Theft',
-        'adverse_news': 'Adverse News',
-        'procedural_lapses': 'Procedural Lapses',
+        'misconduct': 'Misconduct',
+        'works_related': 'Works Related',
+        'irregularities_in_tenders': 'Irregularities in Tenders',
+        'illegal_assets': 'Illegal Assets',
+        'fake_certificates': 'Fake Certificates',
+        'theft_misappropriation_materials': 'Theft/Misappropriation of Materials',
         'other': 'Other'
     }
     source_labels = {
         'media': 'Media',
         'public_individual': 'Public',
         'govt': 'Govt',
-        'sumoto': 'Sumoto'
+        'sumoto': 'Sumoto',
+        'cmd_office': 'O/o CMD',
     }
 
     now = datetime.now()
@@ -1040,11 +1378,19 @@ def petitions_list():
 @role_required('super_admin', 'data_entry')
 def petition_new():
     deo_flow = get_deo_office_flow(session.get('user_role'), session.get('cvo_office'))
+    deo_target_options = get_deo_target_options(session.get('user_role'), session.get('cvo_office'))
+    deo_target_map = {opt.get('target_cvo'): opt for opt in deo_target_options if isinstance(opt, dict)}
+    show_cmd_source_option = (
+        session.get('user_role') == 'data_entry' and
+        (session.get('cvo_office') or '').strip().lower() in ('apepdcl', 'apspdcl')
+    )
 
     def render_petition_form():
         return render_template(
             'petition_form.html',
             deo_flow=deo_flow,
+            deo_target_options=deo_target_options,
+            show_cmd_source_option=show_cmd_source_option,
         )
 
     if request.method == 'POST':
@@ -1064,13 +1410,19 @@ def petition_new():
         permission_request_type = (request.form.get('permission_request_type') or '').strip()
 
         if session.get('user_role') == 'data_entry':
-            if not deo_flow:
+            if not deo_target_options:
                 flash('DEO office mapping is missing. Please contact admin.', 'danger')
                 return render_petition_form()
-            received_at = deo_flow['received_at']
-            target_cvo = deo_flow['target_cvo']
-            if deo_flow.get('force_permission_required'):
-                permission_request_type = 'permission_required'
+            selected_target = (target_cvo or '').strip()
+            if len(deo_target_options) == 1 and not selected_target:
+                selected_target = deo_target_options[0].get('target_cvo')
+            selected_flow = deo_target_map.get(selected_target)
+            if not selected_flow:
+                flash('Please select a valid target CVO/DSP office.', 'warning')
+                return render_petition_form()
+            received_at = selected_flow['received_at']
+            target_cvo = selected_flow['target_cvo']
+            permission_request_type = 'permission_required' if selected_flow.get('force_permission_required') else 'direct_enquiry'
 
         is_jmd_received = (received_at == 'jmd_office')
         received_date_raw = request.form.get('received_date')
@@ -1119,6 +1471,9 @@ def petition_new():
         if source_of_petition not in VALID_SOURCE_OF_PETITION:
             flash(f"Please select a valid {cfg_source.get('label', 'Source of Petition')}.", 'warning')
             return render_petition_form()
+        if source_of_petition == 'cmd_office' and not show_cmd_source_option:
+            flash('O/o CMD source is allowed only for APSPDCL/APEPDCL DEO login.', 'warning')
+            return render_petition_form()
         govt_option_values = {o.get('value') for o in cfg_govt_institution.get('options', []) if isinstance(o, dict)}
         if source_of_petition == 'govt' and cfg_govt_institution.get('required') and not govt_institution_type:
             flash(f"Please select {cfg_govt_institution.get('label', 'Type of Institution')}.", 'warning')
@@ -1146,10 +1501,10 @@ def petition_new():
                 flash(f"Please select a valid {cfg_permission_request.get('label', 'Permission Request')}.", 'warning')
                 return render_petition_form()
             if cfg_target_cvo.get('required') and not target_cvo:
-                flash(f"{cfg_target_cvo.get('label', 'Target CVO Jurisdiction')} is required.", 'warning')
+                flash(f"{cfg_target_cvo.get('label', 'Target CVO/DSP Jurisdiction')} is required.", 'warning')
                 return render_petition_form()
             if target_cvo not in VALID_TARGET_CVO:
-                flash(f"Please select a valid {cfg_target_cvo.get('label', 'Target CVO Jurisdiction')}.", 'warning')
+                flash(f"Please select a valid {cfg_target_cvo.get('label', 'Target CVO/DSP Jurisdiction')}.", 'warning')
                 return render_petition_form()
         if petitioner_name and len(petitioner_name) > 255:
             flash('Petitioner name is too long.', 'warning')
@@ -1203,7 +1558,11 @@ def petition_new():
         }
         
         try:
-            if data['permission_request_type'] == 'direct_enquiry':
+            if session.get('user_role') == 'data_entry' and not is_jmd_received:
+                # DEO no longer decides enquiry mode; CVO decides at forwarded_to_cvo stage.
+                data['requires_permission'] = True
+                data['permission_status'] = 'pending'
+            elif data['permission_request_type'] == 'direct_enquiry':
                 data['requires_permission'] = False
                 data['permission_status'] = 'not_required'
             else:
@@ -1223,9 +1582,9 @@ def petition_new():
                     result['id'],
                     session['user_id'],
                     data['target_cvo'],
-                    comments='Auto-forwarded to concerned CVO from Data Entry'
+                    comments='Auto-forwarded to concerned CVO/DSP from Data Entry'
                 )
-                flash(f'Petition {result["sno"]} created and auto-forwarded to CVO successfully!', 'success')
+                flash(f'Petition {result["sno"]} created and auto-forwarded to CVO/DSP successfully!', 'success')
             return redirect(url_for('petition_view', petition_id=result['id']))
         except Exception as e:
             flash(f'Error creating petition: {str(e)}', 'danger')
@@ -1246,7 +1605,7 @@ def petition_view(petition_id):
     # Get inspectors mapped to the relevant CVO/DSP officer
     inspectors = []
     cvo_users = []
-    cvo_like_roles = ('cvo_apspdcl', 'cvo_apepdcl', 'cvo_apcpdcl', 'dsp')
+    cvo_like_roles = ('cvo_apspdcl', 'cvo_apepdcl', 'dsp')
     if session['user_role'] in cvo_like_roles:
         inspectors = models.get_inspectors_by_cvo(session['user_id'])
     elif session['user_role'] == 'super_admin':
@@ -1292,14 +1651,14 @@ def petition_action(petition_id):
 
         if action == 'forward_to_cvo':
             if user_role not in ('super_admin', 'data_entry'):
-                flash('You are not allowed to forward petitions to CVO.', 'danger')
+                flash('You are not allowed to forward petitions to CVO/DSP.', 'danger')
                 return redirect(url_for('petition_view', petition_id=petition_id))
             target_cvo = (request.form.get('target_cvo') or '').strip()
             if target_cvo not in VALID_TARGET_CVO:
-                flash('Please select a valid target CVO.', 'warning')
+                flash('Please select a valid target CVO/DSP.', 'warning')
                 return redirect(url_for('petition_view', petition_id=petition_id))
             models.forward_petition_to_cvo(petition_id, user_id, target_cvo, comments)
-            flash('Petition forwarded to CVO successfully.', 'success')
+            flash('Petition forwarded to CVO/DSP successfully.', 'success')
             
         elif action == 'send_for_permission':
             if user_role not in ('super_admin', 'po'):
@@ -1308,16 +1667,52 @@ def petition_action(petition_id):
             models.send_for_permission(petition_id, user_id, comments)
             flash('Petition sent to PO for permission.', 'success')
 
-        elif action == 'send_receipt_to_po':
-            if user_role not in ('super_admin', 'cvo_apspdcl', 'cvo_apepdcl', 'cvo_apcpdcl', 'dsp'):
-                flash('Only CVO can send receipt to PO.', 'danger')
+        elif action == 'cvo_set_enquiry_mode':
+            if user_role not in ('super_admin', 'cvo_apspdcl', 'cvo_apepdcl', 'dsp'):
+                flash('Only CVO/DSP can decide enquiry mode.', 'danger')
                 return redirect(url_for('petition_view', petition_id=petition_id))
             petition = models.get_petition_by_id(petition_id)
-            if petition and not petition.get('requires_permission'):
-                flash('This petition is marked as Direct Enquiry. Permission request is not required.', 'warning')
+            if not petition:
+                flash('Petition not found.', 'danger')
+                return redirect(url_for('petitions_list'))
+            if petition.get('status') != 'forwarded_to_cvo':
+                flash('Enquiry mode can be decided only when petition is with CVO/DSP.', 'warning')
                 return redirect(url_for('petition_view', petition_id=petition_id))
-            models.cvo_send_receipt_to_po(petition_id, user_id, comments)
-            flash('Receipt sent to PO for permission processing.', 'success')
+
+            permission_request_type = (request.form.get('permission_request_type') or '').strip()
+            if permission_request_type not in VALID_PERMISSION_REQUEST_TYPES:
+                flash('Please select enquiry mode (Direct/Permission Required).', 'warning')
+                return redirect(url_for('petition_view', petition_id=petition_id))
+
+            if permission_request_type == 'permission_required':
+                permission_file = request.files.get('permission_file')
+                if not permission_file or not permission_file.filename:
+                    flash('Please upload permission document (PDF).', 'warning')
+                    return redirect(url_for('petition_view', petition_id=petition_id))
+                ok, upload_result = validate_pdf_upload(permission_file, 'Permission document')
+                if not ok:
+                    flash(upload_result, 'danger')
+                    return redirect(url_for('petition_view', petition_id=petition_id))
+                original_name = upload_result
+                os.makedirs(ENQUIRY_UPLOAD_DIR, exist_ok=True)
+                permission_filename = f"cvo_permission_{petition_id}_{datetime.now().strftime('%Y%m%d%H%M%S')}_{original_name}"
+                permission_file.save(os.path.join(ENQUIRY_UPLOAD_DIR, permission_filename))
+                try:
+                    models.cvo_send_receipt_to_po(petition_id, user_id, comments, permission_filename)
+                except Exception:
+                    try:
+                        os.remove(os.path.join(ENQUIRY_UPLOAD_DIR, permission_filename))
+                    except Exception:
+                        pass
+                    raise
+                flash('Permission route selected and receipt sent to PO.', 'success')
+            else:
+                enquiry_type_decision = (request.form.get('enquiry_type_decision') or '').strip()
+                if enquiry_type_decision not in VALID_ENQUIRY_TYPES:
+                    flash('Please select enquiry type decision (Detailed/Preliminary).', 'warning')
+                    return redirect(url_for('petition_view', petition_id=petition_id))
+                models.cvo_mark_direct_enquiry(petition_id, user_id, comments, enquiry_type_decision)
+                flash('Direct enquiry mode selected. You can now assign inspector.', 'success')
             
         elif action == 'approve_permission':
             if user_role not in ('super_admin', 'po'):
@@ -1331,7 +1726,7 @@ def petition_action(petition_id):
             enquiry_type_decision = (request.form.get('enquiry_type_decision') or '').strip()
             efile_no_input = request.form.get('efile_no', '').strip()
             if target_cvo not in VALID_TARGET_CVO:
-                flash('Please select a valid target CVO.', 'warning')
+                flash('Please select a valid target CVO/DSP.', 'warning')
                 return redirect(url_for('petition_view', petition_id=petition_id))
             if enquiry_type_decision not in VALID_ENQUIRY_TYPES:
                 flash('Please select enquiry type decision (Detailed/Preliminary).', 'warning')
@@ -1345,7 +1740,7 @@ def petition_action(petition_id):
                 flash(efile_error, 'warning')
                 return redirect(url_for('petition_view', petition_id=petition_id))
             models.approve_permission(petition_id, user_id, target_cvo, efile_no, comments, enquiry_type_decision)
-            flash('Permission granted and pushed to respective CVO.', 'success')
+            flash('Permission granted and pushed to respective CVO/DSP.', 'success')
 
         elif action == 'reject_permission':
             if user_role not in ('super_admin', 'po'):
@@ -1358,39 +1753,69 @@ def petition_action(petition_id):
             flash('Permission rejected.', 'warning')
             
         elif action == 'assign_inspector':
-            if user_role not in ('super_admin', 'cvo_apspdcl', 'cvo_apepdcl', 'cvo_apcpdcl', 'dsp'):
-                flash('Only CVO can assign inspectors.', 'danger')
+            if user_role not in ('super_admin', 'cvo_apspdcl', 'cvo_apepdcl', 'dsp'):
+                flash('Only CVO/DSP can assign inspectors.', 'danger')
                 return redirect(url_for('petition_view', petition_id=petition_id))
             petition = models.get_petition_by_id(petition_id)
             if petition and petition.get('requires_permission') and petition.get('status') != 'permission_approved':
                 flash('Permission is compulsory. PO approval required before assigning inspector.', 'warning')
                 return redirect(url_for('petition_view', petition_id=petition_id))
             if petition and not petition.get('requires_permission') and petition.get('status') != 'forwarded_to_cvo':
-                flash('For Direct Enquiry, inspector can be assigned only when petition is at CVO.', 'warning')
+                flash('For Direct Enquiry, inspector can be assigned only when petition is at CVO/DSP.', 'warning')
                 return redirect(url_for('petition_view', petition_id=petition_id))
             inspector_id = parse_optional_int(request.form.get('inspector_id'))
             if not inspector_id:
                 flash('Please select a valid field inspector.', 'warning')
                 return redirect(url_for('petition_view', petition_id=petition_id))
             enquiry_type_decision = None
-            if petition and not petition.get('requires_permission'):
-                enquiry_type_decision = (request.form.get('enquiry_type_decision') or '').strip()
-                if enquiry_type_decision not in VALID_ENQUIRY_TYPES:
-                    flash('Please select enquiry type decision (Detailed/Preliminary).', 'warning')
+            memo_file = request.files.get('assignment_memo_file')
+            memo_filename = None
+            if memo_file and memo_file.filename:
+                ok, upload_result = validate_pdf_upload(memo_file, 'Upload memo/instructions')
+                if not ok:
+                    flash(upload_result, 'danger')
                     return redirect(url_for('petition_view', petition_id=petition_id))
-            models.assign_to_inspector(petition_id, user_id, inspector_id, comments, enquiry_type_decision)
+                original_name = upload_result
+                os.makedirs(ENQUIRY_UPLOAD_DIR, exist_ok=True)
+                memo_filename = f"assign_memo_{petition_id}_{datetime.now().strftime('%Y%m%d%H%M%S')}_{original_name}"
+                memo_file.save(os.path.join(ENQUIRY_UPLOAD_DIR, memo_filename))
+            try:
+                models.assign_to_inspector(
+                    petition_id, user_id, inspector_id, comments, enquiry_type_decision, memo_filename
+                )
+            except Exception:
+                if memo_filename:
+                    try:
+                        os.remove(os.path.join(ENQUIRY_UPLOAD_DIR, memo_filename))
+                    except Exception:
+                        pass
+                raise
             flash('Petition assigned to inspector.', 'success')
 
         elif action == 'submit_report':
             if user_role not in ('super_admin', 'inspector'):
                 flash('Only inspectors can upload enquiry report.', 'danger')
                 return redirect(url_for('petition_view', petition_id=petition_id))
+            petition = models.get_petition_by_id(petition_id)
+            if not petition:
+                flash('Petition not found.', 'danger')
+                return redirect(url_for('petitions_list'))
             form_cfg = get_effective_form_field_configs()
             cfg_report_text = form_cfg.get('inspector_report.report_text', DEFAULT_FORM_FIELD_CONFIGS['inspector_report.report_text'])
             cfg_recommendation = form_cfg.get('inspector_report.recommendation', DEFAULT_FORM_FIELD_CONFIGS['inspector_report.recommendation'])
             cfg_report_file = form_cfg.get('inspector_report.report_file', DEFAULT_FORM_FIELD_CONFIGS['inspector_report.report_file'])
+            cfg_request_detailed = form_cfg.get(
+                'inspector_report.request_detailed_permission',
+                DEFAULT_FORM_FIELD_CONFIGS['inspector_report.request_detailed_permission']
+            )
+            cfg_detailed_reason = form_cfg.get(
+                'inspector_report.detailed_request_reason',
+                DEFAULT_FORM_FIELD_CONFIGS['inspector_report.detailed_request_reason']
+            )
             report_text = request.form.get('report_text', '').strip()
             recommendation = request.form.get('recommendation', '').strip()
+            request_detailed_permission = (request.form.get('request_detailed_permission') or '').strip() == '1'
+            detailed_request_reason = (request.form.get('detailed_request_reason') or '').strip()
             if cfg_report_text.get('required') and not report_text:
                 flash(f"{cfg_report_text.get('label', 'Conclusion of enquiry report')} is required.", 'warning')
                 return redirect(url_for('petition_view', petition_id=petition_id))
@@ -1403,14 +1828,34 @@ def petition_action(petition_id):
             if len(recommendation) > 5000:
                 flash('Recommendations/Suggestions text is too long.', 'warning')
                 return redirect(url_for('petition_view', petition_id=petition_id))
+            if request_detailed_permission:
+                if (petition.get('enquiry_type') or '').strip().lower() != 'preliminary':
+                    flash('Detailed enquiry conversion request is allowed only for preliminary enquiry petitions.', 'warning')
+                    return redirect(url_for('petition_view', petition_id=petition_id))
+                if cfg_detailed_reason.get('required') and not detailed_request_reason:
+                    flash(f"{cfg_detailed_reason.get('label', 'Reason for Detailed Enquiry Request')} is required.", 'warning')
+                    return redirect(url_for('petition_view', petition_id=petition_id))
+                if len(detailed_request_reason) > 2000:
+                    flash(f"{cfg_detailed_reason.get('label', 'Reason for Detailed Enquiry Request')} is too long.", 'warning')
+                    return redirect(url_for('petition_view', petition_id=petition_id))
             report_file = request.files.get('report_file')
             if cfg_report_file.get('required') and (not report_file or not report_file.filename):
                 flash('Enquiry report file (PDF) is compulsory.', 'warning')
                 return redirect(url_for('petition_view', petition_id=petition_id))
             if not report_file or not report_file.filename:
                 report_filename = None
-                models.submit_enquiry_report(petition_id, user_id, report_text, '', recommendation, report_filename)
-                flash('Enquiry report uploaded successfully.', 'success')
+                models.submit_enquiry_report(
+                    petition_id, user_id, report_text, '', recommendation, report_filename,
+                    request_detailed_permission=request_detailed_permission,
+                    detailed_request_reason=detailed_request_reason
+                )
+                if request_detailed_permission:
+                    flash(
+                        f'Enquiry report uploaded and "{cfg_request_detailed.get("label", "Detailed enquiry conversion request")}" sent to CVO/DSP.',
+                        'success'
+                    )
+                else:
+                    flash('Enquiry report uploaded successfully.', 'success')
                 return redirect(url_for('petition_view', petition_id=petition_id))
             ok, upload_result = validate_pdf_upload(report_file, 'Enquiry report attachment')
             if not ok:
@@ -1420,19 +1865,29 @@ def petition_action(petition_id):
             os.makedirs(ENQUIRY_UPLOAD_DIR, exist_ok=True)
             report_filename = f"enquiry_{petition_id}_{datetime.now().strftime('%Y%m%d%H%M%S')}_{original_name}"
             report_file.save(os.path.join(ENQUIRY_UPLOAD_DIR, report_filename))
-            models.submit_enquiry_report(petition_id, user_id, report_text, '', recommendation, report_filename)
-            flash('Enquiry report uploaded successfully.', 'success')
+            models.submit_enquiry_report(
+                petition_id, user_id, report_text, '', recommendation, report_filename,
+                request_detailed_permission=request_detailed_permission,
+                detailed_request_reason=detailed_request_reason
+            )
+            if request_detailed_permission:
+                flash(
+                    f'Enquiry report uploaded and "{cfg_request_detailed.get("label", "Detailed enquiry conversion request")}" sent to CVO/DSP.',
+                    'success'
+                )
+            else:
+                flash('Enquiry report uploaded successfully.', 'success')
             
         elif action == 'cvo_comments':
-            if user_role not in ('super_admin', 'cvo_apspdcl', 'cvo_apepdcl', 'cvo_apcpdcl', 'dsp'):
-                flash('Only CVO can enter remarks.', 'danger')
+            if user_role not in ('super_admin', 'cvo_apspdcl', 'cvo_apepdcl', 'dsp'):
+                flash('Only CVO/DSP can enter remarks.', 'danger')
                 return redirect(url_for('petition_view', petition_id=petition_id))
             form_cfg = get_effective_form_field_configs()
             cfg_cvo_comments = form_cfg.get('cvo_review.cvo_comments', DEFAULT_FORM_FIELD_CONFIGS['cvo_review.cvo_comments'])
             cfg_cvo_file = form_cfg.get('cvo_review.consolidated_report_file', DEFAULT_FORM_FIELD_CONFIGS['cvo_review.consolidated_report_file'])
             cvo_comments = request.form.get('cvo_comments', '').strip()
             if cfg_cvo_comments.get('required') and not cvo_comments:
-                flash(f"{cfg_cvo_comments.get('label', 'CVO comments')} are required.", 'warning')
+                flash(f"{cfg_cvo_comments.get('label', 'CVO/DSP comments')} are required.", 'warning')
                 return redirect(url_for('petition_view', petition_id=petition_id))
             consolidated_file = request.files.get('consolidated_report_file')
             if cfg_cvo_file.get('required') and (not consolidated_file or not consolidated_file.filename):
@@ -1452,8 +1907,35 @@ def petition_action(petition_id):
             models.cvo_add_comments(petition_id, user_id, cvo_comments)
             flash('Forwarded to PO for conclusion.', 'success')
 
+        elif action == 'cvo_send_back_reenquiry':
+            if user_role not in ('super_admin', 'cvo_apspdcl', 'cvo_apepdcl', 'dsp'):
+                flash('Only CVO/DSP can send back for re-enquiry.', 'danger')
+                return redirect(url_for('petition_view', petition_id=petition_id))
+            petition = models.get_petition_by_id(petition_id)
+            if not petition:
+                flash('Petition not found.', 'danger')
+                return redirect(url_for('petitions_list'))
+            if petition.get('status') != 'enquiry_report_submitted':
+                flash('Re-enquiry send back is allowed only after inspector report submission.', 'warning')
+                return redirect(url_for('petition_view', petition_id=petition_id))
+            inspector_id = parse_optional_int(request.form.get('inspector_id'))
+            if not inspector_id:
+                flash('Please select a valid field inspector.', 'warning')
+                return redirect(url_for('petition_view', petition_id=petition_id))
+            reenquiry_reason = request.form.get('comments', '').strip()
+            if not reenquiry_reason:
+                flash('Reason is required to send back for re-enquiry.', 'warning')
+                return redirect(url_for('petition_view', petition_id=petition_id))
+            if len(reenquiry_reason) > 5000:
+                flash('Reason is too long.', 'warning')
+                return redirect(url_for('petition_view', petition_id=petition_id))
+            models.cvo_send_back_to_inspector_for_reenquiry(
+                petition_id, user_id, inspector_id, reenquiry_reason
+            )
+            flash('Sent back to field level for re-enquiry.', 'success')
+
         elif action == 'upload_consolidated_report':
-            if user_role not in ('super_admin', 'cvo_apspdcl', 'cvo_apepdcl', 'cvo_apcpdcl', 'dsp'):
+            if user_role not in ('super_admin', 'cvo_apspdcl', 'cvo_apepdcl', 'dsp'):
                 flash('Only CVO/DSP can upload consolidated report.', 'danger')
                 return redirect(url_for('petition_view', petition_id=petition_id))
             petition = models.get_petition_by_id(petition_id)
@@ -1479,7 +1961,7 @@ def petition_action(petition_id):
             flash('Consolidated report uploaded successfully.', 'success')
 
         elif action == 'request_detailed_enquiry':
-            if user_role not in ('super_admin', 'cvo_apspdcl', 'cvo_apepdcl', 'cvo_apcpdcl', 'dsp'):
+            if user_role not in ('super_admin', 'cvo_apspdcl', 'cvo_apepdcl', 'dsp'):
                 flash('Only CVO/DSP can request detailed enquiry.', 'danger')
                 return redirect(url_for('petition_view', petition_id=petition_id))
             petition = models.get_petition_by_id(petition_id)
@@ -1563,6 +2045,27 @@ def petition_action(petition_id):
                 return redirect(url_for('petition_view', petition_id=petition_id))
             models.po_send_to_cmd(petition_id, user_id, cmd_instructions, efile_no)
             flash('Petition forwarded to concerned CMD/CGM-HR for action.', 'success')
+
+        elif action == 'po_send_back_reenquiry':
+            if user_role not in ('super_admin', 'po'):
+                flash('Only PO can send back for re-enquiry.', 'danger')
+                return redirect(url_for('petition_view', petition_id=petition_id))
+            petition = models.get_petition_by_id(petition_id)
+            if not petition:
+                flash('Petition not found.', 'danger')
+                return redirect(url_for('petitions_list'))
+            if petition.get('status') != 'forwarded_to_po':
+                flash('Re-enquiry send back is allowed only when report is pending with PO.', 'warning')
+                return redirect(url_for('petition_view', petition_id=petition_id))
+            reenquiry_reason = request.form.get('comments', '').strip()
+            if not reenquiry_reason:
+                flash('Reason is required to send back for re-enquiry.', 'warning')
+                return redirect(url_for('petition_view', petition_id=petition_id))
+            if len(reenquiry_reason) > 5000:
+                flash('Reason is too long.', 'warning')
+                return redirect(url_for('petition_view', petition_id=petition_id))
+            models.po_send_back_to_cvo_for_reenquiry(petition_id, user_id, reenquiry_reason)
+            flash('Sent back to CVO/DSP for re-enquiry routing.', 'success')
 
         elif action == 'update_efile_no':
             if user_role not in ('super_admin', 'po'):
@@ -2411,12 +2914,12 @@ def user_map_cvo(inspector_id):
     try:
         cvo_id_raw = request.form.get('cvo_id', '').strip()
         if not cvo_id_raw:
-            flash('Please select a CVO for mapping.', 'warning')
+            flash('Please select a CVO/DSP for mapping.', 'warning')
             return redirect(url_for('users_list'))
 
         cvo_id = parse_optional_int(cvo_id_raw)
         if not cvo_id:
-            flash('Please select a valid CVO for mapping.', 'warning')
+            flash('Please select a valid CVO/DSP for mapping.', 'warning')
             return redirect(url_for('users_list'))
 
         cvo_user = models.get_user_by_id(cvo_id)
@@ -2425,7 +2928,7 @@ def user_map_cvo(inspector_id):
             return redirect(url_for('users_list'))
 
         models.map_inspector_to_cvo(inspector_id, cvo_id)
-        flash('Field inspector mapped to CVO successfully.', 'success')
+        flash('Field inspector mapped to CVO/DSP successfully.', 'success')
     except Exception as e:
         flash(f'Error mapping inspector: {str(e)}', 'danger')
 

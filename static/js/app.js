@@ -3,10 +3,112 @@
 // Auto-dismiss flash messages after 5 seconds
 document.addEventListener('DOMContentLoaded', () => {
     const themeToggle = document.getElementById('themeToggle');
+    const langToggleGroups = document.querySelectorAll('.lang-toggle');
     const themeStorageKey = 'ui_theme_mode';
+    const langStorageKey = 'ui_lang';
     const rootEl = document.documentElement;
     const viewportMobile = 768;
     const viewportTablet = 1100;
+    const i18nVersion = '20260225-3';
+    const originalTextNodes = new WeakMap();
+    const originalAttrValues = new WeakMap();
+    let activeLanguage = 'en';
+    let activeDictionary = {};
+    let isApplyingAutoTranslation = false;
+
+    const escapeRegex = (text) => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+    const hasManualI18n = (el) => {
+        if (!el || !el.closest) return false;
+        return Boolean(el.closest('[data-i18n], [data-i18n-placeholder], [data-i18n-value], [data-no-auto-i18n]'));
+    };
+
+    const translateWithAutoMap = (text, dict) => {
+        if (!text || typeof text !== 'string') return text;
+        const auto = dict && dict.__auto__ ? dict.__auto__ : {};
+        const phraseMap = auto.phrases || {};
+        const wordMap = auto.words || {};
+        let translated = text;
+
+        const phraseEntries = Object.entries(phraseMap)
+            .filter(([en, te]) => Boolean(en && te))
+            .sort((a, b) => b[0].length - a[0].length);
+        phraseEntries.forEach(([en, te]) => {
+            const key = String(en).trim();
+            if (!key || !te) return;
+            const looksLikeSingleAsciiWord = /^[A-Za-z][A-Za-z'/-]*$/.test(key);
+            if (looksLikeSingleAsciiWord && key.length < 4) return;
+            const pattern = looksLikeSingleAsciiWord ? `\\b${escapeRegex(key)}\\b` : escapeRegex(key);
+            const rx = new RegExp(pattern, 'gi');
+            translated = translated.replace(rx, te);
+        });
+
+        translated = translated.replace(/\b([A-Za-z][A-Za-z'/-]*)\b/g, (token) => {
+            const mapped = wordMap[token.toLowerCase()];
+            return mapped || token;
+        });
+        return translated;
+    };
+
+    const applyAutoTranslations = (lang, dict) => {
+        if (!document.body) return;
+        isApplyingAutoTranslation = true;
+        try {
+            const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+            let node = walker.nextNode();
+            while (node) {
+                const parent = node.parentElement;
+                const nodeValue = node.nodeValue || '';
+                if (!parent || !nodeValue.trim()) {
+                    node = walker.nextNode();
+                    continue;
+                }
+                if (['SCRIPT', 'STYLE', 'NOSCRIPT', 'TEXTAREA', 'PRE', 'CODE', 'SVG'].includes(parent.tagName)) {
+                    node = walker.nextNode();
+                    continue;
+                }
+                if (hasManualI18n(parent)) {
+                    node = walker.nextNode();
+                    continue;
+                }
+                if (!originalTextNodes.has(node)) {
+                    originalTextNodes.set(node, nodeValue);
+                }
+                const original = originalTextNodes.get(node) || nodeValue;
+                node.nodeValue = lang === 'te' ? translateWithAutoMap(original, dict) : original;
+                node = walker.nextNode();
+            }
+
+            const attrTargets = document.querySelectorAll('[placeholder], [title], [aria-label], input[type=\"submit\"], input[type=\"button\"], input[type=\"reset\"], button');
+            attrTargets.forEach((el) => {
+                if (hasManualI18n(el)) return;
+                const attrs = [];
+                if (el.hasAttribute('placeholder')) attrs.push('placeholder');
+                if (el.hasAttribute('title')) attrs.push('title');
+                if (el.hasAttribute('aria-label')) attrs.push('aria-label');
+                if (el.tagName === 'INPUT' && ['submit', 'button', 'reset'].includes((el.getAttribute('type') || '').toLowerCase()) && el.hasAttribute('value')) {
+                    attrs.push('value');
+                }
+                attrs.forEach((attr) => {
+                    const cur = el.getAttribute(attr);
+                    if (!cur || !cur.trim()) return;
+                    let bag = originalAttrValues.get(el);
+                    if (!bag) {
+                        bag = {};
+                        originalAttrValues.set(el, bag);
+                    }
+                    if (!Object.prototype.hasOwnProperty.call(bag, attr)) {
+                        bag[attr] = cur;
+                    }
+                    const original = bag[attr];
+                    const next = lang === 'te' ? translateWithAutoMap(original, dict) : original;
+                    el.setAttribute(attr, next);
+                });
+            });
+        } finally {
+            isApplyingAutoTranslation = false;
+        }
+    };
 
     const applyTheme = (mode) => {
         rootEl.setAttribute('data-theme', mode);
@@ -19,7 +121,7 @@ document.addEventListener('DOMContentLoaded', () => {
     };
 
     const savedTheme = localStorage.getItem(themeStorageKey);
-    applyTheme(savedTheme === 'dark' ? 'dark' : 'light');
+    applyTheme(savedTheme === 'light' ? 'light' : 'dark');
 
     if (themeToggle) {
         themeToggle.addEventListener('click', () => {
@@ -28,6 +130,84 @@ document.addEventListener('DOMContentLoaded', () => {
             localStorage.setItem(themeStorageKey, next);
         });
     }
+
+    const applyTranslations = (dict) => {
+        document.querySelectorAll('[data-i18n]').forEach((el) => {
+            const key = el.getAttribute('data-i18n');
+            if (!key) return;
+            if (Object.prototype.hasOwnProperty.call(dict, key)) {
+                el.textContent = dict[key];
+            }
+        });
+        document.querySelectorAll('[data-i18n-placeholder]').forEach((el) => {
+            const key = el.getAttribute('data-i18n-placeholder');
+            if (!key) return;
+            if (Object.prototype.hasOwnProperty.call(dict, key)) {
+                el.setAttribute('placeholder', dict[key]);
+            }
+        });
+        document.querySelectorAll('[data-i18n-value]').forEach((el) => {
+            const key = el.getAttribute('data-i18n-value');
+            if (!key) return;
+            if (Object.prototype.hasOwnProperty.call(dict, key)) {
+                el.value = dict[key];
+            }
+        });
+    };
+
+    const loadLanguage = async (lang) => {
+        try {
+            const res = await fetch(`/static/i18n/${lang}.json?v=${i18nVersion}`, { cache: 'reload' });
+            if (!res.ok) return;
+            const dict = await res.json();
+            activeLanguage = lang;
+            activeDictionary = dict || {};
+            applyTranslations(activeDictionary);
+            applyAutoTranslations(activeLanguage, activeDictionary);
+        } catch (e) {
+            // eslint-disable-next-line no-console
+            console.error('Language load failed:', lang, e);
+            // keep default rendered text if translation file is unavailable
+        }
+    };
+
+    const setLangUiState = (lang) => {
+        rootEl.setAttribute('lang', lang === 'te' ? 'te' : 'en');
+        langToggleGroups.forEach((group) => {
+            group.setAttribute('data-active-lang', lang);
+            group.querySelectorAll('.lang-pill[data-lang]').forEach((btn) => {
+                const active = btn.getAttribute('data-lang') === lang;
+                btn.classList.toggle('is-active', active);
+                btn.setAttribute('aria-pressed', String(active));
+            });
+        });
+    };
+
+    const savedLang = localStorage.getItem(langStorageKey) || 'en';
+    activeLanguage = savedLang;
+    setLangUiState(savedLang);
+    langToggleGroups.forEach((group) => {
+        const setLanguage = async (nextLang) => {
+            localStorage.setItem(langStorageKey, nextLang);
+            setLangUiState(nextLang);
+            await loadLanguage(nextLang);
+        };
+
+        group.querySelectorAll('.lang-pill[data-lang]').forEach((btn) => {
+            btn.addEventListener('click', async (e) => {
+                e.stopPropagation();
+                const nextLang = btn.getAttribute('data-lang') || 'en';
+                await setLanguage(nextLang);
+            });
+        });
+
+        group.addEventListener('click', async () => {
+            const current = group.getAttribute('data-active-lang') || activeLanguage || 'en';
+            const nextLang = current === 'te' ? 'en' : 'te';
+            await setLanguage(nextLang);
+        });
+    });
+    loadLanguage(savedLang);
 
     const notifToggle = document.getElementById('notifToggle');
     const notifMenu = document.getElementById('notifMenu');
@@ -96,7 +276,7 @@ document.addEventListener('DOMContentLoaded', () => {
         }, 5000);
     });
 
-    // Auto-set target_cvo based on received_at for CVO offices
+    // Auto-set target_cvo based on received_at for CVO/DSP offices
     const receivedAt = document.getElementById('received_at');
     const targetCvo = document.getElementById('target_cvo');
     if (receivedAt && targetCvo) {
@@ -379,4 +559,5 @@ function initPetitionRowNavigation() {
         });
     });
 }
+
 

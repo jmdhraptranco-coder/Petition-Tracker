@@ -8,6 +8,28 @@ import json
 config = Config()
 
 
+def _cvo_role_for_target(target_cvo):
+    # SPDCL CVO handles both APSPDCL and APCPDCL.
+    role_map = {
+        'apspdcl': 'cvo_apspdcl',
+        'apepdcl': 'cvo_apepdcl',
+        'apcpdcl': 'cvo_apspdcl',
+        'headquarters': 'dsp',
+    }
+    return role_map.get((target_cvo or '').strip())
+
+
+def _target_cvos_for_cvo_role(user_role):
+    role_targets = {
+        'cvo_apspdcl': ['apspdcl', 'apcpdcl'],
+        'cvo_apepdcl': ['apepdcl'],
+        # CPDCL queue is merged into SPDCL CVO login.
+        'cvo_apcpdcl': [],
+        'dsp': ['headquarters'],
+    }
+    return role_targets.get((user_role or '').strip(), [])
+
+
 def ensure_schema_updates():
     """Apply minimal runtime-safe schema updates required by newer workflow."""
     conn = psycopg2.connect(**config.get_psycopg2_kwargs())
@@ -20,6 +42,7 @@ def ensure_schema_updates():
         cur.execute("ALTER TYPE user_role ADD VALUE IF NOT EXISTS 'cgm_hr_transco'")
         cur.execute("ALTER TYPE user_role ADD VALUE IF NOT EXISTS 'dsp'")
         cur.execute("ALTER TYPE petition_status ADD VALUE IF NOT EXISTS 'lodged'")
+        cur.execute("ALTER TYPE petition_status ADD VALUE IF NOT EXISTS 'sent_back_for_reenquiry'")
         cur.execute("ALTER TYPE cvo_office ADD VALUE IF NOT EXISTS 'headquarters'")
         cur.execute("""
             ALTER TABLE petitions
@@ -95,6 +118,10 @@ def ensure_schema_updates():
         cur.execute("""
             CREATE INDEX IF NOT EXISTS idx_password_reset_requests_status_created
             ON password_reset_requests (status, created_at DESC)
+        """)
+        cur.execute("""
+            ALTER TABLE petition_tracking
+            ADD COLUMN IF NOT EXISTS attachment_file VARCHAR(255)
         """)
     except Exception:
         raise
@@ -400,17 +427,30 @@ def get_inspectors_by_cvo(cvo_user_id):
         if not cvo:
             return []
 
-        cur.execute("""
+        handled_offices = []
+        if cvo.get('role') == 'cvo_apspdcl':
+            handled_offices = ['apspdcl', 'apcpdcl']
+        elif cvo.get('cvo_office'):
+            handled_offices = [cvo.get('cvo_office')]
+
+        office_clause = ''
+        params = [cvo_user_id]
+        if handled_offices:
+            office_placeholders = ', '.join(['%s'] * len(handled_offices))
+            office_clause = f"OR (i.assigned_cvo_id IS NULL AND i.cvo_office IS NOT NULL AND i.cvo_office IN ({office_placeholders}))"
+            params.extend(handled_offices)
+
+        cur.execute(f"""
             SELECT DISTINCT i.*
             FROM users i
             WHERE i.role = 'inspector'
               AND i.is_active = TRUE
               AND (
                     i.assigned_cvo_id = %s
-                    OR (i.assigned_cvo_id IS NULL AND i.cvo_office IS NOT NULL AND i.cvo_office = %s)
+                    {office_clause}
               )
             ORDER BY i.full_name
-        """, (cvo_user_id, cvo['cvo_office']))
+        """, tuple(params))
         return [dict(row) for row in cur.fetchall()]
     finally:
         conn.close()
@@ -712,7 +752,7 @@ def create_petition(data, created_by):
             data.get('received_date', date.today()),
             data.get('govt_institution_type'),
             data.get('permission_status', 'pending'),
-            data.get('enquiry_type', 'detailed'),
+            data.get('enquiry_type', ''),
             created_by, created_by, data.get('remarks'),
             data.get('ereceipt_no'),
             data.get('ereceipt_file')
@@ -775,16 +815,23 @@ def get_petitions_for_user(user_id, user_role, cvo_office=None, status_filter=No
         elif user_role == 'data_entry':
             pass  # Data entry sees all petitions for assignment tracking
         elif user_role == 'po':
-            conditions.append("(p.status IN ('forwarded_to_po', 'forwarded_to_jmd', 'sent_for_permission', 'action_taken', 'lodged') OR p.current_handler_id = %s OR p.requires_permission = FALSE)")
+            conditions.append("(p.status IN ('forwarded_to_po', 'forwarded_to_jmd', 'sent_for_permission', 'action_taken', 'lodged', 'sent_back_for_reenquiry') OR p.current_handler_id = %s OR p.requires_permission = FALSE)")
             params.append(user_id)
         elif user_role in ('cmd_apspdcl', 'cmd_apepdcl', 'cmd_apcpdcl', 'cgm_hr_transco'):
             cmd_office_map = {'cmd_apspdcl': 'apspdcl', 'cmd_apepdcl': 'apepdcl', 'cmd_apcpdcl': 'apcpdcl', 'cgm_hr_transco': 'headquarters'}
             conditions.append("p.target_cvo = %s AND p.status IN ('action_instructed', 'action_taken')")
             params.append(cmd_office_map[user_role])
         elif user_role in ('cvo_apspdcl', 'cvo_apepdcl', 'cvo_apcpdcl', 'dsp'):
-            office_map = {'cvo_apspdcl': 'apspdcl', 'cvo_apepdcl': 'apepdcl', 'cvo_apcpdcl': 'apcpdcl', 'dsp': 'headquarters'}
-            conditions.append("p.target_cvo = %s")
-            params.append(office_map[user_role])
+            targets = _target_cvos_for_cvo_role(user_role)
+            if not targets:
+                conditions.append("1 = 0")
+            elif len(targets) == 1:
+                conditions.append("p.target_cvo = %s")
+                params.append(targets[0])
+            else:
+                placeholders = ', '.join(['%s'] * len(targets))
+                conditions.append(f"p.target_cvo IN ({placeholders})")
+                params.extend(targets)
         elif user_role == 'inspector':
             conditions.append("p.assigned_inspector_id = %s")
             params.append(user_id)
@@ -861,8 +908,7 @@ def forward_petition_to_cvo(petition_id, from_user_id, target_cvo, comments=None
         status_before = petition['status'] if petition else None
 
         # Find the CVO user for this office
-        role_map = {'apspdcl': 'cvo_apspdcl', 'apepdcl': 'cvo_apepdcl', 'apcpdcl': 'cvo_apcpdcl', 'headquarters': 'dsp'}
-        cvo_role = role_map.get(target_cvo)
+        cvo_role = _cvo_role_for_target(target_cvo)
         
         cur.execute("SELECT id FROM users WHERE role = %s AND is_active = TRUE LIMIT 1", (cvo_role,))
         cvo_user = cur.fetchone()
@@ -923,7 +969,7 @@ def send_for_permission(petition_id, from_user_id, comments=None):
     finally:
         conn.close()
 
-def cvo_send_receipt_to_po(petition_id, cvo_user_id, comments=None):
+def cvo_send_receipt_to_po(petition_id, cvo_user_id, comments=None, attachment_file=None):
     """CVO sends petition with receipt to PO for mandatory permission route."""
     conn = get_db()
     try:
@@ -948,10 +994,46 @@ def cvo_send_receipt_to_po(petition_id, cvo_user_id, comments=None):
 
         cur.execute("""
             INSERT INTO petition_tracking (petition_id, from_user_id, to_user_id, from_role, to_role,
-                action, comments, status_before, status_after)
+                action, comments, status_before, status_after, attachment_file)
             VALUES (%s, %s, %s, (SELECT role FROM users WHERE id = %s), 'po',
-                'Receipt Sent to PO for Permission', %s, %s, 'sent_for_permission')
-        """, (petition_id, cvo_user_id, po_id, cvo_user_id, comments, status_before))
+                'Receipt Sent to PO for Permission', %s, %s, 'sent_for_permission', %s)
+        """, (petition_id, cvo_user_id, po_id, cvo_user_id, comments, status_before, attachment_file))
+        conn.commit()
+    except Exception as e:
+        conn.rollback()
+        raise e
+    finally:
+        conn.close()
+
+
+def cvo_mark_direct_enquiry(petition_id, cvo_user_id, comments=None, enquiry_type=None):
+    """CVO confirms direct enquiry (no PO permission route)."""
+    conn = get_db()
+    try:
+        cur = dict_cursor(conn)
+        cur.execute("SELECT status FROM petitions WHERE id = %s", (petition_id,))
+        petition = cur.fetchone()
+        status_before = petition['status'] if petition else None
+
+        cur.execute("""
+            UPDATE petitions
+            SET requires_permission = FALSE,
+                permission_status = 'not_required',
+                enquiry_type = CASE
+                    WHEN %s IN ('detailed', 'preliminary') THEN %s
+                    ELSE enquiry_type
+                END,
+                current_handler_id = %s,
+                updated_at = CURRENT_TIMESTAMP
+            WHERE id = %s
+        """, (enquiry_type, enquiry_type, cvo_user_id, petition_id))
+
+        cur.execute("""
+            INSERT INTO petition_tracking (petition_id, from_user_id, to_user_id, from_role, to_role,
+                action, comments, status_before, status_after)
+            VALUES (%s, %s, %s, (SELECT role FROM users WHERE id = %s), 'inspector',
+                'Direct Enquiry Confirmed by CVO', %s, %s, 'forwarded_to_cvo')
+        """, (petition_id, cvo_user_id, cvo_user_id, cvo_user_id, comments, status_before))
         conn.commit()
     except Exception as e:
         conn.rollback()
@@ -964,8 +1046,7 @@ def approve_permission(petition_id, from_user_id, target_cvo, efile_no=None, com
     conn = get_db()
     try:
         cur = dict_cursor(conn)
-        role_map = {'apspdcl': 'cvo_apspdcl', 'apepdcl': 'cvo_apepdcl', 'apcpdcl': 'cvo_apcpdcl', 'headquarters': 'dsp'}
-        cvo_role = role_map.get(target_cvo)
+        cvo_role = _cvo_role_for_target(target_cvo)
         
         cur.execute("SELECT id FROM users WHERE role = %s AND is_active = TRUE LIMIT 1", (cvo_role,))
         cvo_user = cur.fetchone()
@@ -1023,7 +1104,7 @@ def reject_permission(petition_id, from_user_id, comments=None):
     finally:
         conn.close()
 
-def assign_to_inspector(petition_id, from_user_id, inspector_id, comments=None, enquiry_type=None):
+def assign_to_inspector(petition_id, from_user_id, inspector_id, comments=None, enquiry_type=None, attachment_file=None):
     """CVO assigns petition to field inspector"""
     conn = get_db()
     try:
@@ -1046,22 +1127,22 @@ def assign_to_inspector(petition_id, from_user_id, inspector_id, comments=None, 
         
         cur.execute("""
             INSERT INTO petition_tracking (petition_id, from_user_id, to_user_id, 
-                from_role, to_role, action, comments, status_before, status_after)
+                from_role, to_role, action, comments, status_before, status_after, attachment_file)
             VALUES (%s, %s, %s, (SELECT role FROM users WHERE id = %s), 'inspector', 
                 'Assigned to Inspector', %s, 
-                %s, 'assigned_to_inspector')
-        """, (petition_id, from_user_id, inspector_id, from_user_id, comments, status_before))
+                %s, 'assigned_to_inspector', %s)
+        """, (petition_id, from_user_id, inspector_id, from_user_id, comments, status_before, attachment_file))
 
         if not requires_permission:
             cur.execute("SELECT id FROM users WHERE role = 'po' AND is_active = TRUE LIMIT 1")
             po_user = cur.fetchone()
             po_id = po_user['id'] if po_user else None
             cur.execute("""
-                INSERT INTO petition_tracking (petition_id, from_user_id, to_user_id, from_role, to_role, action, comments, status_before, status_after)
+                INSERT INTO petition_tracking (petition_id, from_user_id, to_user_id, from_role, to_role, action, comments, status_before, status_after, attachment_file)
                 VALUES (%s, %s, %s, (SELECT role FROM users WHERE id = %s), 'po',
                     'Direct Enquiry Acknowledgement Sent to PO (for E-Office File No)',
-                    %s, %s, 'assigned_to_inspector')
-            """, (petition_id, from_user_id, po_id, from_user_id, comments, status_before))
+                    %s, %s, 'assigned_to_inspector', %s)
+            """, (petition_id, from_user_id, po_id, from_user_id, comments, status_before, attachment_file))
         
         conn.commit()
     except Exception as e:
@@ -1102,11 +1183,23 @@ def set_ereceipt(petition_id, user_id, ereceipt_no, ereceipt_file=None):
     finally:
         conn.close()
 
-def submit_enquiry_report(petition_id, inspector_id, report_text, findings, recommendation, report_file=None):
+def submit_enquiry_report(
+    petition_id,
+    inspector_id,
+    report_text,
+    findings,
+    recommendation,
+    report_file=None,
+    request_detailed_permission=False,
+    detailed_request_reason=None
+):
     """Inspector submits enquiry report"""
     conn = get_db()
     try:
         cur = dict_cursor(conn)
+        cur.execute("SELECT status FROM petitions WHERE id = %s", (petition_id,))
+        petition = cur.fetchone()
+        status_before = petition['status'] if petition else 'assigned_to_inspector'
         
         # Get the CVO this inspector reports to
         cur.execute("SELECT assigned_cvo_id FROM users WHERE id = %s", (inspector_id,))
@@ -1130,8 +1223,18 @@ def submit_enquiry_report(petition_id, inspector_id, report_text, findings, reco
                 from_role, to_role, action, comments, status_before, status_after)
             VALUES (%s, %s, %s, 'inspector', (SELECT role FROM users WHERE id = %s), 
                 'Enquiry Report Submitted', %s, 
-                'assigned_to_inspector', 'enquiry_report_submitted')
-        """, (petition_id, inspector_id, cvo_id, cvo_id, 'Report uploaded for CVO review' if report_file else 'Report submitted for CVO review'))
+                %s, 'enquiry_report_submitted')
+        """, (petition_id, inspector_id, cvo_id, cvo_id, 'Report uploaded for CVO review' if report_file else 'Report submitted for CVO review', status_before))
+
+        if request_detailed_permission:
+            req_comment = (detailed_request_reason or '').strip() or 'Inspector requested permission to convert preliminary enquiry to detailed enquiry.'
+            cur.execute("""
+                INSERT INTO petition_tracking (petition_id, from_user_id, to_user_id,
+                    from_role, to_role, action, comments, status_before, status_after)
+                VALUES (%s, %s, %s, 'inspector', (SELECT role FROM users WHERE id = %s),
+                    'Inspector Requested Detailed Enquiry Permission', %s,
+                    'enquiry_report_submitted', 'enquiry_report_submitted')
+            """, (petition_id, inspector_id, cvo_id, cvo_id, req_comment))
         
         conn.commit()
     except Exception as e:
@@ -1170,6 +1273,88 @@ def cvo_add_comments(petition_id, cvo_user_id, cvo_comments):
                 'enquiry_report_submitted', 'forwarded_to_po')
         """, (petition_id, cvo_user_id, po_id, cvo_user_id, cvo_comments))
         
+        conn.commit()
+    except Exception as e:
+        conn.rollback()
+        raise e
+    finally:
+        conn.close()
+
+def cvo_send_back_to_inspector_for_reenquiry(petition_id, cvo_user_id, inspector_id, comments):
+    """CVO/DSP sends report back to field level for re-enquiry."""
+    conn = get_db()
+    try:
+        cur = dict_cursor(conn)
+        cur.execute("SELECT status FROM petitions WHERE id = %s", (petition_id,))
+        petition = cur.fetchone()
+        if not petition:
+            raise Exception("Petition not found.")
+        status_before = petition['status']
+
+        cur.execute("""
+            UPDATE petitions
+            SET status = 'sent_back_for_reenquiry',
+                assigned_inspector_id = %s,
+                current_handler_id = %s,
+                updated_at = CURRENT_TIMESTAMP
+            WHERE id = %s
+        """, (inspector_id, inspector_id, petition_id))
+
+        cur.execute("""
+            INSERT INTO petition_tracking (petition_id, from_user_id, to_user_id,
+                from_role, to_role, action, comments, status_before, status_after)
+            VALUES (%s, %s, %s, (SELECT role FROM users WHERE id = %s), 'inspector',
+                'Returned to Field Level for Re-enquiry by CVO/DSP',
+                %s, %s, 'sent_back_for_reenquiry')
+        """, (petition_id, cvo_user_id, inspector_id, cvo_user_id, comments, status_before))
+
+        conn.commit()
+    except Exception as e:
+        conn.rollback()
+        raise e
+    finally:
+        conn.close()
+
+
+def po_send_back_to_cvo_for_reenquiry(petition_id, po_user_id, comments):
+    """PO sends petition back to concerned CVO/DSP for re-enquiry routing."""
+    conn = get_db()
+    try:
+        cur = dict_cursor(conn)
+        cur.execute("SELECT target_cvo, status, requires_permission FROM petitions WHERE id = %s", (petition_id,))
+        petition = cur.fetchone()
+        if not petition:
+            raise Exception("Petition not found.")
+        status_before = petition['status']
+        is_permission_flow = bool(petition.get('requires_permission'))
+        status_after = 'permission_approved' if is_permission_flow else 'forwarded_to_cvo'
+
+        cvo_role = _cvo_role_for_target(petition.get('target_cvo'))
+        if not cvo_role:
+            raise Exception("Target CVO/DSP is not configured for this petition.")
+
+        cur.execute("SELECT id FROM users WHERE role = %s AND is_active = TRUE LIMIT 1", (cvo_role,))
+        cvo_user = cur.fetchone()
+        cvo_id = cvo_user['id'] if cvo_user else None
+        if not cvo_id:
+            raise Exception("No active CVO/DSP user found for this petition.")
+
+        cur.execute("""
+            UPDATE petitions
+            SET status = %s,
+                current_handler_id = %s,
+                updated_at = CURRENT_TIMESTAMP
+            WHERE id = %s
+        """, (status_after, cvo_id, petition_id))
+
+        cur.execute("""
+            INSERT INTO petition_tracking (petition_id, from_user_id, to_user_id,
+                from_role, to_role, action, comments, status_before, status_after)
+            VALUES (%s, %s, %s, 'po', %s,
+                'Returned to CVO/DSP for Re-enquiry',
+                %s, %s, %s)
+        """, (petition_id, po_user_id, cvo_id, cvo_role, comments, status_before, status_after))
+
         conn.commit()
     except Exception as e:
         conn.rollback()
@@ -1708,7 +1893,8 @@ def _build_role_kpi_cards(user_role, petitions, user_id=None):
             {'label': 'Received', 'value': counts.get('received', 0), 'metric': 'status:received', 'style': 'stat-primary'},
             {'label': 'Forwarded to CVO/DSP', 'value': counts.get('forwarded_to_cvo', 0), 'metric': 'status:forwarded_to_cvo', 'style': 'stat-info'},
             {'label': 'Sent for Permission', 'value': counts.get('sent_for_permission', 0), 'metric': 'status:sent_for_permission', 'style': 'stat-warning'},
-            {'label': 'Enquiry In Process', 'value': _count_multi(counts, ['assigned_to_inspector', 'enquiry_in_progress']), 'metric': 'multi:assigned_to_inspector,enquiry_in_progress', 'style': 'stat-warning'},
+            {'label': 'Enquiry In Process', 'value': _count_multi(counts, ['assigned_to_inspector', 'sent_back_for_reenquiry', 'enquiry_in_progress']), 'metric': 'multi:assigned_to_inspector,sent_back_for_reenquiry,enquiry_in_progress', 'style': 'stat-warning'},
+            {'label': 'Sent Back for Re-enquiry', 'value': counts.get('sent_back_for_reenquiry', 0), 'metric': 'status:sent_back_for_reenquiry', 'style': 'stat-info'},
             {'label': 'Reports at PO', 'value': _count_multi(counts, ['forwarded_to_po', 'forwarded_to_jmd']), 'metric': 'multi:forwarded_to_po,forwarded_to_jmd', 'style': 'stat-info'},
             {'label': 'Action Initiated', 'value': counts.get('action_instructed', 0), 'metric': 'status:action_instructed', 'style': 'stat-success'},
             {'label': 'Action Taken', 'value': counts.get('action_taken', 0), 'metric': 'status:action_taken', 'style': 'stat-success'},
@@ -1720,6 +1906,7 @@ def _build_role_kpi_cards(user_role, petitions, user_id=None):
             {'label': 'Permission Pending', 'value': counts.get('sent_for_permission', 0), 'metric': 'status:sent_for_permission', 'style': 'stat-warning'},
             {'label': 'Permission Given', 'value': _get_po_permission_given_count(user_id), 'metric': 'po_permission_given', 'style': 'stat-success'},
             {'label': 'Reports Received', 'value': _count_multi(counts, ['forwarded_to_po', 'forwarded_to_jmd']), 'metric': 'multi:forwarded_to_po,forwarded_to_jmd', 'style': 'stat-info'},
+            {'label': 'Sent Back for Re-enquiry', 'value': counts.get('sent_back_for_reenquiry', 0), 'metric': 'status:sent_back_for_reenquiry', 'style': 'stat-warning'},
             {'label': 'Action Initiated', 'value': counts.get('action_instructed', 0), 'metric': 'status:action_instructed', 'style': 'stat-primary'},
             {'label': 'Action Taken', 'value': counts.get('action_taken', 0), 'metric': 'status:action_taken', 'style': 'stat-success'},
             {'label': 'Lodged', 'value': counts.get('lodged', 0), 'metric': 'status:lodged', 'style': 'stat-amber'},
@@ -1729,6 +1916,7 @@ def _build_role_kpi_cards(user_role, petitions, user_id=None):
             {'label': 'Received', 'value': counts.get('forwarded_to_cvo', 0), 'metric': 'status:forwarded_to_cvo', 'style': 'stat-primary'},
             {'label': 'Permission Approved', 'value': counts.get('permission_approved', 0), 'metric': 'status:permission_approved', 'style': 'stat-success'},
             {'label': 'Assigned to Field Officers', 'value': counts.get('assigned_to_inspector', 0), 'metric': 'status:assigned_to_inspector', 'style': 'stat-warning'},
+            {'label': 'Sent Back for Re-enquiry', 'value': counts.get('sent_back_for_reenquiry', 0), 'metric': 'status:sent_back_for_reenquiry', 'style': 'stat-warning'},
             {'label': 'Enquiry Reports Received', 'value': counts.get('enquiry_report_submitted', 0), 'metric': 'status:enquiry_report_submitted', 'style': 'stat-info'},
             {'label': 'Forwarded to PO', 'value': _count_multi(counts, ['forwarded_to_po', 'forwarded_to_jmd']), 'metric': 'multi:forwarded_to_po,forwarded_to_jmd', 'style': 'stat-violet'},
         ]
@@ -1740,6 +1928,7 @@ def _build_role_kpi_cards(user_role, petitions, user_id=None):
     if user_role == 'inspector':
         return [
             {'label': 'Assigned', 'value': counts.get('assigned_to_inspector', 0), 'metric': 'status:assigned_to_inspector', 'style': 'stat-primary'},
+            {'label': 'Sent Back for Re-enquiry', 'value': counts.get('sent_back_for_reenquiry', 0), 'metric': 'status:sent_back_for_reenquiry', 'style': 'stat-warning'},
             {'label': 'Enquiry In Process', 'value': counts.get('enquiry_in_progress', 0), 'metric': 'status:enquiry_in_progress', 'style': 'stat-warning'},
             {'label': 'Report Submitted', 'value': counts.get('enquiry_report_submitted', 0), 'metric': 'status:enquiry_report_submitted', 'style': 'stat-success'},
         ]
@@ -1762,6 +1951,7 @@ def _get_workflow_stage_stats(petitions):
         'permission_approved': 1,
         'permission_rejected': 1,
         'assigned_to_inspector': 2,
+        'sent_back_for_reenquiry': 2,
         'enquiry_in_progress': 2,
         'enquiry_report_submitted': 3,
         'cvo_comments_added': 3,
@@ -1788,6 +1978,7 @@ def get_dashboard_drilldown(user_role, user_id, cvo_office, metric):
         'permission_approved': 1,
         'permission_rejected': 1,
         'assigned_to_inspector': 2,
+        'sent_back_for_reenquiry': 2,
         'enquiry_in_progress': 2,
         'enquiry_report_submitted': 3,
         'cvo_comments_added': 3,
@@ -1961,9 +2152,16 @@ def _get_sla_stats(conn, user_role, user_id=None):
     params = []
 
     if user_role in ('cvo_apspdcl', 'cvo_apepdcl', 'cvo_apcpdcl', 'dsp'):
-        office_map = {'cvo_apspdcl': 'apspdcl', 'cvo_apepdcl': 'apepdcl', 'cvo_apcpdcl': 'apcpdcl', 'dsp': 'headquarters'}
-        conditions.append("p.target_cvo = %s")
-        params.append(office_map[user_role])
+        targets = _target_cvos_for_cvo_role(user_role)
+        if not targets:
+            conditions.append("1 = 0")
+        elif len(targets) == 1:
+            conditions.append("p.target_cvo = %s")
+            params.append(targets[0])
+        else:
+            placeholders = ', '.join(['%s'] * len(targets))
+            conditions.append(f"p.target_cvo IN ({placeholders})")
+            params.extend(targets)
     elif user_role == 'inspector' and user_id:
         conditions.append("p.assigned_inspector_id = %s")
         params.append(user_id)

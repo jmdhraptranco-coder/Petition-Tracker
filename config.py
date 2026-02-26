@@ -75,6 +75,19 @@ class Config:
         self.MAX_UPLOAD_SIZE_MB = int(os.environ.get('MAX_UPLOAD_SIZE_MB', '10'))
         self.SESSION_COOKIE_SECURE = self.IS_PRODUCTION
 
+        # Email OTP / SMTP configuration
+        self.OTP_ENABLED = os.environ.get('OTP_ENABLED', '1').strip() != '0'
+        self.OTP_LENGTH = int(os.environ.get('OTP_LENGTH', '6'))
+        self.OTP_EXPIRY_SECONDS = int(os.environ.get('OTP_EXPIRY_SECONDS', '300'))
+        self.OTP_MAX_ATTEMPTS = int(os.environ.get('OTP_MAX_ATTEMPTS', '5'))
+        self.SMTP_HOST = os.environ.get('SMTP_HOST', '').strip()
+        self.SMTP_PORT = int(os.environ.get('SMTP_PORT', '587'))
+        self.SMTP_USERNAME = os.environ.get('SMTP_USERNAME', '').strip()
+        self.SMTP_PASSWORD = os.environ.get('SMTP_PASSWORD', '')
+        self.SMTP_USE_TLS = os.environ.get('SMTP_USE_TLS', '1').strip() != '0'
+        self.SMTP_FROM = os.environ.get('SMTP_FROM', self.SMTP_USERNAME).strip()
+        self.OTP_DEV_FALLBACK_FLASH = os.environ.get('OTP_DEV_FALLBACK_FLASH', '1').strip() != '0'
+
         if self.IS_PRODUCTION:
             self._validate_production_settings()
 

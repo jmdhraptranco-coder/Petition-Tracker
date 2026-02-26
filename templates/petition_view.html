@@ -178,73 +178,28 @@
                 </div>
                 <div class="report-stage-flow-wrap">
                     <div class="report-stage-flow">
-                        <button type="button" class="report-stage-node" data-title="Report" data-content="{{ report.report_text|e }}" data-file-url="{{ url_for('enquiry_file', filename=report.report_file) if report.report_file else '' }}" data-file-label="View Uploaded File" onclick="openReportStageModal(this)">
+                        <button type="button" class="report-stage-node" data-title="CI Report" data-content="{{ report.report_text|e }}" data-file-url="{{ url_for('enquiry_file', filename=report.report_file) if report.report_file else '' }}" data-file-label="View Uploaded File" onclick="openReportStageModal(this)">
                             <span class="report-stage-circle">
                                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg>
                             </span>
-                            <span class="report-stage-name">Report</span>
+                            <span class="report-stage-name">CI Report</span>
                         </button>
-
-                        {% if report.cvo_consolidated_report_file %}
-                        <button type="button" class="report-stage-node" data-title="CVO/DSP Consolidated Report" data-content="Consolidated report uploaded." data-file-url="{{ url_for('enquiry_file', filename=report.cvo_consolidated_report_file) }}" data-file-label="View Consolidated Report" onclick="openReportStageModal(this)">
-                            <span class="report-stage-circle">
-                                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
-                            </span>
-                            <span class="report-stage-name">Consolidated</span>
-                        </button>
-                        {% endif %}
-
-                        {% if report.findings %}
-                        <button type="button" class="report-stage-node" data-title="Findings" data-content="{{ report.findings|e }}" data-file-url="" data-file-label="" onclick="openReportStageModal(this)">
-                            <span class="report-stage-circle">
-                                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>
-                            </span>
-                            <span class="report-stage-name">Findings</span>
-                        </button>
-                        {% endif %}
 
                         {% if report.recommendation %}
-                        <button type="button" class="report-stage-node" data-title="Recommendation" data-content="{{ report.recommendation|e }}" data-file-url="" data-file-label="" onclick="openReportStageModal(this)">
+                        <button type="button" class="report-stage-node" data-title="CI Recommendations" data-content="{{ report.recommendation|e }}" data-file-url="" data-file-label="" onclick="openReportStageModal(this)">
                             <span class="report-stage-circle">
                                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3l9 4.5-9 4.5-9-4.5 9-4.5z"/><path d="M3 12l9 4.5 9-4.5"/><path d="M12 16.5V21"/></svg>
                             </span>
-                            <span class="report-stage-name">Recommendation</span>
+                            <span class="report-stage-name">CI Recommendations</span>
                         </button>
                         {% endif %}
 
                         {% if report.cvo_comments %}
-                        <button type="button" class="report-stage-node" data-title="CVO Comments" data-content="{{ report.cvo_comments|e }}" data-file-url="" data-file-label="" onclick="openReportStageModal(this)">
+                        <button type="button" class="report-stage-node" data-title="CVO Comments" data-content="{{ report.cvo_comments|e }}" data-file-url="{{ url_for('enquiry_file', filename=report.cvo_consolidated_report_file) if report.cvo_consolidated_report_file else '' }}" data-file-label="View CVO Consolidated File" onclick="openReportStageModal(this)">
                             <span class="report-stage-circle">
                                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
                             </span>
                             <span class="report-stage-name">CVO Comments</span>
-                        </button>
-                        {% endif %}
-
-                        {% if report.jmd_remarks %}
-                        <button type="button" class="report-stage-node" data-title="Review Remarks" data-content="{{ report.jmd_remarks|e }}" data-file-url="" data-file-label="" onclick="openReportStageModal(this)">
-                            <span class="report-stage-circle">
-                                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="M9 15h6"/></svg>
-                            </span>
-                            <span class="report-stage-name">Review</span>
-                        </button>
-                        {% endif %}
-
-                        {% if report.po_conclusion %}
-                        <button type="button" class="report-stage-node" data-title="PO Final Conclusion" data-content="{{ report.po_conclusion|e }}" data-file-url="{{ url_for('enquiry_file', filename=report.conclusion_file) if report.conclusion_file else '' }}" data-file-label="View Conclusion PDF" onclick="openReportStageModal(this)">
-                            <span class="report-stage-circle">
-                                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 6L9 17l-5-5"/></svg>
-                            </span>
-                            <span class="report-stage-name">PO Conclusion</span>
-                        </button>
-                        {% endif %}
-
-                        {% if report.po_instructions %}
-                        <button type="button" class="report-stage-node" data-title="PO Remarks" data-content="{{ report.po_instructions|e }}" data-file-url="" data-file-label="" onclick="openReportStageModal(this)">
-                            <span class="report-stage-circle">
-                                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12h18"/><path d="M3 6h18"/><path d="M3 18h18"/></svg>
-                            </span>
-                            <span class="report-stage-name">PO Remarks</span>
                         </button>
                         {% endif %}
 
@@ -254,6 +209,15 @@
                                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 6h13"/><path d="M8 12h13"/><path d="M8 18h13"/><path d="M3 6h.01"/><path d="M3 12h.01"/><path d="M3 18h.01"/></svg>
                             </span>
                             <span class="report-stage-name">CMD Action</span>
+                        </button>
+                        {% endif %}
+
+                        {% if report.po_instructions %}
+                        <button type="button" class="report-stage-node" data-title="PO Remarks" data-content="{{ report.po_instructions|e }}" data-file-url="" data-file-label="" onclick="openReportStageModal(this)">
+                            <span class="report-stage-circle">
+                                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12h18"/><path d="M3 6h18"/><path d="M3 18h18"/></svg>
+                            </span>
+                            <span class="report-stage-name">PO Remarks</span>
                         </button>
                         {% endif %}
                     </div>
@@ -551,13 +515,59 @@
 
                 {% if petition.status == 'enquiry_report_submitted' %}
                 <div class="action-panel">
-                    <h4>Consolidated report by CVO</h4>
-                    <form method="POST" action="{{ url_for('petition_action', petition_id=petition.id) }}" enctype="multipart/form-data">
-                        <input type="hidden" name="action" value="cvo_comments">
-                        <div class="form-group"><label>{{ f_cvo_consolidated_file.label }}{% if f_cvo_consolidated_file.required %} <span class="required">*</span>{% endif %}</label><input type="file" name="consolidated_report_file" accept=".pdf" {% if f_cvo_consolidated_file.required %}required{% endif %}></div>
-                        <div class="form-group"><label>{{ f_cvo_comments.label }}{% if f_cvo_comments.required %} <span class="required">*</span>{% endif %}</label><textarea name="cvo_comments" rows="4" {% if f_cvo_comments.required %}required{% endif %} placeholder="Your comments and observations on the enquiry report"></textarea></div>
-                        <button type="submit" class="btn btn-primary">Submit & Forward to PO</button>
-                    </form>
+                    <h4>CVO Next Step</h4>
+                    <div class="form-group">
+                        <label>Select Action</label>
+                        <select id="cvo_next_step_selector" onchange="toggleCvoNextStepFields()">
+                            <option value="forward">Forward to PO</option>
+                            <option value="reenquiry">Send Back for Re-enquiry</option>
+                        </select>
+                    </div>
+
+                    <div id="cvo_forward_wrap">
+                        <form method="POST" action="{{ url_for('petition_action', petition_id=petition.id) }}" enctype="multipart/form-data">
+                            <input type="hidden" name="action" value="cvo_comments">
+                            <div class="form-group"><label>{{ f_cvo_consolidated_file.label }}{% if f_cvo_consolidated_file.required %} <span class="required">*</span>{% endif %}</label><input type="file" name="consolidated_report_file" accept=".pdf" {% if f_cvo_consolidated_file.required %}required{% endif %}></div>
+                            <div class="form-group"><label>{{ f_cvo_comments.label }}{% if f_cvo_comments.required %} <span class="required">*</span>{% endif %}</label><textarea name="cvo_comments" rows="4" {% if f_cvo_comments.required %}required{% endif %} placeholder="Your comments and observations on the enquiry report"></textarea></div>
+                            <button type="submit" class="btn btn-primary">Submit & Forward to PO</button>
+                        </form>
+                    </div>
+
+                    <div id="cvo_reenquiry_wrap" style="display:none;">
+                        <form method="POST" action="{{ url_for('petition_action', petition_id=petition.id) }}">
+                            <input type="hidden" name="action" value="cvo_send_back_reenquiry">
+                            <div class="form-group">
+                                <label>Select Inspector (CI/SI) <span class="required">*</span></label>
+                                <select name="inspector_id" required {% if not inspectors %}disabled aria-describedby="reenquiry-inspector-help"{% endif %}>
+                                    <option value="">-- Select Inspector --</option>
+                                    {% for insp in inspectors %}
+                                    <option value="{{ insp.id }}" {% if petition.assigned_inspector_id == insp.id %}selected{% endif %}>{{ insp.full_name }}</option>
+                                    {% endfor %}
+                                </select>
+                                {% if not inspectors %}
+                                <small id="reenquiry-inspector-help" class="form-help">No field inspectors are mapped to this officer. Add/map in User Management.</small>
+                                {% endif %}
+                            </div>
+                            <div class="form-group">
+                                <label>Reason for Re-enquiry <span class="required">*</span></label>
+                                <textarea name="comments" rows="3" required placeholder="Why this report is not satisfactory and what should be re-enquired"></textarea>
+                            </div>
+                            <button type="submit" class="btn btn-warning" {% if not inspectors %}disabled title="Map field inspectors to this officer in User Management first"{% endif %}>Send Back to Field Level</button>
+                        </form>
+                    </div>
+
+                    <script>
+                    function toggleCvoNextStepFields() {
+                        const selector = document.getElementById('cvo_next_step_selector');
+                        const forwardWrap = document.getElementById('cvo_forward_wrap');
+                        const reenquiryWrap = document.getElementById('cvo_reenquiry_wrap');
+                        if (!selector || !forwardWrap || !reenquiryWrap) return;
+                        const isForward = selector.value === 'forward';
+                        forwardWrap.style.display = isForward ? '' : 'none';
+                        reenquiryWrap.style.display = isForward ? 'none' : '';
+                    }
+                    toggleCvoNextStepFields();
+                    </script>
                 </div>
                 {% if petition.enquiry_type == 'preliminary' %}
                 <div class="action-divider">OR</div>
@@ -574,9 +584,36 @@
             {% endif %}
 
             {% if current_user_role in ('inspector', 'super_admin') %}
-                {% if petition.status == 'assigned_to_inspector' and (petition.assigned_inspector_id == current_user_id or current_user_role == 'super_admin') %}
+                {% if petition.status in ('assigned_to_inspector', 'sent_back_for_reenquiry') and (petition.assigned_inspector_id == current_user_id or current_user_role == 'super_admin') %}
                 <div class="action-panel">
                     <h4>Upload Enquiry Report</h4>
+                    {% if petition.status == 'sent_back_for_reenquiry' and report %}
+                    <div class="reenquiry-reference">
+                        <div class="reenquiry-reference-head">
+                            <span class="reenquiry-reference-chip">Sent Back for Re-enquiry</span>
+                            <h5>Previous Report Reference</h5>
+                        </div>
+                        <div class="reenquiry-reference-grid">
+                            <div class="reenquiry-reference-item">
+                                <span class="reenquiry-reference-label">Conclusion</span>
+                                <p>{{ report.report_text or '-' }}</p>
+                            </div>
+                            <div class="reenquiry-reference-item">
+                                <span class="reenquiry-reference-label">Recommendations</span>
+                                <p>{{ report.recommendation or '-' }}</p>
+                            </div>
+                            {% if report.cvo_comments %}
+                            <div class="reenquiry-reference-item reenquiry-reference-item-full">
+                                <span class="reenquiry-reference-label">CVO Comments</span>
+                                <p>{{ report.cvo_comments }}</p>
+                            </div>
+                            {% endif %}
+                        </div>
+                        {% if report.report_file %}
+                        <a href="{{ url_for('enquiry_file', filename=report.report_file) }}" target="_blank" class="btn btn-xs btn-outline">Open Previous Report PDF</a>
+                        {% endif %}
+                    </div>
+                    {% endif %}
                     <form method="POST" action="{{ url_for('petition_action', petition_id=petition.id) }}" enctype="multipart/form-data">
                         <input type="hidden" name="action" value="submit_report">
                         <div class="form-group"><label>{{ f_inspector_report_text.label }}{% if f_inspector_report_text.required %} <span class="required">*</span>{% endif %}</label><textarea name="report_text" rows="5" {% if f_inspector_report_text.required %}required{% endif %} placeholder="Enter conclusion of enquiry report"></textarea></div>

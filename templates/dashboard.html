@@ -5,31 +5,21 @@
 {% block content %}
 <div class="dashboard dashboard-compact-board" data-user-role="{{ current_user_role }}">
     <div class="dashboard-filter-shell">
-        {% set hour_now = now.strftime('%H')|int %}
-        {% if hour_now < 12 %}
-            {% set wish_text = 'Good Morning' %}
-        {% elif hour_now < 17 %}
-            {% set wish_text = 'Good Afternoon' %}
-        {% elif hour_now < 21 %}
-            {% set wish_text = 'Good Evening' %}
-        {% else %}
-            {% set wish_text = 'Good Night' %}
-        {% endif %}
         <form class="dashboard-filter-inline dashboard-filter-inline-compact" method="GET" action="{{ url_for('dashboard') }}">
             <div class="dashboard-filter-main">
                 <div class="dashboard-filter-field">
-                    <label class="dashboard-filter-mini-label" for="dashboardFromDate">From Date</label>
+                    <label class="dashboard-filter-mini-label" for="dashboardFromDate" data-i18n="dash.from_date">From Date</label>
                     <input id="dashboardFromDate" class="filter-select dashboard-filter-input" type="date" name="from_date" value="{{ dashboard_filter.from_date if dashboard_filter else '' }}" aria-label="From date">
                 </div>
                 <div class="dashboard-filter-field">
-                    <label class="dashboard-filter-mini-label" for="dashboardToDate">To Date</label>
+                    <label class="dashboard-filter-mini-label" for="dashboardToDate" data-i18n="dash.to_date">To Date</label>
                     <input id="dashboardToDate" class="filter-select dashboard-filter-input" type="date" name="to_date" value="{{ dashboard_filter.to_date if dashboard_filter else '' }}" aria-label="To date">
                 </div>
                 {% set office_labels = {
                     'jmd_office': 'PO Office',
-                    'cvo_apspdcl_tirupathi': 'CVO APSPDCL',
-                    'cvo_apepdcl_vizag': 'CVO APEPDCL',
-                    'cvo_apcpdcl_vijayawada': 'CVO APCPDCL'
+                    'cvo_apspdcl_tirupathi': 'CVO/DSP APSPDCL',
+                    'cvo_apepdcl_vizag': 'CVO/DSP APEPDCL',
+                    'cvo_apcpdcl_vijayawada': 'CVO/DSP APCPDCL'
                 } %}
                 {% set cvo_labels = {
                     'apspdcl': 'APSPDCL',
@@ -40,52 +30,61 @@
                 <details class="dashboard-more-filters">
                     <summary class="dashboard-filter-icon-btn" title="More filters">
                         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6h18M6 12h12M10 18h4"/></svg>
-                        <span>Filters{% if dashboard_active_filter_count is defined and dashboard_active_filter_count > 0 %} ({{ dashboard_active_filter_count }}){% endif %}</span>
+                        <span><span data-i18n="dash.filters">Filters</span>{% if dashboard_active_filter_count is defined and dashboard_active_filter_count > 0 %} ({{ dashboard_active_filter_count }}){% endif %}</span>
                     </summary>
                     <div class="dashboard-more-filters-panel">
                         <select class="filter-select dashboard-filter-input" name="petition_type" aria-label="Petition type">
-                            <option value="all" {% if not dashboard_filter or dashboard_filter.petition_type == 'all' %}selected{% endif %}>All Types</option>
+                            <option value="all" {% if not dashboard_filter or dashboard_filter.petition_type == 'all' %}selected{% endif %} data-i18n="dash.all_types">All Types</option>
                             {% for key, label in petition_types.items() %}
                             <option value="{{ key }}" {% if dashboard_filter and dashboard_filter.petition_type == key %}selected{% endif %}>{{ label }}</option>
                             {% endfor %}
                         </select>
                         <select class="filter-select dashboard-filter-input" name="source_of_petition" aria-label="Source of petition">
-                            <option value="all" {% if not dashboard_filter or dashboard_filter.source_of_petition == 'all' %}selected{% endif %}>All Sources</option>
+                            <option value="all" {% if not dashboard_filter or dashboard_filter.source_of_petition == 'all' %}selected{% endif %} data-i18n="dash.all_sources">All Sources</option>
                             {% for key, label in petition_sources.items() %}
                             <option value="{{ key }}" {% if dashboard_filter and dashboard_filter.source_of_petition == key %}selected{% endif %}>{{ label }}</option>
                             {% endfor %}
                         </select>
                         <select class="filter-select dashboard-filter-input" name="received_at" aria-label="Received at office">
-                            <option value="all" {% if not dashboard_filter or dashboard_filter.received_at == 'all' %}selected{% endif %}>All Received Offices</option>
+                            <option value="all" {% if not dashboard_filter or dashboard_filter.received_at == 'all' %}selected{% endif %} data-i18n="dash.all_received_offices">All Received Offices</option>
                             {% for key, label in office_labels.items() %}
                             <option value="{{ key }}" {% if dashboard_filter and dashboard_filter.received_at == key %}selected{% endif %}>{{ label }}</option>
                             {% endfor %}
                         </select>
-                        <select class="filter-select dashboard-filter-input" name="target_cvo" aria-label="Targeted CVO office">
-                            <option value="all" {% if not dashboard_filter or dashboard_filter.target_cvo == 'all' %}selected{% endif %}>All Enquiry Offices</option>
+                        <select class="filter-select dashboard-filter-input" name="target_cvo" aria-label="Targeted CVO/DSP office">
+                            <option value="all" {% if not dashboard_filter or dashboard_filter.target_cvo == 'all' %}selected{% endif %} data-i18n="dash.all_enquiry_offices">All Enquiry Offices</option>
                             {% for key, label in cvo_labels.items() %}
                             <option value="{{ key }}" {% if dashboard_filter and dashboard_filter.target_cvo == key %}selected{% endif %}>{{ label }}</option>
                             {% endfor %}
                         </select>
                         <select class="filter-select dashboard-filter-input" name="officer_id" aria-label="Officer name">
-                            <option value="all" {% if not dashboard_filter or dashboard_filter.officer_id == 'all' %}selected{% endif %}>All Officers</option>
+                            <option value="all" {% if not dashboard_filter or dashboard_filter.officer_id == 'all' %}selected{% endif %} data-i18n="dash.all_officers">All Officers</option>
                             {% for officer in officer_options %}
                             <option value="{{ officer.id }}" {% if dashboard_filter and dashboard_filter.officer_id == officer.id|string %}selected{% endif %}>{{ officer.name }}</option>
                             {% endfor %}
                         </select>
                         <div class="dashboard-filter-actions">
-                            <button class="btn btn-sm btn-primary dashboard-filter-btn" type="submit">Apply</button>
-                            <a class="btn btn-sm btn-outline dashboard-filter-btn" href="{{ url_for('dashboard') }}">Clear</a>
+                            <button class="btn btn-sm btn-primary dashboard-filter-btn" type="submit" data-i18n="dash.apply">Apply</button>
+                            <a class="btn btn-sm btn-outline dashboard-filter-btn" href="{{ url_for('dashboard') }}" data-i18n="dash.clear">Clear</a>
                         </div>
                     </div>
                 </details>
             </div>
-            <div class="dashboard-filter-art dashboard-filter-art-inline" aria-hidden="true">
-                <div class="officer-greet-wrap">
-                    <div class="officer-greet-text">
-                        <div class="officer-greet-title">Hi! {{ current_user_name or 'Officer' }}</div>
-                        <div class="officer-greet-subtitle">{{ wish_text }}</div>
-                    </div>
+            <div class="dashboard-filter-art dashboard-filter-art-inline dashboard-filter-applied" aria-live="polite">
+                <div class="dashboard-applied-title">
+                    <span data-i18n="top.filters">Filters</span>
+                    {% if dashboard_active_filter_count is defined and dashboard_active_filter_count > 0 %}
+                    <span class="dashboard-applied-count">{{ dashboard_active_filter_count }}</span>
+                    {% endif %}
+                </div>
+                <div class="dashboard-applied-list">
+                    {% if dashboard_active_filter_labels %}
+                        {% for label in dashboard_active_filter_labels %}
+                        <span class="dashboard-applied-chip">{{ label }}</span>
+                        {% endfor %}
+                    {% else %}
+                    <span class="dashboard-applied-empty">All records</span>
+                    {% endif %}
                 </div>
             </div>
         </form>
@@ -205,27 +204,27 @@
 
     <div class="analytics-summary-grid">
         <div class="analytics-summary-item is-drilldown" data-metric="all" data-title="Total Visible Petitions">
-            <span class="analytics-summary-label">Total Visible</span>
+            <span class="analytics-summary-label" data-i18n="dash.total_visible">Total Visible</span>
             <strong class="analytics-summary-value">{{ analytics.summary.total_visible }}</strong>
         </div>
         <div class="analytics-summary-item is-drilldown" data-metric="active" data-title="Active Cases">
-            <span class="analytics-summary-label">Active Cases</span>
+            <span class="analytics-summary-label" data-i18n="dash.active_cases">Active Cases</span>
             <strong class="analytics-summary-value">{{ analytics.summary.active }}</strong>
         </div>
         <div class="analytics-summary-item is-drilldown" data-metric="status:lodged" data-title="Lodged Cases">
-            <span class="analytics-summary-label">Lodged</span>
+            <span class="analytics-summary-label" data-i18n="dash.lodged">Lodged</span>
             <strong class="analytics-summary-value">{{ analytics.summary.lodged }}</strong>
         </div>
         <div class="analytics-summary-item is-drilldown" data-metric="status:closed" data-title="Closed Cases">
-            <span class="analytics-summary-label">Closed</span>
+            <span class="analytics-summary-label" data-i18n="dash.closed">Closed</span>
             <strong class="analytics-summary-value">{{ analytics.summary.closed }}</strong>
         </div>
         <div class="analytics-summary-item is-drilldown" data-metric="sla_within" data-title="SLA Within">
-            <span class="analytics-summary-label">SLA Within</span>
+            <span class="analytics-summary-label" data-i18n="dash.sla_within">SLA Within</span>
             <strong class="analytics-summary-value">{{ analytics.summary.sla_within }}</strong>
         </div>
         <div class="analytics-summary-item is-drilldown" data-metric="sla_breached" data-title="SLA Breached">
-            <span class="analytics-summary-label">SLA Breached</span>
+            <span class="analytics-summary-label" data-i18n="dash.sla_breached">SLA Breached</span>
             <strong class="analytics-summary-value">{{ analytics.summary.sla_breached }}</strong>
         </div>
     </div>
@@ -476,6 +475,7 @@ function initAnalyticsDashboard() {
         'Permission Approved': 'status:permission_approved',
         'Permission Rejected': 'status:permission_rejected',
         'Assigned to Field Officer': 'status:assigned_to_inspector',
+        'Sent Back for Re-enquiry': 'status:sent_back_for_reenquiry',
         'Enquiry In Progress': 'status:enquiry_in_progress',
         'Report Submitted': 'status:enquiry_report_submitted',
         'CVO/DSP Comments Added': 'status:cvo_comments_added',
@@ -488,10 +488,14 @@ function initAnalyticsDashboard() {
 
     const typeMetricMap = {
         'Bribe': 'petition_type:bribe',
+        'Corruption': 'petition_type:corruption',
         'Harassment': 'petition_type:harassment',
-        'Theft': 'petition_type:theft_of_materials',
-        'Adverse News': 'petition_type:adverse_news',
-        'Procedural Lapses': 'petition_type:procedural_lapses',
+        'Misconduct': 'petition_type:misconduct',
+        'Works Related': 'petition_type:works_related',
+        'Irregularities in Tenders': 'petition_type:irregularities_in_tenders',
+        'Illegal Assets': 'petition_type:illegal_assets',
+        'Fake Certificates': 'petition_type:fake_certificates',
+        'Theft/Misappropriation of Materials': 'petition_type:theft_misappropriation_materials',
         'Other': 'petition_type:other'
     };
 

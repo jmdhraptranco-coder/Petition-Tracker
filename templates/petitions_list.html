@@ -3,27 +3,35 @@
 {% block page_title %}All Petitions{% endblock %}
 
 {% block content %}
-<div class="card">
-    <div class="card-header">
-        <h2>Petitions List</h2>
-        <div class="header-actions">
-            <div class="filter-group">
+<div class="card petitions-page-card">
+    <div class="card-header petitions-header">
+        <div class="petitions-title-wrap">
+            <h2>Petitions List</h2>
+            <p>Track every petition with clear workflow, status, and assigned handler.</p>
+        </div>
+        <div class="petitions-toolbar">
+            <div class="petitions-control petitions-mode-group">
                 <label>Mode:</label>
-                <div style="display:flex; gap:0.4rem;">
+                <div class="petitions-mode-pills">
                     <a href="{{ url_for('petitions_list', status=status_filter, mode='all') }}" class="btn btn-xs {% if enquiry_mode == 'all' %}btn-primary{% else %}btn-outline{% endif %}">All</a>
                     <a href="{{ url_for('petitions_list', status=status_filter, mode='direct') }}" class="btn btn-xs {% if enquiry_mode == 'direct' %}btn-primary{% else %}btn-outline{% endif %}">Direct</a>
                     <a href="{{ url_for('petitions_list', status=status_filter, mode='permission') }}" class="btn btn-xs {% if enquiry_mode == 'permission' %}btn-primary{% else %}btn-outline{% endif %}">Permission Based</a>
                 </div>
             </div>
-            <div class="filter-group">
+            <div class="petitions-control petitions-filter-group">
                 <label>Filter:</label>
                 <select onchange="window.location.href='{{ url_for('petitions_list') }}?mode={{ enquiry_mode }}&status='+this.value" class="filter-select">
                     <option value="all" {% if status_filter == 'all' %}selected{% endif %}>All Status</option>
                     <option value="received" {% if status_filter == 'received' %}selected{% endif %}>Received</option>
-                    <option value="forwarded_to_cvo" {% if status_filter == 'forwarded_to_cvo' %}selected{% endif %}>Forwarded to CVO</option>
+                    <option value="forwarded_to_cvo" {% if status_filter == 'forwarded_to_cvo' %}selected{% endif %}>Forwarded to CVO/DSP</option>
                     <option value="sent_for_permission" {% if status_filter == 'sent_for_permission' %}selected{% endif %}>Sent for Permission</option>
+                    <option value="permission_approved" {% if status_filter == 'permission_approved' %}selected{% endif %}>Permission Approved</option>
+                    <option value="permission_rejected" {% if status_filter == 'permission_rejected' %}selected{% endif %}>Permission Rejected</option>
                     <option value="assigned_to_inspector" {% if status_filter == 'assigned_to_inspector' %}selected{% endif %}>Assigned to Inspector</option>
+                    <option value="sent_back_for_reenquiry" {% if status_filter == 'sent_back_for_reenquiry' %}selected{% endif %}>Sent Back for Re-enquiry</option>
+                    <option value="enquiry_in_progress" {% if status_filter == 'enquiry_in_progress' %}selected{% endif %}>Enquiry In Progress</option>
                     <option value="enquiry_report_submitted" {% if status_filter == 'enquiry_report_submitted' %}selected{% endif %}>Report Submitted</option>
+                    <option value="cvo_comments_added" {% if status_filter == 'cvo_comments_added' %}selected{% endif %}>CVO/DSP Comments Added</option>
                     <option value="forwarded_to_po" {% if status_filter == 'forwarded_to_po' %}selected{% endif %}>At PO</option>
                     <option value="action_instructed" {% if status_filter == 'action_instructed' %}selected{% endif %}>Pending for Action</option>
                     <option value="action_taken" {% if status_filter == 'action_taken' %}selected{% endif %}>Action Report Submitted</option>
@@ -32,14 +40,14 @@
                 </select>
             </div>
             {% if current_user_role in ('super_admin', 'data_entry') %}
-            <a href="{{ url_for('petition_new') }}" class="btn btn-primary btn-sm">
+            <a href="{{ url_for('petition_new') }}" class="btn btn-primary btn-sm petitions-create-btn">
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 8v8"/><path d="M8 12h8"/></svg>
                 New Petition
             </a>
             {% endif %}
         </div>
     </div>
-    <div class="table-wrapper">
+    <div class="table-wrapper petitions-table-wrap">
         <table class="data-table">
             <thead>
                 <tr>
@@ -61,9 +69,9 @@
                 {% set office_labels = {
                     'po_office': 'PO Office',
                     'jmd_office': 'PO Office',
-                    'cvo_apspdcl_tirupathi': 'CVO APSPDCL',
-                    'cvo_apepdcl_vizag': 'CVO APEPDCL',
-                    'cvo_apcpdcl_vijayawada': 'CVO APCPDCL'
+                    'cvo_apspdcl_tirupathi': 'CVO/DSP APSPDCL',
+                    'cvo_apepdcl_vizag': 'CVO/DSP APEPDCL',
+                    'cvo_apcpdcl_vijayawada': 'CVO/DSP APCPDCL'
                 } %}
                 {% for p in petitions %}
                 <tr class="js-petition-row" data-href="{{ url_for('petition_view', petition_id=p.id) }}" tabindex="0" role="link" aria-label="Open petition {{ p.sno }}">
@@ -75,7 +83,7 @@
                     <td><span class="badge badge-type">{{ petition_types.get(p.petition_type, p.petition_type) }}</span></td>
                     <td><span class="badge badge-office">{{ office_labels.get(p.received_at, p.received_at) }}</span></td>
                     <td><span class="status-badge" style="--status-color: {{ status_colors.get(p.status, '#6b7280') }}">{{ status_labels.get(p.status, p.status) }}</span></td>
-                    <td><span class="badge badge-office">Stage {{ status_to_stage.get(p.status, 1) }} - {{ workflow_stage_labels.get(status_to_stage.get(p.status, 1), 'Initiation') }}</span></td>
+                    <td><span class="badge badge-office badge-stage">Stage {{ status_to_stage.get(p.status, 1) }} - {{ workflow_stage_labels.get(status_to_stage.get(p.status, 1), 'Initiation') }}</span></td>
                     <td>{{ p.handler_name or '-' }}</td>
                     <td class="font-mono">{{ p.received_date.strftime('%d/%m/%Y') if p.received_date else '-' }}</td>
                     <td><a href="{{ url_for('petition_view', petition_id=p.id) }}" class="btn btn-xs btn-outline">View</a></td>

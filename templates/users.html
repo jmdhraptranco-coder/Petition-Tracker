@@ -33,9 +33,9 @@
                         <option value="cmd_apcpdcl">CMD - APCPDCL</option>
                         <option value="cgm_hr_transco">CGM/HR TRANSCO (Headquarters)</option>
                         <option value="dsp">DSP (Headquarters)</option>
-                        <option value="cvo_apspdcl">CVO - APSPDCL (Tirupathi)</option>
-                        <option value="cvo_apepdcl">CVO - APEPDCL (Vizag)</option>
-                        <option value="cvo_apcpdcl">CVO - APCPDCL (Vijayawada)</option>
+                        <option value="cvo_apspdcl">CVO/DSP - APSPDCL (Tirupathi)</option>
+                        <option value="cvo_apepdcl">CVO/DSP - APEPDCL (Vizag)</option>
+                        <option value="cvo_apcpdcl">CVO/DSP - APCPDCL (Vijayawada)</option>
                         <option value="inspector">Field Inspector (CI/SI)</option>
                     </select>
                 </div>
@@ -78,7 +78,7 @@
             <h2>Bulk Create Users (Excel/CSV)</h2>
         </div>
         <form method="POST" action="{{ url_for('users_upload') }}" enctype="multipart/form-data" class="user-form">
-            <div style="padding: 0 1.5rem 1rem 1.5rem; color: #6b7280; font-size: 0.9rem;">
+            <div class="users-upload-note">
                 Required columns: <code>username</code>, <code>password</code>, <code>full_name</code>, <code>role</code><br>
                 Optional: <code>cvo_office</code>, <code>assigned_cvo_username</code>, <code>phone</code>, <code>email</code>
             </div>
@@ -98,8 +98,8 @@
         <div class="card-header">
             <h2>Approval Requests</h2>
         </div>
-        <div style="padding: 0 1.5rem 1rem 1.5rem;">
-            <div class="login-tabs" role="tablist" aria-label="Approval tabs" style="margin-bottom: 1rem;">
+        <div class="users-approval-wrap">
+            <div class="login-tabs users-approval-tabs" role="tablist" aria-label="Approval tabs">
                 <button type="button" class="is-active" data-approval-tab="signup" onclick="showApprovalTab('signup')">
                     Signup Requests ({{ signup_requests|length }})
                 </button>
@@ -111,7 +111,7 @@
             <div data-approval-panel="signup">
                 {% if signup_requests %}
                     {% for req in signup_requests %}
-                    <article class="user-action-card" style="margin-bottom: 0.8rem;">
+                    <article class="user-action-card users-approval-card">
                         <h4>{{ req.full_name }} (@{{ req.username }})</h4>
                         <p class="user-action-note">Requested Role: {{ role_labels.get(req.requested_role, req.requested_role) }}</p>
                         <p class="user-action-note">Office: {{ req.cvo_office or '-' }} | Phone: {{ req.phone or '-' }} | Email: {{ req.email or '-' }}</p>
@@ -137,7 +137,7 @@
             <div data-approval-panel="recovery" style="display:none;">
                 {% if reset_requests %}
                     {% for req in reset_requests %}
-                    <article class="user-action-card" style="margin-bottom: 0.8rem;">
+                    <article class="user-action-card users-approval-card">
                         <h4>{{ req.full_name or '-' }} (@{{ req.username }})</h4>
                         <p class="user-action-note">Role: {{ role_labels.get(req.role, req.role or '-') }} | Active: {{ 'Yes' if req.is_active else 'No' }}</p>
                         <p class="user-action-note">Requested At: {{ req.created_at.strftime('%d %b %Y %H:%M') if req.created_at else '-' }}</p>

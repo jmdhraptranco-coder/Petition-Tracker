@@ -220,6 +220,14 @@ def test_workflow_functions_success_paths(monkeypatch):
     models.cvo_upload_consolidated_report(1, 4, "cvo.pdf")
     assert conn.commits == 1
 
+    conn, _ = bind_db(monkeypatch, fetchone_items=[{"status": "enquiry_report_submitted"}])
+    models.cvo_send_back_to_inspector_for_reenquiry(1, 4, 8, "recheck")
+    assert conn.commits == 1
+
+    conn, _ = bind_db(monkeypatch, fetchone_items=[{"target_cvo": "apspdcl", "status": "forwarded_to_po"}, {"id": 6}])
+    models.po_send_back_to_cvo_for_reenquiry(1, 2, "recheck")
+    assert conn.commits == 1
+
     conn, _ = bind_db(monkeypatch)
     models.po_give_conclusion(1, 2, "EO-1", "closed", "ins", "concl.pdf")
     assert conn.commits == 1
@@ -309,6 +317,30 @@ def test_workflow_and_error_branches(monkeypatch):
         assert False, "Expected exception"
     except Exception as exc:
         assert "No active PO user found" in str(exc)
+        assert conn.rollbacks == 1
+
+    conn, _ = bind_db(monkeypatch, fetchone_items=[None])
+    try:
+        models.cvo_send_back_to_inspector_for_reenquiry(1, 2, 8, "x")
+        assert False, "Expected exception"
+    except Exception as exc:
+        assert "Petition not found" in str(exc)
+        assert conn.rollbacks == 1
+
+    conn, _ = bind_db(monkeypatch, fetchone_items=[{"target_cvo": "bad", "status": "forwarded_to_po"}])
+    try:
+        models.po_send_back_to_cvo_for_reenquiry(1, 2, "x")
+        assert False, "Expected exception"
+    except Exception as exc:
+        assert "Target CVO/DSP is not configured" in str(exc)
+        assert conn.rollbacks == 1
+
+    conn, _ = bind_db(monkeypatch, fetchone_items=[{"target_cvo": "apspdcl", "status": "forwarded_to_po"}, None])
+    try:
+        models.po_send_back_to_cvo_for_reenquiry(1, 2, "x")
+        assert False, "Expected exception"
+    except Exception as exc:
+        assert "No active CVO/DSP user found" in str(exc)
         assert conn.rollbacks == 1
 
 
@@ -424,6 +456,8 @@ def test_models_workflow_rollback_paths(monkeypatch):
         lambda: models.cvo_add_comments(1, 1, "c"),
         lambda: models.cvo_request_detailed_enquiry(1, 1, "c"),
         lambda: models.cvo_upload_consolidated_report(1, 1, "f.pdf"),
+        lambda: models.cvo_send_back_to_inspector_for_reenquiry(1, 1, 2, "c"),
+        lambda: models.po_send_back_to_cvo_for_reenquiry(1, 1, "c"),
         lambda: models.po_give_conclusion(1, 1, "EO-1", "c"),
         lambda: models.po_send_to_cmd(1, 1, "i", "EO-1"),
         lambda: models.cmd_submit_action_report(1, 1, "a"),
