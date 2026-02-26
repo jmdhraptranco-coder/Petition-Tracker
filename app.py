@@ -10,11 +10,8 @@ import csv
 import re
 import copy
 import random
-import smtplib
 from uuid import uuid4
-from email.message import EmailMessage
 from werkzeug.utils import secure_filename
-from werkzeug.security import generate_password_hash, check_password_hash
 try:
     from openpyxl import load_workbook
 except Exception:
@@ -26,12 +23,6 @@ app.config['SECRET_KEY'] = config.SECRET_KEY
 app.config['SESSION_COOKIE_HTTPONLY'] = True
 app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
 app.config['SESSION_COOKIE_SECURE'] = config.SESSION_COOKIE_SECURE
-
-if config.OTP_ENABLED and not config.SMTP_HOST:
-    app.logger.warning(
-        "OTP is enabled but SMTP_HOST is not configured. "
-        "Email OTP delivery will fail; development fallback may show OTP in flash."
-    )
 
 if os.getenv('SKIP_SCHEMA_UPDATES') != '1':
     models.ensure_schema_updates()
@@ -505,92 +496,6 @@ def resolve_efile_no_for_action(petition, incoming_efile_no, required_message=No
     return incoming, None
 
 
-def clear_login_otp_state():
-    for key in (
-        'pending_login_user',
-        'login_otp_hash',
-        'login_otp_expires_at',
-        'login_otp_attempts',
-        'otp_delivery_hint',
-    ):
-        session.pop(key, None)
-
-
-def mask_email(email):
-    text = (email or '').strip()
-    if not text or '@' not in text:
-        return ''
-    user, domain = text.split('@', 1)
-    if len(user) <= 2:
-        masked_user = user[:1] + '*'
-    else:
-        masked_user = user[:2] + ('*' * max(1, len(user) - 2))
-    return f'{masked_user}@{domain}'
-
-
-def send_login_otp_email(recipient_email, otp_code):
-    recipient = (recipient_email or '').strip()
-    if not recipient:
-        return False, 'Recipient email is missing.'
-    if not config.SMTP_HOST:
-        return False, 'SMTP is not configured.'
-    sender = (config.SMTP_FROM or config.SMTP_USERNAME or 'no-reply@localhost').strip()
-    msg = EmailMessage()
-    msg['Subject'] = f'{config.BRAND_NAME} Login OTP'
-    msg['From'] = sender
-    msg['To'] = recipient
-    msg.set_content(
-        f"Your one-time password (OTP) for {config.BRAND_NAME} login is: {otp_code}\n\n"
-        f"This OTP is valid for {max(1, int(config.OTP_EXPIRY_SECONDS // 60))} minute(s). "
-        "Do not share this code with anyone."
-    )
-    try:
-        use_ssl = (not config.SMTP_USE_TLS) and int(config.SMTP_PORT) == 465
-        if use_ssl:
-            with smtplib.SMTP_SSL(config.SMTP_HOST, config.SMTP_PORT, timeout=15) as smtp:
-                if config.SMTP_USERNAME:
-                    smtp.login(config.SMTP_USERNAME, config.SMTP_PASSWORD)
-                smtp.send_message(msg)
-        else:
-            with smtplib.SMTP(config.SMTP_HOST, config.SMTP_PORT, timeout=15) as smtp:
-                if config.SMTP_USE_TLS:
-                    smtp.starttls()
-                if config.SMTP_USERNAME:
-                    smtp.login(config.SMTP_USERNAME, config.SMTP_PASSWORD)
-                smtp.send_message(msg)
-        return True, None
-    except Exception as e:
-        return False, str(e)
-
-
-def issue_login_otp(user):
-    otp_length = min(max(config.OTP_LENGTH, 4), 8)
-    otp_code = ''.join(random.choice('0123456789') for _ in range(otp_length))
-    expires_at = datetime.now().timestamp() + max(60, config.OTP_EXPIRY_SECONDS)
-
-    session['pending_login_user'] = {
-        'id': user['id'],
-        'username': user['username'],
-        'full_name': user['full_name'],
-        'role': user['role'],
-        'cvo_office': user.get('cvo_office'),
-        'phone': user.get('phone'),
-        'email': user.get('email'),
-        'profile_photo': user.get('profile_photo'),
-    }
-    session['login_otp_hash'] = generate_password_hash(otp_code)
-    session['login_otp_expires_at'] = expires_at
-    session['login_otp_attempts'] = 0
-    session['otp_delivery_hint'] = mask_email(user.get('email'))
-
-    ok, err = send_login_otp_email(user.get('email'), otp_code)
-    if ok:
-        return True, None
-
-    if not config.IS_PRODUCTION and config.OTP_DEV_FALLBACK_FLASH:
-        return True, otp_code
-    return False, err or 'Unable to deliver OTP.'
-
 # ========================================
 # AUTH DECORATORS
 # ========================================
@@ -870,164 +775,43 @@ def index():
 
 @app.route('/login', methods=['GET', 'POST'])
 def login():
-    if request.method == 'GET' and request.args.get('start_over') == '1':
-        clear_login_otp_state()
-        reset_login_captcha()
-        return redirect(url_for('login'))
-
     if request.method == 'GET' and request.args.get('refresh_captcha') == '1':
         reset_login_captcha()
 
-    otp_required = bool(session.get('pending_login_user') and session.get('login_otp_hash'))
-
     if request.method == 'POST':
-        otp_step = request.form.get('otp_step') == '1'
-        if otp_step:
-            pending = session.get('pending_login_user') or {}
-            otp_hash = session.get('login_otp_hash')
-            expires_at = session.get('login_otp_expires_at')
-            attempts = int(session.get('login_otp_attempts') or 0)
-            now_ts = datetime.now().timestamp()
-            if not pending or not otp_hash or not expires_at:
-                clear_login_otp_state()
-                flash('OTP session expired. Please login again.', 'warning')
-                return redirect(url_for('login'))
-            if now_ts > float(expires_at):
-                clear_login_otp_state()
-                flash('OTP has expired. Please login again.', 'warning')
-                return redirect(url_for('login'))
-            if attempts >= max(1, config.OTP_MAX_ATTEMPTS):
-                clear_login_otp_state()
-                flash('Maximum OTP attempts exceeded. Please login again.', 'danger')
-                return redirect(url_for('login'))
+        if not validate_login_captcha(request.form.get('captcha_answer')):
+            flash('Captcha answer is incorrect.', 'warning')
+            reset_login_captcha()
+            a, b = get_login_captcha()
+            return render_template('login.html', captcha_a=a, captcha_b=b)
 
-            otp_code = (request.form.get('otp_code') or '').strip()
-            if not otp_code or not check_password_hash(otp_hash, otp_code):
-                session['login_otp_attempts'] = attempts + 1
-                remaining = max(0, max(1, config.OTP_MAX_ATTEMPTS) - session['login_otp_attempts'])
-                flash(f'Invalid OTP. Attempts remaining: {remaining}.', 'danger')
-                otp_required = True
-            else:
-                session.pop('login_captcha_a', None)
-                session.pop('login_captcha_b', None)
-                session.pop('login_captcha_answer', None)
-                session['user_id'] = pending['id']
-                session['username'] = pending['username']
-                session['full_name'] = pending['full_name']
-                session['user_role'] = pending['role']
-                session['cvo_office'] = pending.get('cvo_office')
-                session['phone'] = pending.get('phone')
-                session['email'] = pending.get('email')
-                session['profile_photo'] = pending.get('profile_photo')
-                clear_login_otp_state()
-                flash(f'Welcome, {session.get("full_name")}!', 'success')
-                return redirect(url_for('dashboard'))
-        else:
-            clear_login_otp_state()
-            if not validate_login_captcha(request.form.get('captcha_answer')):
-                flash('Captcha answer is incorrect.', 'warning')
+        username = request.form.get('username', '').strip()
+        password = request.form.get('password', '')
+        user = models.authenticate_user(username, password)
+        if user:
+            if user['role'] == 'jmd':
+                flash('JMD login is disabled. Please login using PO credentials.', 'warning')
                 reset_login_captcha()
-                a, b = get_login_captcha()
-                return render_template(
-                    'login.html',
-                    captcha_a=a,
-                    captcha_b=b,
-                    otp_required=False,
-                    otp_delivery_hint='',
-                )
+                return redirect(url_for('login'))
+            session.pop('login_captcha_a', None)
+            session.pop('login_captcha_b', None)
+            session.pop('login_captcha_answer', None)
+            session['user_id'] = user['id']
+            session['username'] = user['username']
+            session['full_name'] = user['full_name']
+            session['user_role'] = user['role']
+            session['cvo_office'] = user.get('cvo_office')
+            session['phone'] = user.get('phone')
+            session['email'] = user.get('email')
+            session['profile_photo'] = user.get('profile_photo')
+            flash(f'Welcome, {user["full_name"]}!', 'success')
+            return redirect(url_for('dashboard'))
 
-            username = request.form.get('username', '').strip()
-            password = request.form.get('password', '')
-            user = models.authenticate_user(username, password)
-            if user:
-                if user['role'] == 'jmd':
-                    flash('JMD login is disabled. Please login using PO credentials.', 'warning')
-                    reset_login_captcha()
-                    return redirect(url_for('login'))
-                if not config.OTP_ENABLED:
-                    session.pop('login_captcha_a', None)
-                    session.pop('login_captcha_b', None)
-                    session.pop('login_captcha_answer', None)
-                    session['user_id'] = user['id']
-                    session['username'] = user['username']
-                    session['full_name'] = user['full_name']
-                    session['user_role'] = user['role']
-                    session['cvo_office'] = user.get('cvo_office')
-                    session['phone'] = user.get('phone')
-                    session['email'] = user.get('email')
-                    session['profile_photo'] = user.get('profile_photo')
-                    flash(f'Welcome, {user["full_name"]}!', 'success')
-                    return redirect(url_for('dashboard'))
-
-                # Special-case: Super Admin should not be blocked if email is missing.
-                if user.get('role') == 'super_admin' and not user.get('email'):
-                    session.pop('login_captcha_a', None)
-                    session.pop('login_captcha_b', None)
-                    session.pop('login_captcha_answer', None)
-                    session['user_id'] = user['id']
-                    session['username'] = user['username']
-                    session['full_name'] = user['full_name']
-                    session['user_role'] = user['role']
-                    session['cvo_office'] = user.get('cvo_office')
-                    session['phone'] = user.get('phone')
-                    session['email'] = user.get('email')
-                    session['profile_photo'] = user.get('profile_photo')
-                    flash(f'Welcome, {user["full_name"]}!', 'success')
-                    return redirect(url_for('dashboard'))
-
-                if not user.get('email'):
-                    flash('Email is required for OTP login. Contact Super Admin.', 'warning')
-                    reset_login_captcha()
-                else:
-                    issued, delivery_info = issue_login_otp(user)
-                    if issued:
-                        otp_required = True
-                        if delivery_info and delivery_info.isdigit():
-                            flash(f'Development OTP: {delivery_info}', 'info')
-                        else:
-                            flash('OTP sent to your registered email.', 'success')
-                    else:
-                        clear_login_otp_state()
-                        flash(f'Unable to send OTP: {delivery_info}', 'danger')
-                        reset_login_captcha()
-            else:
-                flash('Invalid username or password.', 'danger')
-                reset_login_captcha()
+        flash('Invalid username or password.', 'danger')
+        reset_login_captcha()
 
     a, b = get_login_captcha()
-    return render_template(
-        'login.html',
-        captcha_a=a,
-        captcha_b=b,
-        otp_required=otp_required,
-        otp_delivery_hint=session.get('otp_delivery_hint', ''),
-    )
-
-
-@app.route('/login/otp/resend', methods=['POST'])
-def login_resend_otp():
-    pending = session.get('pending_login_user') or {}
-    if not pending:
-        flash('Login session not found. Please login again.', 'warning')
-        return redirect(url_for('login'))
-    user = models.get_user_by_id(pending.get('id'))
-    if not user:
-        clear_login_otp_state()
-        flash('User no longer exists. Please login again.', 'warning')
-        return redirect(url_for('login'))
-    if not user.get('email'):
-        clear_login_otp_state()
-        flash('Email is required for OTP login. Contact Super Admin.', 'warning')
-        return redirect(url_for('login'))
-    issued, delivery_info = issue_login_otp(user)
-    if issued:
-        if delivery_info and delivery_info.isdigit():
-            flash(f'Development OTP: {delivery_info}', 'info')
-        else:
-            flash('OTP resent to your registered email.', 'success')
-    else:
-        flash(f'Unable to resend OTP: {delivery_info}', 'danger')
-    return redirect(url_for('login'))
+    return render_template('login.html', captcha_a=a, captcha_b=b)
 
 
 @app.route('/auth/request-signup', methods=['POST'])

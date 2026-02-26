@@ -76,22 +76,6 @@
             {% endwith %}
 
             <form method="POST" action="{{ url_for('login') }}" class="login-form" data-login-panel="secure">
-                {% if otp_required %}
-                <input type="hidden" name="otp_step" value="1">
-                <div class="form-group">
-                    <label for="otp_code">One-Time Password (OTP)</label>
-                    <input type="text" id="otp_code" name="otp_code" required autofocus
-                           inputmode="numeric" pattern="[0-9]{4,8}" maxlength="8"
-                           placeholder="Enter OTP sent to {{ otp_delivery_hint or 'your email' }}">
-                </div>
-                <button type="submit" class="btn btn-primary btn-full login-captcha-verify">
-                    <span>Verify OTP & Sign In</span>
-                </button>
-                <div style="margin-top: 10px; display: flex; justify-content: space-between; gap: 10px;">
-                    <button type="submit" formaction="{{ url_for('login_resend_otp') }}" formmethod="post" class="btn btn-secondary" style="padding: 8px 12px;">Resend OTP</button>
-                    <a href="{{ url_for('login', start_over='1') }}" class="btn btn-secondary" style="padding: 8px 12px;">Start Over</a>
-                </div>
-                {% else %}
                 <div class="form-group">
                     <label for="username" data-i18n="login.username">Username</label>
                     <input type="text" id="username" name="username" required autofocus
@@ -115,7 +99,6 @@
                 <button type="submit" class="btn btn-primary btn-full login-captcha-verify">
                     <span data-i18n="login.verify_signin">Verify & Sign In</span>
                 </button>
-                {% endif %}
             </form>
 
             <form method="POST" action="{{ url_for('request_recovery') }}" class="login-form" data-login-panel="recovery" style="display:none;">
