@@ -58,6 +58,23 @@ VALID_PETITION_TYPES = {
     'theft_misappropriation_materials',
     'other',
 }
+PETITION_TYPE_LABELS = {
+    # Current workflow values
+    'bribe': 'Bribe',
+    'corruption': 'Corruption',
+    'harassment': 'Harassment',
+    'misconduct': 'Misconduct',
+    'works_related': 'Works Related',
+    'irregularities_in_tenders': 'Irregularities in Tenders',
+    'illegal_assets': 'Illegal Assets',
+    'fake_certificates': 'Fake Certificates',
+    'theft_misappropriation_materials': 'Theft/Misappropriation of Materials',
+    'other': 'Other',
+    # Legacy DB values kept for display/filter compatibility
+    'theft_of_materials': 'Theft of Materials',
+    'adverse_news': 'Adverse News',
+    'procedural_lapses': 'Procedural Lapses',
+}
 VALID_PERMISSION_REQUEST_TYPES = {'direct_enquiry', 'permission_required'}
 DIRECT_ENQUIRY_EFILE_EDITABLE_STATUSES = {'received', 'forwarded_to_cvo', 'assigned_to_inspector', 'enquiry_in_progress'}
 VALID_USER_ROLES = {
@@ -604,18 +621,7 @@ def inject_globals():
         'lodged': 5,
         'closed': 6
     }
-    petition_types = {
-        'bribe': 'Bribe',
-        'corruption': 'Corruption',
-        'harassment': 'Harassment',
-        'misconduct': 'Misconduct',
-        'works_related': 'Works Related',
-        'irregularities_in_tenders': 'Irregularities in Tenders',
-        'illegal_assets': 'Illegal Assets',
-        'fake_certificates': 'Fake Certificates',
-        'theft_misappropriation_materials': 'Theft/Misappropriation of Materials',
-        'other': 'Other'
-    }
+    petition_types = PETITION_TYPE_LABELS
     petition_sources = {
         'media': 'Media',
         'public_individual': 'Public (Individual)',
@@ -878,18 +884,7 @@ def dashboard():
     dashboard_filter = _extract_dashboard_filters(request.args, officer_lookup)
     filtered_petitions = _apply_dashboard_filters(petitions, dashboard_filter)
 
-    petition_type_labels = {
-        'bribe': 'Bribe',
-        'corruption': 'Corruption',
-        'harassment': 'Harassment',
-        'misconduct': 'Misconduct',
-        'works_related': 'Works Related',
-        'irregularities_in_tenders': 'Irregularities in Tenders',
-        'illegal_assets': 'Illegal Assets',
-        'fake_certificates': 'Fake Certificates',
-        'theft_misappropriation_materials': 'Theft/Misappropriation of Materials',
-        'other': 'Other',
-    }
+    petition_type_labels = PETITION_TYPE_LABELS
     source_labels = {
         'media': 'Media',
         'public_individual': 'Public (Individual)',
@@ -973,7 +968,7 @@ def _extract_dashboard_filters(args, officer_lookup):
         from_date, to_date = to_date, from_date
 
     petition_type_filter = (args.get('petition_type') or 'all').strip()
-    if petition_type_filter not in VALID_PETITION_TYPES and petition_type_filter != 'all':
+    if petition_type_filter not in PETITION_TYPE_LABELS and petition_type_filter != 'all':
         petition_type_filter = 'all'
     source_filter = (args.get('source_of_petition') or 'all').strip()
     if source_filter not in VALID_SOURCE_OF_PETITION and source_filter != 'all':
@@ -1061,18 +1056,7 @@ def _build_dashboard_analytics(petitions, stats):
         'lodged': 'Lodged',
         'closed': 'Closed'
     }
-    petition_type_labels = {
-        'bribe': 'Bribe',
-        'corruption': 'Corruption',
-        'harassment': 'Harassment',
-        'misconduct': 'Misconduct',
-        'works_related': 'Works Related',
-        'irregularities_in_tenders': 'Irregularities in Tenders',
-        'illegal_assets': 'Illegal Assets',
-        'fake_certificates': 'Fake Certificates',
-        'theft_misappropriation_materials': 'Theft/Misappropriation of Materials',
-        'other': 'Other'
-    }
+    petition_type_labels = PETITION_TYPE_LABELS
     source_labels = {
         'media': 'Media',
         'public_individual': 'Public',
@@ -1485,8 +1469,8 @@ def petition_action(petition_id):
             models.send_for_permission(petition_id, user_id, comments)
             flash('Petition sent to PO for permission.', 'success')
 
-        elif action == 'cvo_set_enquiry_mode':
-            if user_role not in ('super_admin', 'cvo_apspdcl', 'cvo_apepdcl', 'dsp'):
+        elif action in ('cvo_set_enquiry_mode', 'send_receipt_to_po'):
+            if user_role not in ('super_admin', 'cvo_apspdcl', 'cvo_apepdcl', 'cvo_apcpdcl', 'dsp'):
                 flash('Only CVO/DSP can decide enquiry mode.', 'danger')
                 return redirect(url_for('petition_view', petition_id=petition_id))
             petition = models.get_petition_by_id(petition_id)
@@ -1498,37 +1482,39 @@ def petition_action(petition_id):
                 return redirect(url_for('petition_view', petition_id=petition_id))
 
             permission_request_type = (request.form.get('permission_request_type') or '').strip()
+            if action == 'send_receipt_to_po':
+                # Backward-compatible path for older form payload.
+                permission_request_type = 'permission_required'
             if permission_request_type not in VALID_PERMISSION_REQUEST_TYPES:
                 flash('Please select enquiry mode (Direct/Permission Required).', 'warning')
                 return redirect(url_for('petition_view', petition_id=petition_id))
 
             if permission_request_type == 'permission_required':
                 permission_file = request.files.get('permission_file')
-                if not permission_file or not permission_file.filename:
-                    flash('Please upload permission document (PDF).', 'warning')
-                    return redirect(url_for('petition_view', petition_id=petition_id))
-                ok, upload_result = validate_pdf_upload(permission_file, 'Permission document')
-                if not ok:
-                    flash(upload_result, 'danger')
-                    return redirect(url_for('petition_view', petition_id=petition_id))
-                original_name = upload_result
-                os.makedirs(ENQUIRY_UPLOAD_DIR, exist_ok=True)
-                permission_filename = f"cvo_permission_{petition_id}_{datetime.now().strftime('%Y%m%d%H%M%S')}_{original_name}"
-                permission_file.save(os.path.join(ENQUIRY_UPLOAD_DIR, permission_filename))
+                permission_filename = None
+                if permission_file and permission_file.filename:
+                    ok, upload_result = validate_pdf_upload(permission_file, 'Permission document')
+                    if not ok:
+                        flash(upload_result, 'danger')
+                        return redirect(url_for('petition_view', petition_id=petition_id))
+                    original_name = upload_result
+                    os.makedirs(ENQUIRY_UPLOAD_DIR, exist_ok=True)
+                    permission_filename = f"cvo_permission_{petition_id}_{datetime.now().strftime('%Y%m%d%H%M%S')}_{original_name}"
+                    permission_file.save(os.path.join(ENQUIRY_UPLOAD_DIR, permission_filename))
                 try:
                     models.cvo_send_receipt_to_po(petition_id, user_id, comments, permission_filename)
                 except Exception:
-                    try:
-                        os.remove(os.path.join(ENQUIRY_UPLOAD_DIR, permission_filename))
-                    except Exception:
-                        pass
+                    if permission_filename:
+                        try:
+                            os.remove(os.path.join(ENQUIRY_UPLOAD_DIR, permission_filename))
+                        except Exception:
+                            pass
                     raise
                 flash('Permission route selected and receipt sent to PO.', 'success')
             else:
-                enquiry_type_decision = (request.form.get('enquiry_type_decision') or '').strip()
+                enquiry_type_decision = (request.form.get('enquiry_type_decision') or '').strip() or 'detailed'
                 if enquiry_type_decision not in VALID_ENQUIRY_TYPES:
-                    flash('Please select enquiry type decision (Detailed/Preliminary).', 'warning')
-                    return redirect(url_for('petition_view', petition_id=petition_id))
+                    enquiry_type_decision = 'detailed'
                 models.cvo_mark_direct_enquiry(petition_id, user_id, comments, enquiry_type_decision)
                 flash('Direct enquiry mode selected. You can now assign inspector.', 'success')
             

@@ -44,6 +44,14 @@ def ensure_schema_updates():
         cur.execute("ALTER TYPE petition_status ADD VALUE IF NOT EXISTS 'lodged'")
         cur.execute("ALTER TYPE petition_status ADD VALUE IF NOT EXISTS 'sent_back_for_reenquiry'")
         cur.execute("ALTER TYPE cvo_office ADD VALUE IF NOT EXISTS 'headquarters'")
+        # Keep petition type enum aligned with current UI/form values.
+        cur.execute("ALTER TYPE petition_type ADD VALUE IF NOT EXISTS 'corruption'")
+        cur.execute("ALTER TYPE petition_type ADD VALUE IF NOT EXISTS 'misconduct'")
+        cur.execute("ALTER TYPE petition_type ADD VALUE IF NOT EXISTS 'works_related'")
+        cur.execute("ALTER TYPE petition_type ADD VALUE IF NOT EXISTS 'irregularities_in_tenders'")
+        cur.execute("ALTER TYPE petition_type ADD VALUE IF NOT EXISTS 'illegal_assets'")
+        cur.execute("ALTER TYPE petition_type ADD VALUE IF NOT EXISTS 'fake_certificates'")
+        cur.execute("ALTER TYPE petition_type ADD VALUE IF NOT EXISTS 'theft_misappropriation_materials'")
         cur.execute("""
             ALTER TABLE petitions
             ADD COLUMN IF NOT EXISTS enquiry_type VARCHAR(20) NOT NULL DEFAULT 'detailed'
