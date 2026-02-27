@@ -7102,6 +7102,49 @@ html[data-theme='dark'] .reenquiry-reference-chip {
 }
 
 
+/* ========================================
+   Browser Compatibility Fallbacks
+   ======================================== */
+
+@supports not (height: 100dvh) {
+    .login-page.login-page-modern {
+        height: 100vh !important;
+        min-height: 100vh !important;
+    }
+
+    .login-shell {
+        height: calc(100vh - 58px) !important;
+        max-height: calc(100vh - 58px) !important;
+    }
+
+    @media (max-width: 860px) {
+        .login-shell {
+            height: calc(100vh - 52px) !important;
+            max-height: calc(100vh - 52px) !important;
+        }
+    }
+
+    @media (max-width: 640px) {
+        .login-shell {
+            height: calc(100vh - 46px) !important;
+            max-height: calc(100vh - 46px) !important;
+        }
+    }
+}
+
+@supports not (width: fit-content) {
+    .data-table .btn {
+        width: auto;
+        display: inline-block;
+    }
+}
+
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+    .login-shell {
+        background: rgba(241, 246, 255, 0.98) !important;
+    }
+}
+
 .sidebar {
     transition: transform var(--motion-base) var(--motion-ease), width var(--motion-base) var(--motion-ease);
 }
