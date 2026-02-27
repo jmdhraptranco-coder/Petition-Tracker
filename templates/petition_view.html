@@ -727,6 +727,24 @@
                         <strong>{{ t.action }}</strong>
                         <span class="timeline-date">{{ t.created_at.strftime('%d %b %Y %H:%M') if t.created_at else '' }}</span>
                     </div>
+                    {% if not loop.first and t.created_at and loop.previtem.created_at %}
+                    {% set gap_seconds = (t.created_at - loop.previtem.created_at).total_seconds()|int %}
+                    {% if gap_seconds < 0 %}{% set gap_seconds = 0 %}{% endif %}
+                    {% set gap_days = (gap_seconds // 86400)|int %}
+                    {% set gap_hours = ((gap_seconds % 86400) // 3600)|int %}
+                    <div class="timeline-gap">
+                        Gap from previous action:
+                        <strong>
+                            {% if gap_days > 0 %}
+                                {{ gap_days }} day{% if gap_days != 1 %}s{% endif %}
+                            {% endif %}
+                            {% if gap_days > 0 and gap_hours > 0 %} {% endif %}
+                            {% if gap_hours > 0 or gap_days == 0 %}
+                                {{ gap_hours }} hour{% if gap_hours != 1 %}s{% endif %}
+                            {% endif %}
+                        </strong>
+                    </div>
+                    {% endif %}
                     <div class="timeline-meta">
                         {% if t.from_name %}From: {{ t.from_name }}{% endif %}
                         {% if t.to_name %} -> To: {{ t.to_name }}{% endif %}

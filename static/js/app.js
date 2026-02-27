@@ -382,8 +382,9 @@ document.addEventListener('DOMContentLoaded', () => {
         const syncAria = () => {
             let label = 'Collapse Menu';
             if (mobileMq.matches) {
-                sidebarToggle.setAttribute('aria-expanded', String(sidebar.classList.contains('collapsed')));
-                label = sidebar.classList.contains('collapsed') ? 'Hide Menu' : 'Open Menu';
+                const mobileExpanded = sidebar.classList.contains('mobile-expanded');
+                sidebarToggle.setAttribute('aria-expanded', String(mobileExpanded));
+                label = mobileExpanded ? 'Hide Menu' : 'Open Menu';
             } else {
                 const expanded = !appLayout.classList.contains('sidebar-compact');
                 sidebarToggle.setAttribute('aria-expanded', String(expanded));
@@ -396,7 +397,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
         const closeMobileSidebar = () => {
             if (!mobileMq.matches) return;
-            sidebar.classList.remove('collapsed');
+            sidebar.classList.remove('mobile-expanded');
             if (sidebarOverlay) sidebarOverlay.classList.remove('active');
             syncAria();
         };
@@ -404,9 +405,12 @@ document.addEventListener('DOMContentLoaded', () => {
         const applySidebarMode = () => {
             if (mobileMq.matches) {
                 appLayout.classList.remove('sidebar-compact');
+                sidebar.classList.remove('collapsed');
+                sidebar.classList.remove('mobile-expanded');
                 if (sidebarOverlay) sidebarOverlay.classList.remove('active');
             } else {
                 sidebar.classList.remove('collapsed');
+                sidebar.classList.remove('mobile-expanded');
                 const shouldCompact = localStorage.getItem(storageKey) === '1';
                 appLayout.classList.toggle('sidebar-compact', shouldCompact);
             }
@@ -424,9 +428,9 @@ document.addEventListener('DOMContentLoaded', () => {
             sidebarFlowTimer = setTimeout(() => sidebarToggle.classList.remove('flowing'), 420);
 
             if (mobileMq.matches) {
-                sidebar.classList.toggle('collapsed');
+                sidebar.classList.toggle('mobile-expanded');
                 if (sidebarOverlay) {
-                    sidebarOverlay.classList.toggle('active', sidebar.classList.contains('collapsed'));
+                    sidebarOverlay.classList.toggle('active', sidebar.classList.contains('mobile-expanded'));
                 }
                 syncAria();
                 return;
