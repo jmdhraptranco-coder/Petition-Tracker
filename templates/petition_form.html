@@ -92,10 +92,10 @@
                 {% else %}
                 <select id="permission_request_type" name="permission_request_type" {% if f_permission_request.required %}required{% endif %}>
                     {% if deo_locked and deo_flow.force_permission_required %}
-                    <option value="permission_required" selected data-i18n="petition.form.permission.permission_required">Permission Required (CVO/DSP sends to PO for approval)</option>
+                    <option value="permission_required" selected data-i18n="petition.form.permission.permission_required">Permission Based (CVO/DSP sends to PO for approval)</option>
                     {% else %}
-                    <option value="direct_enquiry" data-i18n="petition.form.permission.direct_enquiry" {% if (request.form.get('permission_request_type') or 'direct_enquiry') == 'direct_enquiry' %}selected{% endif %}>Direct Enquiry (CVO/DSP sends copy and starts enquiry)</option>
-                    <option value="permission_required" data-i18n="petition.form.permission.permission_required" {% if request.form.get('permission_request_type') == 'permission_required' %}selected{% endif %}>Permission Required (CVO/DSP sends to PO for approval)</option>
+                    <option value="direct_enquiry" data-i18n="petition.form.permission.direct_enquiry" {% if (request.form.get('permission_request_type') or 'direct_enquiry') == 'direct_enquiry' %}selected{% endif %}>Direct</option>
+                    <option value="permission_required" data-i18n="petition.form.permission.permission_required" {% if request.form.get('permission_request_type') == 'permission_required' %}selected{% endif %}>Permission Based (CVO/DSP sends to PO for approval)</option>
                     {% endif %}
                 </select>
                 {% endif %}

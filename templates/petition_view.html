@@ -471,14 +471,14 @@
             {% if current_user_role in ('cvo_apspdcl', 'cvo_apepdcl', 'cvo_apcpdcl', 'dsp', 'super_admin') %}
                 {% if petition.status == 'forwarded_to_cvo' and petition.requires_permission %}
                 <div class="action-panel">
-                    <h4>Select Enquiry Mode</h4>
+                    <h4>Select Enquiry Permission</h4>
                     <form method="POST" action="{{ url_for('petition_action', petition_id=petition.id) }}" enctype="multipart/form-data">
                         <input type="hidden" name="action" value="cvo_route_petition">
                         <div class="form-group">
-                            <label>Enquiry Selection <span class="required">*</span></label>
+                            <label>Enquiry Permission <span class="required">*</span></label>
                             <select name="permission_request_type" id="cvo_enquiry_mode_select_{{ petition.id }}" required onchange="toggleCvoEnquiryModeFields('{{ petition.id }}')">
-                                <option value="direct_enquiry" selected>Direct Enquiry (Assign Inspector)</option>
-                                <option value="permission_required">Preliminary (Send for Permission)</option>
+                                <option value="direct_enquiry" selected>Direct</option>
+                                <option value="permission_required">Permission Based (Send for Permission)</option>
                             </select>
                         </div>
                         <div class="form-group" id="cvo_mode_direct_{{ petition.id }}">

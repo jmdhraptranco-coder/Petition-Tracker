@@ -3252,11 +3252,6 @@ html[data-theme='light'] .hero-pill {
 }
 
 @media (max-width: 640px) {
-    html,
-    body {
-        overflow: hidden;
-    }
-
     .login-page.login-page-modern {
         height: 100dvh;
         min-height: 100dvh;
@@ -7268,6 +7263,23 @@ html[data-theme='dark'] .report-stage-name {
 
 /* Final mobile overrides (single source of truth for small screens) */
 @media (max-width: 768px) {
+    html,
+    body {
+        width: 100%;
+        max-width: 100%;
+        overflow-x: hidden;
+        overflow-y: auto !important;
+        height: auto;
+        min-height: 100%;
+        -webkit-overflow-scrolling: touch;
+    }
+
+    .app-layout,
+    .main-content,
+    .content-area {
+        overflow: visible;
+    }
+
     .sidebar {
         width: min(86vw, 320px);
         max-width: 320px;
@@ -7341,6 +7353,25 @@ html[data-theme='dark'] .report-stage-name {
         order: 11;
         margin-left: auto;
         white-space: nowrap;
+    }
+
+    /* Keep top-bar popup menus inside viewport on phones. */
+    .top-bar .notif-wrap {
+        position: static;
+    }
+
+    .top-bar .notif-menu,
+    .top-bar .profile-menu {
+        position: fixed;
+        left: 10px;
+        right: 10px;
+        width: auto;
+        max-width: none;
+        top: calc(env(safe-area-inset-top, 0px) + 70px);
+        max-height: min(62vh, calc(100vh - 96px));
+        overflow: auto;
+        -webkit-overflow-scrolling: touch;
+        z-index: 260;
     }
 
     .page-title {

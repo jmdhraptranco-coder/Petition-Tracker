@@ -172,12 +172,12 @@ DEFAULT_FORM_FIELD_CONFIGS = {
         ]
     },
     'deo_petition.permission_request_type': {
-        'label': 'Permission Request',
+        'label': 'Enquiry Permission',
         'type': 'select',
         'required': True,
         'options': [
-            {'value': 'direct_enquiry', 'label': 'Direct Enquiry (CVO/DSP sends copy and starts enquiry)'},
-            {'value': 'permission_required', 'label': 'Permission Required (CVO/DSP sends to PO for approval)'},
+            {'value': 'direct_enquiry', 'label': 'Direct'},
+            {'value': 'permission_required', 'label': 'Permission Based (CVO/DSP sends to PO for approval)'},
         ]
     },
     'deo_petition.petitioner_name': {'label': 'Petitioner Name', 'type': 'text', 'required': False, 'options': []},
@@ -1489,7 +1489,7 @@ def petition_action(petition_id):
                 # Backward-compatible path for older form payload.
                 permission_request_type = 'permission_required'
             if permission_request_type not in VALID_PERMISSION_REQUEST_TYPES:
-                flash('Please select enquiry mode (Direct/Permission Required).', 'warning')
+                flash('Please select enquiry permission (Direct/Permission Based).', 'warning')
                 return redirect(url_for('petition_view', petition_id=petition_id))
 
             if permission_request_type == 'permission_required':
