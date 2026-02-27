@@ -144,6 +144,7 @@
                     <option value="bribe" data-i18n="petition.form.type.bribe" {% if request.form.get('petition_type') == 'bribe' %}selected{% endif %}>Bribe</option>
                     <option value="corruption" {% if request.form.get('petition_type') == 'corruption' %}selected{% endif %}>Corruption</option>
                     <option value="harassment" data-i18n="petition.form.type.harassment" {% if request.form.get('petition_type') == 'harassment' %}selected{% endif %}>Harassment</option>
+                    <option value="electrical_accident" {% if request.form.get('petition_type') == 'electrical_accident' %}selected{% endif %}>Electrical Accident</option>
                     <option value="misconduct" {% if request.form.get('petition_type') == 'misconduct' %}selected{% endif %}>Misconduct</option>
                     <option value="works_related" {% if request.form.get('petition_type') == 'works_related' %}selected{% endif %}>Works Related</option>
                     <option value="irregularities_in_tenders" {% if request.form.get('petition_type') == 'irregularities_in_tenders' %}selected{% endif %}>Irregularities in Tenders</option>

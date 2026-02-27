@@ -541,7 +541,7 @@
                 {% if petition.status == 'permission_approved' or (petition.status == 'forwarded_to_cvo' and not petition.requires_permission) %}
                 <div class="action-panel">
                     <h4>Assign to Field Inspector</h4>
-                    <form method="POST" action="{{ url_for('petition_action', petition_id=petition.id) }}">
+                    <form method="POST" action="{{ url_for('petition_action', petition_id=petition.id) }}" enctype="multipart/form-data">
                         <input type="hidden" name="action" value="assign_inspector">
                         <div class="form-group">
                             <label>Select Inspector (CI/SI)</label>
@@ -565,6 +565,10 @@
                             </select>
                         </div>
                         {% endif %}
+                        <div class="form-group">
+                            <label>Upload Memo/Instructions (PDF, Optional)</label>
+                            <input type="file" name="assignment_memo_file" accept=".pdf">
+                        </div>
                         <div class="form-group"><label>Instructions</label><textarea name="comments" rows="2" placeholder="Instructions for the inspector"></textarea></div>
                         <button type="submit" class="btn btn-primary" {% if not inspectors %}disabled title="Map field inspectors to this officer in User Management first"{% endif %}>Assign Inspector</button>
                     </form>

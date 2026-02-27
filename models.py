@@ -49,6 +49,7 @@ def ensure_schema_updates():
         cur.execute("ALTER TYPE petition_type ADD VALUE IF NOT EXISTS 'misconduct'")
         cur.execute("ALTER TYPE petition_type ADD VALUE IF NOT EXISTS 'works_related'")
         cur.execute("ALTER TYPE petition_type ADD VALUE IF NOT EXISTS 'irregularities_in_tenders'")
+        cur.execute("ALTER TYPE petition_type ADD VALUE IF NOT EXISTS 'electrical_accident'")
         cur.execute("ALTER TYPE petition_type ADD VALUE IF NOT EXISTS 'illegal_assets'")
         cur.execute("ALTER TYPE petition_type ADD VALUE IF NOT EXISTS 'fake_certificates'")
         cur.execute("ALTER TYPE petition_type ADD VALUE IF NOT EXISTS 'theft_misappropriation_materials'")
