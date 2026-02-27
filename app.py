@@ -1469,7 +1469,7 @@ def petition_action(petition_id):
             models.send_for_permission(petition_id, user_id, comments)
             flash('Petition sent to PO for permission.', 'success')
 
-        elif action in ('cvo_set_enquiry_mode', 'send_receipt_to_po'):
+        elif action in ('cvo_set_enquiry_mode', 'send_receipt_to_po', 'cvo_route_petition'):
             if user_role not in ('super_admin', 'cvo_apspdcl', 'cvo_apepdcl', 'cvo_apcpdcl', 'dsp'):
                 flash('Only CVO/DSP can decide enquiry mode.', 'danger')
                 return redirect(url_for('petition_view', petition_id=petition_id))
@@ -1515,8 +1515,38 @@ def petition_action(petition_id):
                 enquiry_type_decision = (request.form.get('enquiry_type_decision') or '').strip() or 'detailed'
                 if enquiry_type_decision not in VALID_ENQUIRY_TYPES:
                     enquiry_type_decision = 'detailed'
-                models.cvo_mark_direct_enquiry(petition_id, user_id, comments, enquiry_type_decision)
-                flash('Direct enquiry mode selected. You can now assign inspector.', 'success')
+                if action == 'cvo_route_petition':
+                    inspector_id = parse_optional_int(request.form.get('inspector_id'))
+                    if not inspector_id:
+                        flash('Please select a valid field inspector.', 'warning')
+                        return redirect(url_for('petition_view', petition_id=petition_id))
+                    memo_file = request.files.get('assignment_memo_file')
+                    memo_filename = None
+                    if memo_file and memo_file.filename:
+                        ok, upload_result = validate_pdf_upload(memo_file, 'Upload memo/instructions')
+                        if not ok:
+                            flash(upload_result, 'danger')
+                            return redirect(url_for('petition_view', petition_id=petition_id))
+                        original_name = upload_result
+                        os.makedirs(ENQUIRY_UPLOAD_DIR, exist_ok=True)
+                        memo_filename = f"assign_memo_{petition_id}_{datetime.now().strftime('%Y%m%d%H%M%S')}_{original_name}"
+                        memo_file.save(os.path.join(ENQUIRY_UPLOAD_DIR, memo_filename))
+                    try:
+                        models.cvo_mark_direct_enquiry(petition_id, user_id, comments, enquiry_type_decision)
+                        models.assign_to_inspector(
+                            petition_id, user_id, inspector_id, comments, None, memo_filename
+                        )
+                    except Exception:
+                        if memo_filename:
+                            try:
+                                os.remove(os.path.join(ENQUIRY_UPLOAD_DIR, memo_filename))
+                            except Exception:
+                                pass
+                        raise
+                    flash('Direct enquiry selected and petition assigned to inspector.', 'success')
+                else:
+                    models.cvo_mark_direct_enquiry(petition_id, user_id, comments, enquiry_type_decision)
+                    flash('Direct enquiry mode selected. You can now assign inspector.', 'success')
             
         elif action == 'approve_permission':
             if user_role not in ('super_admin', 'po'):

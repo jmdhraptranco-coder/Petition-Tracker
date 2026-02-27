@@ -473,41 +473,65 @@
                 <div class="action-panel">
                     <h4>Select Enquiry Mode</h4>
                     <form method="POST" action="{{ url_for('petition_action', petition_id=petition.id) }}" enctype="multipart/form-data">
-                        <input type="hidden" name="action" value="cvo_set_enquiry_mode">
+                        <input type="hidden" name="action" value="cvo_route_petition">
                         <div class="form-group">
                             <label>Enquiry Selection <span class="required">*</span></label>
                             <select name="permission_request_type" id="cvo_enquiry_mode_select_{{ petition.id }}" required onchange="toggleCvoEnquiryModeFields('{{ petition.id }}')">
-                                <option value="direct_enquiry">Direct Enquiry (Assign Inspector)</option>
+                                <option value="direct_enquiry" selected>Direct Enquiry (Assign Inspector)</option>
                                 <option value="permission_required">Preliminary (Send for Permission)</option>
                             </select>
                         </div>
                         <div class="form-group" id="cvo_mode_direct_{{ petition.id }}">
                             <label>Enquiry Type (Direct)</label>
-                            <select name="enquiry_type_decision">
+                            <select id="cvo_direct_enquiry_type_{{ petition.id }}" name="enquiry_type_decision">
                                 <option value="detailed" {% if petition.enquiry_type == 'detailed' %}selected{% endif %}>Detailed</option>
                                 <option value="preliminary" {% if petition.enquiry_type == 'preliminary' %}selected{% endif %}>Preliminary</option>
                             </select>
+                        </div>
+                        <div class="form-group" id="cvo_mode_direct_inspector_{{ petition.id }}">
+                            <label>Select Inspector (CI/SI) <span class="required">*</span></label>
+                            <select id="cvo_direct_inspector_{{ petition.id }}" name="inspector_id" required {% if not inspectors %}disabled aria-describedby="mode-inspector-help"{% endif %}>
+                                <option value="">-- Select Inspector --</option>
+                                {% for insp in inspectors %}
+                                <option value="{{ insp.id }}">{{ insp.full_name }}</option>
+                                {% endfor %}
+                            </select>
+                            {% if not inspectors %}
+                            <small id="mode-inspector-help" class="form-help">No field inspectors are mapped to this officer. Add/map in User Management.</small>
+                            {% endif %}
+                        </div>
+                        <div class="form-group" id="cvo_mode_direct_memo_{{ petition.id }}">
+                            <label>Upload Memo/Instructions (PDF, Optional)</label>
+                            <input type="file" name="assignment_memo_file" accept=".pdf">
                         </div>
                         <div class="form-group" id="cvo_mode_permission_file_{{ petition.id }}" style="display:none;">
                             <label>Permission Supporting Document (PDF, Optional)</label>
                             <input type="file" name="permission_file" accept=".pdf">
                         </div>
                         <div class="form-group"><label>CVO Remarks</label><textarea name="comments" rows="3" placeholder="Mode decision and remarks"></textarea></div>
-                        <button type="submit" id="cvo_mode_btn_{{ petition.id }}" class="btn btn-primary">Proceed</button>
+                        <button type="submit" id="cvo_mode_btn_{{ petition.id }}" class="btn btn-primary" {% if not inspectors %}disabled title="Map field inspectors to this officer in User Management first"{% endif %}>Proceed</button>
                     </form>
                     <script>
                     function toggleCvoEnquiryModeFields(petitionId) {
                         const modeSelect = document.getElementById(`cvo_enquiry_mode_select_${petitionId}`);
                         const directWrap = document.getElementById(`cvo_mode_direct_${petitionId}`);
+                        const directInspectorWrap = document.getElementById(`cvo_mode_direct_inspector_${petitionId}`);
+                        const directMemoWrap = document.getElementById(`cvo_mode_direct_memo_${petitionId}`);
+                        const directInspector = document.getElementById(`cvo_direct_inspector_${petitionId}`);
+                        const directEnquiryType = document.getElementById(`cvo_direct_enquiry_type_${petitionId}`);
                         const permissionFileWrap = document.getElementById(`cvo_mode_permission_file_${petitionId}`);
                         const submitBtn = document.getElementById(`cvo_mode_btn_${petitionId}`);
                         if (!modeSelect || !directWrap || !permissionFileWrap || !submitBtn) return;
 
                         const isDirect = modeSelect.value === 'direct_enquiry';
                         directWrap.style.display = isDirect ? '' : 'none';
+                        if (directInspectorWrap) directInspectorWrap.style.display = isDirect ? '' : 'none';
+                        if (directMemoWrap) directMemoWrap.style.display = isDirect ? '' : 'none';
                         permissionFileWrap.style.display = isDirect ? 'none' : '';
+                        if (directInspector) directInspector.required = isDirect;
+                        if (directEnquiryType) directEnquiryType.required = isDirect;
                         submitBtn.className = isDirect ? 'btn btn-primary' : 'btn btn-warning';
-                        submitBtn.textContent = isDirect ? 'Save Direct Enquiry & Continue' : 'Send to PO for Permission';
+                        submitBtn.textContent = isDirect ? 'Assign Inspector (Direct)' : 'Send to PO for Permission';
                     }
                     toggleCvoEnquiryModeFields('{{ petition.id }}');
                     </script>
