@@ -1,0 +1,826 @@
+{% extends "base.html" %}
+{% block title %}SLA Dashboard - Petition Tracker{% endblock %}
+{% block page_title %}SLA Dashboard{% endblock %}
+
+{% block content %}
+{% set sla_total = sla_summary.get('sla_total', 0) %}
+{% set sla_closed_total = sla_summary.get('sla_closed_total', 0) %}
+{% set sla_open_total = sla_summary.get('sla_open_total', 0) %}
+{% set sla_closed_within = sla_summary.get('sla_closed_within', 0) %}
+{% set sla_closed_beyond = sla_summary.get('sla_closed_beyond', 0) %}
+{% set sla_open_within = sla_summary.get('sla_open_within', 0) %}
+{% set sla_open_beyond = sla_summary.get('sla_open_beyond', 0) %}
+{% set sla_total_within = sla_summary.get('sla_total_within', sla_summary.get('sla_within', 0)) %}
+{% set sla_total_beyond = sla_summary.get('sla_total_beyond', sla_summary.get('sla_beyond', sla_summary.get('sla_breached', 0))) %}
+<style>
+.sla-compact-stack {
+    display: grid;
+    gap: 10px;
+    padding: 6px 8px 10px;
+}
+.sla-compact-stack .card {
+    margin: 0 !important;
+}
+.sla-compact-stack .card-header {
+    padding: 12px 14px !important;
+}
+.sla-compact-stack .table-wrapper,
+.sla-compact-stack .sla-table-wrap {
+    padding: 0 12px 12px !important;
+}
+.sla-hero {
+    background: linear-gradient(135deg, rgba(14, 165, 233, 0.22), rgba(234, 179, 8, 0.18) 45%, rgba(239, 68, 68, 0.2));
+    border: 1px solid rgba(56, 189, 248, 0.25);
+    padding: 10px 12px 12px;
+}
+.sla-hero .card-header { padding: 0 0 8px 0 !important; }
+.sla-hero h2 {
+    margin: 0 0 4px 0;
+    font-size: 1.05rem;
+}
+.sla-rule-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 5px;
+}
+.sla-rule-chip {
+    border-radius: 999px;
+    padding: 3px 7px;
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: .02em;
+    border: 1px solid rgba(148, 163, 184, 0.32);
+    background: rgba(15, 23, 42, 0.25);
+}
+.sla-kpi-grid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(180px, 1fr));
+    gap: 9px;
+    margin-top: 2px;
+    padding: 4px 2px;
+}
+.sla-kpi {
+    border-radius: 12px;
+    padding: 12px 14px;
+    min-height: 96px;
+    color: #fff;
+    position: relative;
+    overflow: hidden;
+}
+.sla-kpi.is-drilldown {
+    cursor: pointer;
+    transition: transform .18s ease, box-shadow .18s ease;
+}
+.sla-kpi.is-drilldown:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 10px 18px rgba(2, 6, 23, .22);
+}
+.sla-kpi::after {
+    content: "";
+    position: absolute;
+    right: -18px;
+    top: -18px;
+    width: 72px;
+    height: 72px;
+    border-radius: 999px;
+    background: rgba(255,255,255,.16);
+}
+.sla-kpi .v {
+    font-size: 24px;
+    font-weight: 800;
+}
+.sla-kpi .l {
+    font-size: 13px;
+    opacity: .95;
+}
+.sla-kpi .s {
+    margin-top: 4px;
+    font-size: 11px;
+    opacity: .9;
+}
+.kpi-total { background: linear-gradient(135deg, #2563eb, #7c3aed); }
+.kpi-closed { background: linear-gradient(135deg, #0369a1, #0ea5e9); }
+.kpi-open { background: linear-gradient(135deg, #ca8a04, #f59e0b); }
+.kpi-within { background: linear-gradient(135deg, #059669, #22c55e); }
+.kpi-beyond { background: linear-gradient(135deg, #dc2626, #f97316); }
+
+.sla-chart-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(300px, 1fr));
+    gap: 10px;
+}
+.sla-analytics-strip {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(220px, 1fr));
+    gap: 10px;
+}
+.sla-mini {
+    border-radius: 14px;
+    border: 1px solid rgba(148, 163, 184, 0.32);
+    background: linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(235, 244, 255, 0.96));
+    padding: 14px 16px;
+    box-shadow: 0 8px 16px rgba(36, 66, 140, 0.08);
+}
+.sla-mini .h {
+    font-size: 13px;
+    font-weight: 700;
+    color: #4d6392;
+}
+.sla-mini .v {
+    margin-top: 6px;
+    font-size: 30px;
+    font-weight: 800;
+    color: #1e3a78;
+}
+.sla-mini .s {
+    margin-top: 4px;
+    font-size: 12px;
+    color: #5a74a4;
+}
+.sla-chart-card {
+    min-height: 235px;
+}
+.sla-chart-wrap {
+    height: 190px;
+    padding: 8px 12px 12px;
+}
+
+.sla-table-wrap {
+    overflow-x: hidden;
+    padding: 0 12px 12px !important;
+}
+.sla-table {
+    width: 100%;
+    min-width: 0;
+    table-layout: fixed;
+    border-collapse: separate;
+    border-spacing: 0;
+}
+.sla-table th, .sla-table td {
+    padding: 12px 14px !important;
+    vertical-align: top;
+    font-size: 0.82rem;
+    white-space: normal;
+    overflow-wrap: anywhere;
+    word-break: break-word;
+    box-sizing: border-box;
+}
+.sla-table thead th {
+    position: static;
+    background: #f6f9ff;
+    color: #6f7f9f;
+    border-bottom-color: #e0e9fb;
+}
+.sla-table td {
+    color: #2a3652;
+    border-bottom-color: #edf2ff;
+}
+.sla-table tbody tr {
+    transition: background 0.18s ease, transform 0.18s ease, box-shadow 0.18s ease;
+}
+@media (hover: hover) {
+    .sla-table tbody tr:hover {
+        background: #f3f8ff;
+        transform: translateY(-1px);
+        box-shadow: 0 8px 16px rgba(36, 66, 140, 0.09);
+    }
+}
+.sla-table td:nth-child(1),
+.sla-table td:nth-child(2) {
+    white-space: normal;
+}
+.sla-table td:nth-child(3) {
+    white-space: normal;
+}
+.sla-table th:nth-child(1) { width: 6%; }
+.sla-table th:nth-child(2) { width: 20%; }
+.sla-table th:nth-child(3) { width: 10%; }
+.sla-table th:nth-child(4) { width: 12%; }
+.sla-table th:nth-child(5) { width: 12%; }
+.sla-table th:nth-child(6) { width: 12%; }
+.sla-table th:nth-child(7) { width: 12%; }
+.sla-table th:nth-child(8) { width: 16%; }
+.sla-state-pill {
+    display: inline-block;
+    padding: 3px 7px;
+    border-radius: 999px;
+    font-size: 10px;
+    font-weight: 700;
+}
+.state-healthy { background: rgba(16, 185, 129, .2); color: #16a34a; }
+.state-risk { background: rgba(234, 179, 8, .2); color: #ca8a04; }
+.state-beyond { background: rgba(239, 68, 68, .2); color: #dc2626; }
+.sla-drill-wrap {
+    overflow-x: hidden !important;
+    padding: 0 12px 12px !important;
+}
+.sla-drill-table {
+    width: 100%;
+    min-width: 0 !important;
+    table-layout: fixed;
+}
+.sla-drill-table th,
+.sla-drill-table td {
+    padding: 12px 14px !important;
+    font-size: 0.82rem;
+    vertical-align: top;
+    white-space: normal;
+    overflow-wrap: anywhere;
+    word-break: break-word;
+}
+.sla-drill-table thead th {
+    position: static;
+    background: #f6f9ff;
+    color: #6f7f9f;
+    border-bottom-color: #e0e9fb;
+}
+.sla-drill-table td {
+    color: #2a3652;
+    border-bottom-color: #edf2ff;
+}
+
+@media (max-width: 1200px) {
+    .sla-kpi-grid { grid-template-columns: repeat(2, minmax(180px, 1fr)); }
+    .sla-analytics-strip { grid-template-columns: 1fr; }
+    .sla-chart-grid { grid-template-columns: 1fr; }
+}
+@media (max-width: 980px) {
+    .sla-hero h2 { font-size: 1.05rem; }
+    .sla-rule-chip { font-size: 10px; padding: 3px 7px; }
+    .sla-chart-card { min-height: 240px; }
+    .sla-chart-wrap { height: 200px; padding: 4px 8px 8px; }
+    .sla-table { min-width: 0; }
+}
+@media (max-width: 700px) {
+    .sla-kpi-grid { grid-template-columns: 1fr; }
+    .sla-compact-stack { padding: 4px 4px 8px; }
+    .sla-compact-stack .card-header { padding: 8px 10px !important; }
+    .sla-kpi { padding: 10px 11px; border-radius: 10px; min-height: 78px; }
+    .sla-kpi .v { font-size: 16px; }
+    .sla-kpi .l { font-size: 11px; }
+    .sla-kpi .s { font-size: 10px; }
+    .sla-chart-card { min-height: 210px; }
+    .sla-chart-wrap { height: 170px; padding: 2px 6px 6px; }
+    .sla-table-wrap { padding: 0 4px 8px !important; }
+    .sla-table { min-width: 0; }
+    .sla-table th, .sla-table td { padding: 7px 8px !important; font-size: 12px; }
+    .sla-state-pill { font-size: 9px; padding: 2px 6px; }
+}
+html[data-theme='dark'] .sla-mini {
+    background: linear-gradient(180deg, rgba(15, 23, 42, 0.38), rgba(30, 64, 175, 0.18));
+    border-color: rgba(148, 163, 184, 0.28);
+    box-shadow: 0 10px 18px rgba(2, 6, 23, 0.28);
+}
+html[data-theme='dark'] .sla-mini .h { color: #cbd5e1; }
+html[data-theme='dark'] .sla-mini .v { color: #f8fafc; }
+html[data-theme='dark'] .sla-mini .s { color: #e2e8f0; }
+@media (max-width: 480px) {
+    .sla-rule-chips { gap: 4px; }
+    .sla-rule-chip { font-size: 9px; padding: 3px 6px; }
+    .sla-chart-wrap { height: 150px; }
+    .sla-table { min-width: 0; }
+}
+</style>
+
+<div class="sla-compact-stack">
+<div class="card sla-hero">
+    <div class="card-header">
+        <h2 data-i18n="sla.cmd_center">SLA Command Center</h2>
+        <div class="sla-rule-chips">
+            <span class="sla-rule-chip" data-i18n="sla.rule.preliminary" data-no-auto-i18n>Preliminary: 15 days</span>
+            <span class="sla-rule-chip" data-i18n="sla.rule.detailed" data-no-auto-i18n>Detailed: 60 days</span>
+            <span class="sla-rule-chip" data-i18n="sla.rule.media" data-no-auto-i18n>Electronic and Print Media: 45 days</span>
+            <span class="sla-rule-chip" data-i18n="sla.rule.max90" data-no-auto-i18n>Any Petition: Max 90 days</span>
+        </div>
+    </div>
+    <div class="sla-kpi-grid">
+        <div class="sla-kpi kpi-total is-drilldown" data-metric="sla_total" data-title="Total SLA Cases">
+            <div class="v">{{ sla_total }}</div>
+            <div class="l" data-i18n="sla.kpi.total_petitions">Total Petitions</div>
+            <div class="s" data-i18n="sla.kpi.total_petitions.sub">Monitored workload</div>
+        </div>
+        <div class="sla-kpi kpi-open is-drilldown" data-metric="sla_open_total" data-title="Open Petitions">
+            <div class="v">{{ sla_open_total }}</div>
+            <div class="l" data-i18n="sla.kpi.open">Open</div>
+            <div class="s" data-i18n="sla.kpi.open.sub">Pending closure</div>
+        </div>
+        <div class="sla-kpi kpi-closed is-drilldown" data-metric="sla_closed_total" data-title="Closed Petitions">
+            <div class="v">{{ sla_closed_total }}</div>
+            <div class="l" data-i18n="sla.kpi.closed">Closed</div>
+            <div class="s" data-i18n="sla.kpi.closed.sub">Closed petitions</div>
+        </div>
+        <div class="sla-kpi kpi-within is-drilldown" data-metric="sla_total_within" data-title="Total Within SLA">
+            <div class="v">{{ sla_total_within }}</div>
+            <div class="l" data-i18n="sla.kpi.total_within">Total Within SLA</div>
+            <div class="s" data-i18n="sla.kpi.total_within.sub">Closed + Open within</div>
+        </div>
+        <div class="sla-kpi kpi-within is-drilldown" data-metric="sla_open_within" data-title="Open Within SLA">
+            <div class="v">{{ sla_open_within }}</div>
+            <div class="l" data-i18n="sla.kpi.open_within">Open Within SLA</div>
+            <div class="s" data-i18n="sla.kpi.open_within.sub">Open and on time</div>
+        </div>
+        <div class="sla-kpi kpi-within is-drilldown" data-metric="sla_closed_within" data-title="Closed Within SLA">
+            <div class="v">{{ sla_closed_within }}</div>
+            <div class="l" data-i18n="sla.kpi.closed_within">Closed Within SLA</div>
+            <div class="s" data-i18n="sla.kpi.closed_within.sub">Closed on time</div>
+        </div>
+        <div class="sla-kpi kpi-beyond is-drilldown" data-metric="sla_total_beyond" data-title="Total Beyond SLA">
+            <div class="v">{{ sla_total_beyond }}</div>
+            <div class="l" data-i18n="sla.kpi.total_beyond">Total Beyond SLA</div>
+            <div class="s" data-i18n="sla.kpi.total_beyond.sub">Closed + Open beyond</div>
+        </div>
+        <div class="sla-kpi kpi-beyond is-drilldown" data-metric="sla_open_beyond" data-title="Open Beyond SLA">
+            <div class="v">{{ sla_open_beyond }}</div>
+            <div class="l" data-i18n="sla.kpi.open_beyond">Open Beyond SLA</div>
+            <div class="s" data-i18n="sla.kpi.open_beyond.sub">Open and overdue</div>
+        </div>
+        <div class="sla-kpi kpi-beyond is-drilldown" data-metric="sla_closed_beyond" data-title="Closed Beyond SLA">
+            <div class="v">{{ sla_closed_beyond }}</div>
+            <div class="l" data-i18n="sla.kpi.closed_beyond">Closed Beyond SLA</div>
+            <div class="s" data-i18n="sla.kpi.closed_beyond.sub">Closed late</div>
+        </div>
+    </div>
+</div>
+
+<div class="sla-chart-grid">
+    <div class="card">
+        <div class="card-header">
+            <h3>Today</h3>
+        </div>
+        <div class="sla-analytics-strip">
+            <div class="sla-mini">
+                <div class="h">Assigned Today</div>
+                <div class="v" id="slaTodayAssigned">0</div>
+                <div class="s" id="slaTodayOpen">Open: 0</div>
+            </div>
+            <div class="sla-mini">
+                <div class="h">This Month</div>
+                <div class="v" id="slaMonthAssigned">0</div>
+                <div class="s" id="slaMonthViolation">Beyond SLA: 0</div>
+            </div>
+        </div>
+    </div>
+    <div class="card sla-chart-card">
+        <div class="card-header">
+            <h3>Employee SLA Load (Stacked)</h3>
+        </div>
+        <div class="sla-chart-wrap">
+            <canvas id="slaEmployeeStacked"></canvas>
+        </div>
+    </div>
+    <div class="card sla-chart-card">
+        <div class="card-header">
+            <h3>SLA Distribution</h3>
+        </div>
+        <div class="sla-chart-wrap">
+            <canvas id="slaOverallDonut"></canvas>
+        </div>
+    </div>
+    <div class="card sla-chart-card">
+        <div class="card-header">
+            <h3>Beyond SLA Ranking</h3>
+        </div>
+        <div class="sla-chart-wrap">
+            <canvas id="slaBeyondRanking"></canvas>
+        </div>
+    </div>
+    <div class="card sla-chart-card">
+        <div class="card-header">
+            <h3>Employee SLA Compliance %</h3>
+        </div>
+        <div class="sla-chart-wrap">
+            <canvas id="slaComplianceLine"></canvas>
+        </div>
+    </div>
+    <div class="card sla-chart-card">
+        <div class="card-header">
+            <h3>SLA Violations This Month</h3>
+        </div>
+        <div class="sla-chart-wrap">
+            <canvas id="slaViolationMonthly"></canvas>
+        </div>
+    </div>
+    <div class="card sla-chart-card">
+        <div class="card-header">
+            <h3>Daily Closures This Month</h3>
+        </div>
+        <div class="sla-chart-wrap">
+            <canvas id="slaClosureDaily"></canvas>
+        </div>
+    </div>
+    <div class="card sla-chart-card">
+        <div class="card-header">
+            <h3>Open vs Closed Mix</h3>
+        </div>
+        <div class="sla-chart-wrap">
+            <canvas id="slaOpenClosedMix"></canvas>
+        </div>
+    </div>
+</div>
+
+<div class="card">
+    <div class="card-header">
+        <h3>Employee SLA Profile Grid</h3>
+    </div>
+    <div class="sla-table-wrap">
+        <table class="sla-table data-table">
+            <thead>
+                <tr>
+                    <th>#</th>
+                    <th>Employee</th>
+                    <th>Total</th>
+                    <th>Within SLA</th>
+                    <th>Beyond SLA</th>
+                    <th>In Progress</th>
+                    <th>Compliance %</th>
+                    <th></th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for row in sla_employees %}
+                {% set comp = ((row.within * 100.0 / row.total) if row.total else 0) %}
+                <tr>
+                    <td>{{ loop.index }}</td>
+                    <td>
+                        <a href="{{ url_for('sla_employee_profile', officer_id=row.officer_id) }}">
+                            {{ row.officer_name }}
+                        </a>
+                    </td>
+                    <td>{{ row.total }}</td>
+                    <td>{{ row.within }}</td>
+                    <td>{{ row.beyond }}</td>
+                    <td>{{ row.in_progress }}</td>
+                    <td>
+                        {% if comp >= 80 %}
+                        <span class="sla-state-pill state-healthy">{{ "%.1f"|format(comp) }}%</span>
+                        {% elif comp >= 50 %}
+                        <span class="sla-state-pill state-risk">{{ "%.1f"|format(comp) }}%</span>
+                        {% else %}
+                        <span class="sla-state-pill state-beyond">{{ "%.1f"|format(comp) }}%</span>
+                        {% endif %}
+                    </td>
+                    <td>
+                        <a href="{{ url_for('sla_employee_profile', officer_id=row.officer_id) }}" class="btn btn-xs btn-outline">View Profile</a>
+                    </td>
+                </tr>
+                {% else %}
+                <tr><td colspan="8" class="empty-state">No SLA employee data found.</td></tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+<div>
+    <small class="form-help" data-i18n="sla.tip.drilldown">Tip: click KPI cards for petition drilldown. Click chart bars/points or employee name to open employee SLA profile.</small>
+</div>
+</div>
+
+<div id="slaDrilldownModal" class="dash-modal" style="display:none;">
+    <div class="dash-modal-backdrop" onclick="closeSlaDrilldown()"></div>
+    <div class="dash-modal-panel">
+        <div class="card-header">
+            <h3 id="slaDrilldownTitle">SLA Drilldown</h3>
+            <button class="btn btn-xs btn-outline" type="button" onclick="closeSlaDrilldown()">Close</button>
+        </div>
+        <div class="table-wrapper sla-drill-wrap">
+            <table class="sla-drill-table data-table">
+                <thead>
+                    <tr>
+                        <th>S.No</th>
+                        <th>Petitioner</th>
+                        <th>Subject</th>
+                        <th>Status</th>
+                        <th>SLA Target</th>
+                        <th>Elapsed</th>
+                        <th>SLA State</th>
+                        <th></th>
+                    </tr>
+                </thead>
+                <tbody id="slaDrilldownBody">
+                    <tr><td colspan="8" class="empty-state">No petitions found.</td></tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.6/dist/chart.umd.min.js"></script>
+<script>
+(() => {
+    const drillRows = {{ sla_drilldown_rows|tojson }};
+    const stateMap = { within: 'Within SLA', beyond: 'Beyond SLA', in_progress: 'In Progress' };
+    const escapeHtml = (val) => String(val || '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+
+    const filterByMetric = (metric) => {
+        if (metric === 'sla_total') return drillRows;
+        if (metric === 'sla_closed_total') return drillRows.filter(r => r.is_closed);
+        if (metric === 'sla_open_total') return drillRows.filter(r => !r.is_closed);
+        if (metric === 'sla_closed_within') return drillRows.filter(r => r.is_closed && r.sla_state === 'within');
+        if (metric === 'sla_closed_beyond') return drillRows.filter(r => r.is_closed && r.sla_state === 'beyond');
+        if (metric === 'sla_open_within') return drillRows.filter(r => (!r.is_closed) && r.sla_bucket === 'within');
+        if (metric === 'sla_open_beyond') return drillRows.filter(r => (!r.is_closed) && r.sla_bucket === 'beyond');
+        if (metric === 'sla_total_within') return drillRows.filter(r => r.sla_bucket === 'within');
+        if (metric === 'sla_total_beyond') return drillRows.filter(r => r.sla_bucket === 'beyond');
+        if (metric === 'sla_within') return drillRows.filter(r => r.sla_bucket === 'within');
+        if (metric === 'sla_beyond' || metric === 'sla_breached') return drillRows.filter(r => r.sla_bucket === 'beyond');
+        if (metric === 'sla_in_progress') return drillRows.filter(r => !r.is_closed);
+        return [];
+    };
+
+    const openSlaDrilldown = (metric, title) => {
+        const modal = document.getElementById('slaDrilldownModal');
+        const titleEl = document.getElementById('slaDrilldownTitle');
+        const bodyEl = document.getElementById('slaDrilldownBody');
+        if (!modal || !titleEl || !bodyEl) return;
+        const rows = filterByMetric(metric);
+        titleEl.textContent = title || 'SLA Drilldown';
+        if (!rows.length) {
+            bodyEl.innerHTML = '<tr><td colspan="8" class="empty-state">No petitions found.</td></tr>';
+        } else {
+            bodyEl.innerHTML = rows.map(r => `
+                <tr>
+                    <td>${escapeHtml(r.sno)}</td>
+                    <td>${(r.petitioner_name && String(r.petitioner_name).toLowerCase() !== 'anonymous' && r.petitioner_name !== '-') ? `<a href="#" class="petitioner-profile-link" data-petitioner-name="${escapeHtml(r.petitioner_name)}">${escapeHtml(r.petitioner_name)}</a>` : escapeHtml(r.petitioner_name || '-')}</td>
+                    <td title="${escapeHtml(r.subject)}">${escapeHtml(r.subject)}</td>
+                    <td>${escapeHtml(r.status)}</td>
+                    <td>${escapeHtml(r.sla_days)}</td>
+                    <td>${escapeHtml(r.elapsed_days)}</td>
+                    <td><span class="status-badge" style="--status-color:${r.sla_state === 'within' ? '#16a34a' : (r.sla_state === 'beyond' ? '#dc2626' : '#f59e0b')};">${escapeHtml(stateMap[r.sla_state] || 'In Progress')}</span></td>
+                    <td><a href="${escapeHtml(r.view_url)}" class="btn btn-xs btn-outline">View</a></td>
+                </tr>
+            `).join('');
+        }
+        modal.style.display = 'block';
+        modal.classList.add('open');
+    };
+
+    window.closeSlaDrilldown = () => {
+        const modal = document.getElementById('slaDrilldownModal');
+        if (!modal) return;
+        modal.classList.remove('open');
+        modal.style.display = 'none';
+    };
+
+    document.querySelectorAll('.sla-kpi.is-drilldown').forEach((card) => {
+        card.addEventListener('click', () => {
+            const translatedTitle = (card.querySelector('.l')?.textContent || '').trim();
+            openSlaDrilldown(card.getAttribute('data-metric'), translatedTitle || card.getAttribute('data-title'));
+        });
+    });
+
+    document.addEventListener('keydown', (event) => {
+        if (event.key === 'Escape') window.closeSlaDrilldown();
+    });
+
+    const now = new Date();
+    const pad2 = (n) => String(n).padStart(2, '0');
+    const todayStr = `${now.getFullYear()}-${pad2(now.getMonth() + 1)}-${pad2(now.getDate())}`;
+    const monthPrefix = `${now.getFullYear()}-${pad2(now.getMonth() + 1)}`;
+    const isThisMonth = (d) => (d || '').startsWith(monthPrefix);
+
+    const todayAssigned = drillRows.filter(r => r.assigned_date === todayStr);
+    const monthAssigned = drillRows.filter(r => isThisMonth(r.assigned_date));
+    const monthViolations = monthAssigned.filter(r => r.sla_bucket === 'beyond');
+    const todayOpen = todayAssigned.filter(r => !r.is_closed);
+
+    const setText = (id, val) => {
+        const el = document.getElementById(id);
+        if (el) el.textContent = String(val);
+    };
+    setText('slaTodayAssigned', todayAssigned.length);
+    setText('slaTodayOpen', `Open: ${todayOpen.length}`);
+    setText('slaMonthAssigned', monthAssigned.length);
+    setText('slaMonthViolation', `Beyond SLA: ${monthViolations.length}`);
+
+    if (!window.Chart) return;
+    const payload = {{ sla_employee_chart|tojson }};
+    if (!payload || !payload.labels || !payload.labels.length) return;
+
+    const keys = payload.keys || [];
+    const labels = payload.labels || [];
+    const within = payload.within || [];
+    const beyond = payload.beyond || [];
+    const inProgress = payload.in_progress || [];
+    const totals = labels.map((_, i) => (within[i] || 0) + (beyond[i] || 0) + (inProgress[i] || 0));
+    const compliance = labels.map((_, i) => totals[i] ? Number((((within[i] || 0) * 100) / totals[i]).toFixed(1)) : 0);
+
+    const goToEmployee = (idx, activeKeys = keys) => {
+        const officerId = activeKeys[idx];
+        if (!officerId) return;
+        window.location.href = `/sla-dashboard/employee/${officerId}`;
+    };
+
+    const stackedCanvas = document.getElementById('slaEmployeeStacked');
+    if (stackedCanvas) {
+    new Chart(stackedCanvas, {
+        type: 'bar',
+        data: {
+            labels,
+            datasets: [
+                { label: 'Within SLA', data: within, backgroundColor: '#22c55e' },
+                { label: 'Beyond SLA', data: beyond, backgroundColor: '#ef4444' },
+                { label: 'In Progress', data: inProgress, backgroundColor: '#f59e0b' },
+            ]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: { legend: { position: 'top' }, tooltip: { mode: 'index', intersect: false } },
+            scales: { x: { stacked: true }, y: { stacked: true, beginAtZero: true } },
+            onClick: (event, elements) => {
+                if (!elements || !elements.length) return;
+                const idx = elements[0].index;
+                goToEmployee(idx);
+            }
+        }
+    });
+    }
+
+    const donutCanvas = document.getElementById('slaOverallDonut');
+    if (donutCanvas) {
+        new Chart(donutCanvas, {
+            type: 'doughnut',
+            data: {
+                labels: ['Within SLA', 'Beyond SLA', 'In Progress'],
+                datasets: [{
+                    data: [
+                        within.reduce((a, b) => a + (b || 0), 0),
+                        beyond.reduce((a, b) => a + (b || 0), 0),
+                        inProgress.reduce((a, b) => a + (b || 0), 0),
+                    ],
+                    backgroundColor: ['#22c55e', '#ef4444', '#f59e0b'],
+                    borderWidth: 0,
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: { legend: { position: 'bottom' } }
+            }
+        });
+    }
+
+    const rankCount = Math.min(12, labels.length);
+    const rankIdx = Array.from({length: rankCount}, (_, i) => i);
+    const rankLabels = rankIdx.map(i => labels[i]);
+    const rankBeyond = rankIdx.map(i => beyond[i] || 0);
+    const rankKeys = rankIdx.map(i => keys[i]);
+    const beyondCanvas = document.getElementById('slaBeyondRanking');
+    if (beyondCanvas) {
+        new Chart(beyondCanvas, {
+            type: 'bar',
+            data: {
+                labels: rankLabels,
+                datasets: [{
+                    label: 'Beyond SLA',
+                    data: rankBeyond,
+                    backgroundColor: '#f97316',
+                    borderRadius: 6,
+                }]
+            },
+            options: {
+                indexAxis: 'y',
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: { legend: { display: false } },
+                scales: { x: { beginAtZero: true } },
+                onClick: (event, elements) => {
+                    if (!elements || !elements.length) return;
+                    const idx = elements[0].index;
+                    goToEmployee(idx, rankKeys);
+                }
+            }
+        });
+    }
+
+    const lineCanvas = document.getElementById('slaComplianceLine');
+    if (lineCanvas) {
+        new Chart(lineCanvas, {
+            type: 'line',
+            data: {
+                labels,
+                datasets: [{
+                    label: 'Compliance %',
+                    data: compliance,
+                    borderColor: '#38bdf8',
+                    backgroundColor: 'rgba(56, 189, 248, 0.2)',
+                    pointBackgroundColor: '#0ea5e9',
+                    pointRadius: 4,
+                    fill: true,
+                    tension: 0.35,
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: { legend: { position: 'top' } },
+                scales: {
+                    y: { beginAtZero: true, max: 100, ticks: { callback: (v) => `${v}%` } }
+                },
+                onClick: (event, elements) => {
+                    if (!elements || !elements.length) return;
+                    const idx = elements[0].index;
+                    goToEmployee(idx);
+                }
+            }
+        });
+    }
+
+    const dayRange = Array.from({ length: 31 }, (_, i) => i + 1);
+    const violationDayCount = {};
+    const closureDayCount = {};
+    dayRange.forEach((d) => {
+        violationDayCount[d] = 0;
+        closureDayCount[d] = 0;
+    });
+    monthViolations.forEach((r) => {
+        const d = (r.assigned_date || '').split('-')[2];
+        const day = parseInt(d, 10);
+        if (day >= 1 && day <= 31) violationDayCount[day] += 1;
+    });
+    drillRows.filter(r => r.is_closed && isThisMonth(r.closed_date)).forEach((r) => {
+        const d = (r.closed_date || '').split('-')[2];
+        const day = parseInt(d, 10);
+        if (day >= 1 && day <= 31) closureDayCount[day] += 1;
+    });
+    const dayLabels = dayRange.map(d => `${d}`);
+    const violationSeries = dayRange.map(d => violationDayCount[d] || 0);
+    const closureSeries = dayRange.map(d => closureDayCount[d] || 0);
+
+    const violationCanvas = document.getElementById('slaViolationMonthly');
+    if (violationCanvas) {
+        new Chart(violationCanvas, {
+            type: 'bar',
+            data: {
+                labels: dayLabels,
+                datasets: [{
+                    label: 'Violations',
+                    data: violationSeries,
+                    backgroundColor: '#22d3ee',
+                    borderRadius: 4,
+                    maxBarThickness: 10,
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: { legend: { display: false } },
+                scales: { x: { ticks: { maxTicksLimit: 8 } }, y: { beginAtZero: true } }
+            }
+        });
+    }
+
+    const closureCanvas = document.getElementById('slaClosureDaily');
+    if (closureCanvas) {
+        new Chart(closureCanvas, {
+            type: 'line',
+            data: {
+                labels: dayLabels,
+                datasets: [{
+                    label: 'Closed',
+                    data: closureSeries,
+                    borderColor: '#38bdf8',
+                    backgroundColor: 'rgba(56,189,248,.18)',
+                    fill: true,
+                    pointRadius: 2,
+                    tension: .35
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: { legend: { display: false } },
+                scales: { x: { ticks: { maxTicksLimit: 8 } }, y: { beginAtZero: true } }
+            }
+        });
+    }
+
+    const openClosedCanvas = document.getElementById('slaOpenClosedMix');
+    if (openClosedCanvas) {
+        const openCount = drillRows.filter(r => !r.is_closed).length;
+        const closedCount = drillRows.filter(r => r.is_closed).length;
+        new Chart(openClosedCanvas, {
+            type: 'doughnut',
+            data: {
+                labels: ['Open', 'Closed'],
+                datasets: [{
+                    data: [openCount, closedCount],
+                    backgroundColor: ['#f59e0b', '#22c55e'],
+                    borderWidth: 0
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: { legend: { position: 'bottom' } }
+            }
+        });
+    }
+})();
+</script>
+{% endblock %}

@@ -42,52 +42,6 @@
     </div>
 </div>
 
-<div class="card form-mgmt-section">
-    <div class="card-header">
-        <h3>Add New Field</h3>
-    </div>
-    <form method="POST" action="{{ url_for('form_management') }}" class="form-mgmt-field-card form-mgmt-add-card">
-        <input type="hidden" name="action" value="add_field">
-        <div class="form-mgmt-add-grid">
-            <div class="form-group form-mgmt-add-form">
-                <label>Required for Login / Workflow <span class="required">*</span></label>
-                <select name="new_form_key" required>
-                    <option value="">-- Select Form Group --</option>
-                    {% for fk, title in form_groups.items() %}
-                    <option value="{{ fk }}">{{ title }}</option>
-                    {% endfor %}
-                </select>
-            </div>
-            <div class="form-group form-mgmt-add-key">
-                <label>Field Key <span class="required">*</span></label>
-                <input type="text" name="new_field_key" required placeholder="example: vigilance_note">
-            </div>
-            <div class="form-group form-mgmt-add-label">
-                <label>Label <span class="required">*</span></label>
-                <input type="text" name="new_label" required placeholder="Field label">
-            </div>
-            <div class="form-group form-mgmt-add-type">
-                <label>Field Type</label>
-                <select name="new_field_type">
-                    {% for t in field_types %}
-                    <option value="{{ t }}">{{ t|upper }}</option>
-                    {% endfor %}
-                </select>
-            </div>
-            <div class="form-group form-mgmt-add-required">
-                <label class="form-mgmt-required-toggle">
-                    <input type="checkbox" name="new_is_required">
-                    Required Field
-                </label>
-            </div>
-            <div class="form-mgmt-add-actions">
-                <button type="submit" class="btn btn-primary btn-sm">Add Field</button>
-            </div>
-        </div>
-        <small class="form-mgmt-add-hint">Field key format: lowercase letters, numbers, and underscore only (example: <code>vigilance_note</code>).</small>
-    </form>
-</div>
-
 {% if not grouped_fields %}
 <div class="card">
     <div class="empty-state">No form fields configured.</div>
@@ -162,6 +116,52 @@
     </div>
 </div>
 {% endfor %}
+
+<div class="card form-mgmt-section">
+    <div class="card-header">
+        <h3>Add New Field</h3>
+    </div>
+    <form method="POST" action="{{ url_for('form_management') }}" class="form-mgmt-field-card form-mgmt-add-card">
+        <input type="hidden" name="action" value="add_field">
+        <div class="form-mgmt-add-grid">
+            <div class="form-group form-mgmt-add-form">
+                <label>Required for Login / Workflow <span class="required">*</span></label>
+                <select name="new_form_key" required>
+                    <option value="">-- Select Form Group --</option>
+                    {% for fk, title in form_groups.items() %}
+                    <option value="{{ fk }}">{{ title }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="form-group form-mgmt-add-key">
+                <label>Field Key <span class="required">*</span></label>
+                <input type="text" name="new_field_key" required placeholder="example: vigilance_note">
+            </div>
+            <div class="form-group form-mgmt-add-label">
+                <label>Label <span class="required">*</span></label>
+                <input type="text" name="new_label" required placeholder="Field label">
+            </div>
+            <div class="form-group form-mgmt-add-type">
+                <label>Field Type</label>
+                <select name="new_field_type">
+                    {% for t in field_types %}
+                    <option value="{{ t }}">{{ t|upper }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="form-group form-mgmt-add-required">
+                <label class="form-mgmt-required-toggle">
+                    <input type="checkbox" name="new_is_required">
+                    Required Field
+                </label>
+            </div>
+            <div class="form-mgmt-add-actions">
+                <button type="submit" class="btn btn-primary btn-sm">Add Field</button>
+            </div>
+        </div>
+        <small class="form-mgmt-add-hint">Field key format: lowercase letters, numbers, and underscore only (example: <code>vigilance_note</code>).</small>
+    </form>
+</div>
 
 <script>
 (() => {

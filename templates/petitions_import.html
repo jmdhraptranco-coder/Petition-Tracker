@@ -1,0 +1,73 @@
+{% extends "base.html" %}
+{% block title %}Bulk Petition Import - Petition Tracker{% endblock %}
+{% block page_title %}Bulk Petition Import{% endblock %}
+
+{% block content %}
+<div class="users-page">
+    <div class="card">
+        <div class="card-header">
+            <h2>Import Historical Petitions (PO)</h2>
+            <a class="btn btn-sm btn-outline" href="{{ url_for('petitions_import_template') }}">Download Template</a>
+        </div>
+        <div class="users-upload-note" style="padding: 10px 14px 0;">
+            Upload old/manual petitions in this file format. Data is mapped to the same petition fields used by this application.
+            Missing optional data is auto-mapped using defaults where possible.
+        </div>
+        <form method="POST" action="{{ url_for('petitions_import_upload') }}" enctype="multipart/form-data" class="user-form">
+            <div class="form-grid">
+                <div class="form-group full-width">
+                    <label>Upload File (.xlsx or .csv) <span class="required">*</span></label>
+                    <input type="file" name="petitions_file" accept=".xlsx,.csv" required>
+                </div>
+            </div>
+            <div class="form-actions">
+                <button type="submit" class="btn btn-primary">Upload & Import Petitions</button>
+            </div>
+        </form>
+    </div>
+
+    <div class="card">
+        <div class="card-header">
+            <h2>Exact Field Mapping</h2>
+        </div>
+        <div class="table-wrapper">
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        <th>Column</th>
+                        <th>Required</th>
+                        <th>Mapped To</th>
+                        <th>Fallback / Notes</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr><td><code>subject</code></td><td>Yes</td><td>Petition Subject</td><td>If blank, mapped from <code>remarks</code> or default text.</td></tr>
+                    <tr><td><code>received_date</code></td><td>No</td><td>Received Date</td><td>Accepted: YYYY-MM-DD, DD-MM-YYYY, DD/MM/YYYY, MM/DD/YYYY. Defaults to today.</td></tr>
+                    <tr><td><code>received_at</code></td><td>No</td><td>Received At Office</td><td>Mapped from office aliases; if missing, derived from <code>target_cvo</code>.</td></tr>
+                    <tr><td><code>target_cvo</code></td><td>No</td><td>Target CVO/DSP</td><td>Mapped from aliases; if missing, derived from <code>received_at</code>.</td></tr>
+                    <tr><td><code>petitioner_name</code>, <code>contact</code>, <code>place</code></td><td>No</td><td>Petitioner fields</td><td>Blank values allowed for old/anonymous petitions.</td></tr>
+                    <tr><td><code>petition_type</code></td><td>No</td><td>Type of Petition</td><td>Maps labels to system values. Invalid/blank maps to <code>other</code>.</td></tr>
+                    <tr><td><code>source_of_petition</code></td><td>No</td><td>Source of Petition</td><td>Supports aliases like "Electronic and Print Media". Default is <code>public_individual</code>.</td></tr>
+                    <tr><td><code>govt_institution_type</code></td><td>No</td><td>Govt Institution Type</td><td>Used only when source is <code>govt</code>.</td></tr>
+                    <tr><td><code>enquiry_type</code></td><td>No</td><td>Enquiry Type</td><td>Valid: <code>preliminary</code> / <code>detailed</code>. Default is <code>detailed</code>.</td></tr>
+                    <tr><td><code>permission_request_type</code>, <code>requires_permission</code>, <code>permission_status</code></td><td>No</td><td>Permission flow fields</td><td>Auto-resolved when partial data is provided.</td></tr>
+                    <tr><td><code>status</code></td><td>No</td><td>Current petition status</td><td>If invalid/blank, mapped to <code>received</code>.</td></tr>
+                    <tr><td><code>efile_no</code>, <code>ereceipt_no</code>, <code>remarks</code></td><td>No</td><td>Direct petition fields</td><td>Imported as-is.</td></tr>
+                    <tr><td><code>assigned_inspector_username</code></td><td>No</td><td>Assigned Inspector</td><td>If valid inspector username exists, petition is mapped to that officer.</td></tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <div class="card">
+        <div class="card-header">
+            <h2>Template Headers</h2>
+        </div>
+        <div class="users-upload-note" style="padding: 0 14px 14px;">
+            {% for h in template_headers %}
+            <code>{{ h }}</code>{% if not loop.last %}, {% endif %}
+            {% endfor %}
+        </div>
+    </div>
+</div>
+{% endblock %}

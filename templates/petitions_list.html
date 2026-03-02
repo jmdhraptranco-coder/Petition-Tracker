@@ -57,6 +57,7 @@
                     <th>Place</th>
                     <th>Subject</th>
                     <th>Type</th>
+                    <th>Accident Details</th>
                     <th>Received At</th>
                     <th>Status</th>
                     <th>Stage</th>
@@ -77,10 +78,40 @@
                 <tr class="js-petition-row" data-href="{{ url_for('petition_view', petition_id=p.id) }}" tabindex="0" role="link" aria-label="Open petition {{ p.sno }}">
                     <td class="font-mono"><a href="{{ url_for('petition_view', petition_id=p.id) }}" class="petition-row-link">{{ p.sno }}</a></td>
                     <td>{{ p.efile_no or '-' }}</td>
-                    <td>{{ p.petitioner_name }}</td>
+                    <td>
+                        {% if p.petitioner_name and p.petitioner_name|lower not in ['anonymous', '-'] %}
+                        <a href="#" class="petitioner-profile-link" data-petitioner-name="{{ p.petitioner_name|e }}">{{ p.petitioner_name }}</a>
+                        {% else %}
+                        {{ p.petitioner_name }}
+                        {% endif %}
+                    </td>
                     <td>{{ p.place or '-' }}</td>
                     <td class="text-truncate" title="{{ p.subject }}">{{ p.subject[:40] }}{% if p.subject|length > 40 %}...{% endif %}</td>
                     <td><span class="badge badge-type">{{ petition_types.get(p.petition_type, p.petition_type) }}</span></td>
+                    <td>
+                        {% if p.petition_type == 'electrical_accident' %}
+                            {% set d = accident_detail_map.get(p.id) if accident_detail_map else None %}
+                            {% if d %}
+                                {% set accident_label = 'Fatal' if d.accident_type == 'fatal' else ('Non Fatal' if d.accident_type == 'non_fatal' else '-') %}
+                                {% if d.deceased_category == 'departmental' %}
+                                    {% set category_label = 'Departmental' %}
+                                {% elif d.deceased_category == 'non_departmental' %}
+                                    {% set category_label = 'Non Departmental (' ~ ('Private' if d.non_departmental_type == 'private' else ('Contract' if d.non_departmental_type == 'contract' else '-')) ~ ')' %}
+                                {% elif d.deceased_category == 'general_public' %}
+                                    {% set category_label = 'General Public (' ~ (d.general_public_count or 0) ~ ')' %}
+                                {% elif d.deceased_category == 'animals' %}
+                                    {% set category_label = 'Animals (' ~ (d.animals_count or 0) ~ ')' %}
+                                {% else %}
+                                    {% set category_label = '-' %}
+                                {% endif %}
+                                <span class="badge badge-office" title="{{ accident_label }} | {{ category_label }}">{{ accident_label }} | {{ category_label }}</span>
+                            {% else %}
+                                -
+                            {% endif %}
+                        {% else %}
+                            -
+                        {% endif %}
+                    </td>
                     <td><span class="badge badge-office">{{ office_labels.get(p.received_at, p.received_at) }}</span></td>
                     <td><span class="status-badge" style="--status-color: {{ status_colors.get(p.status, '#6b7280') }}">{{ status_labels.get(p.status, p.status) }}</span></td>
                     <td><span class="badge badge-office badge-stage">Stage {{ status_to_stage.get(p.status, 1) }} - {{ workflow_stage_labels.get(status_to_stage.get(p.status, 1), 'Initiation') }}</span></td>
@@ -90,7 +121,7 @@
                 </tr>
                 {% else %}
                 <tr>
-                    <td colspan="12" class="empty-state">
+                    <td colspan="13" class="empty-state">
                         <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" stroke-width="1.5"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg>
                         <p>No petitions found</p>
                     </td>

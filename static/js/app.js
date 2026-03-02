@@ -9,12 +9,14 @@ document.addEventListener('DOMContentLoaded', () => {
     const rootEl = document.documentElement;
     const viewportMobile = 768;
     const viewportTablet = 1100;
-    const i18nVersion = '20260225-3';
+    const i18nVersion = '20260302-2';
     const originalTextNodes = new WeakMap();
     const originalAttrValues = new WeakMap();
     let activeLanguage = 'en';
     let activeDictionary = {};
     let isApplyingAutoTranslation = false;
+    let autoTranslateQueued = false;
+    let autoTranslateObserver = null;
 
     const escapeRegex = (text) => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
@@ -110,6 +112,49 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     };
 
+    const scheduleAutoTranslation = () => {
+        if (autoTranslateQueued) return;
+        autoTranslateQueued = true;
+        window.setTimeout(() => {
+            autoTranslateQueued = false;
+            if (!document.body) return;
+            if (!activeDictionary || !Object.keys(activeDictionary).length) return;
+            applyTranslations(activeDictionary);
+            applyAutoTranslations(activeLanguage, activeDictionary);
+        }, 70);
+    };
+
+    const bindAutoTranslationObserver = () => {
+        if (!window.MutationObserver || !document.body) return;
+        if (autoTranslateObserver) return;
+        autoTranslateObserver = new MutationObserver((mutations) => {
+            if (isApplyingAutoTranslation) return;
+            let shouldTranslate = false;
+            for (const m of mutations) {
+                if (m.type === 'childList' && (m.addedNodes && m.addedNodes.length)) {
+                    shouldTranslate = true;
+                    break;
+                }
+                if (m.type === 'characterData') {
+                    shouldTranslate = true;
+                    break;
+                }
+                if (m.type === 'attributes') {
+                    shouldTranslate = true;
+                    break;
+                }
+            }
+            if (shouldTranslate) scheduleAutoTranslation();
+        });
+        autoTranslateObserver.observe(document.body, {
+            childList: true,
+            subtree: true,
+            characterData: true,
+            attributes: true,
+            attributeFilter: ['placeholder', 'title', 'aria-label', 'value']
+        });
+    };
+
     const applyTheme = (mode) => {
         rootEl.setAttribute('data-theme', mode);
         if (themeToggle) {
@@ -155,6 +200,16 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     };
 
+    window.appI18n = {
+        t: (key, fallback) => {
+            if (activeDictionary && Object.prototype.hasOwnProperty.call(activeDictionary, key)) {
+                return activeDictionary[key];
+            }
+            return fallback || key;
+        },
+        lang: () => activeLanguage || 'en'
+    };
+
     const loadLanguage = async (lang) => {
         try {
             const res = await fetch(`/static/i18n/${lang}.json?v=${i18nVersion}`, { cache: 'reload' });
@@ -164,6 +219,7 @@ document.addEventListener('DOMContentLoaded', () => {
             activeDictionary = dict || {};
             applyTranslations(activeDictionary);
             applyAutoTranslations(activeLanguage, activeDictionary);
+            bindAutoTranslationObserver();
         } catch (e) {
             // eslint-disable-next-line no-console
             console.error('Language load failed:', lang, e);
@@ -336,7 +392,7 @@ document.addEventListener('DOMContentLoaded', () => {
             const mapping = {
                 'cvo_apspdcl_tirupathi': 'apspdcl',
                 'cvo_apepdcl_vizag': 'apepdcl',
-                'cvo_apscpdcl_vijayawada': 'apscpdcl'
+                'cvo_apcpdcl_vijayawada': 'apcpdcl'
             };
             if (mapping[receivedAt.value]) {
                 targetCvo.value = mapping[receivedAt.value];
@@ -459,6 +515,7 @@ document.addEventListener('DOMContentLoaded', () => {
     initResponsiveTables();
     initReportCompactAccordion();
     initPetitionRowNavigation();
+    initPetitionerProfiles();
 });
 
 function initStatCardAnimations() {
@@ -614,6 +671,168 @@ function initPetitionRowNavigation() {
             window.location.href = href;
         });
     });
+}
+
+function initPetitionerProfiles() {
+    const modal = document.getElementById('petitionerProfileModal');
+    if (!modal) return;
+
+    const titleEl = document.getElementById('petitionerProfileTitle');
+    const totalEl = document.getElementById('petitionerTotal');
+    const closedEl = document.getElementById('petitionerClosed');
+    const openEl = document.getElementById('petitionerOpen');
+    const lodgedEl = document.getElementById('petitionerLodged');
+    const recentBody = document.getElementById('petitionerRecentBody');
+    const trendCanvas = document.getElementById('petitionerTrendChart');
+    const statusCanvas = document.getElementById('petitionerStatusChart');
+
+    let trendChart = null;
+    let statusChart = null;
+    const i18n = (key, fallback) => {
+        if (window.appI18n && typeof window.appI18n.t === 'function') {
+            return window.appI18n.t(key, fallback);
+        }
+        return fallback || key;
+    };
+
+    const escapeHtml = (val) => String(val || '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+
+    const ensureChartJs = async () => {
+        if (window.Chart) return true;
+        try {
+            await new Promise((resolve, reject) => {
+                const existing = document.querySelector('script[data-chartjs-global="1"]');
+                if (existing) {
+                    existing.addEventListener('load', resolve, { once: true });
+                    existing.addEventListener('error', reject, { once: true });
+                    return;
+                }
+                const script = document.createElement('script');
+                script.src = 'https://cdn.jsdelivr.net/npm/chart.js@4.4.6/dist/chart.umd.min.js';
+                script.dataset.chartjsGlobal = '1';
+                script.onload = resolve;
+                script.onerror = reject;
+                document.head.appendChild(script);
+            });
+            return !!window.Chart;
+        } catch (_) {
+            return false;
+        }
+    };
+
+    const closeModal = () => {
+        modal.classList.remove('open');
+        modal.style.display = 'none';
+    };
+
+    const renderCharts = async (payload) => {
+        if (!trendCanvas || !statusCanvas) return;
+        const ok = await ensureChartJs();
+        if (!ok) return;
+        if (trendChart) trendChart.destroy();
+        if (statusChart) statusChart.destroy();
+
+        trendChart = new window.Chart(trendCanvas, {
+            type: 'line',
+            data: {
+                labels: (payload.trend && payload.trend.labels) || [],
+                datasets: [{
+                    label: i18n('petitioner.profile.chart.petitions', 'Petitions'),
+                    data: (payload.trend && payload.trend.values) || [],
+                    borderColor: '#2563eb',
+                    backgroundColor: 'rgba(37,99,235,0.18)',
+                    fill: true,
+                    tension: 0.35
+                }]
+            },
+            options: {
+                maintainAspectRatio: false,
+                plugins: { legend: { display: false } },
+                scales: { y: { beginAtZero: true, ticks: { precision: 0 } } }
+            }
+        });
+
+        statusChart = new window.Chart(statusCanvas, {
+            type: 'doughnut',
+            data: {
+                labels: (payload.status_split && payload.status_split.labels) || [],
+                datasets: [{
+                    data: (payload.status_split && payload.status_split.values) || [],
+                    backgroundColor: ['#16a34a', '#f59e0b', '#ef4444', '#3b82f6', '#8b5cf6', '#14b8a6', '#f97316']
+                }]
+            },
+            options: {
+                maintainAspectRatio: false,
+                plugins: { legend: { position: 'bottom' } }
+            }
+        });
+    };
+
+    const openProfile = async (petitionerName) => {
+        const name = (petitionerName || '').trim();
+        if (!name) return;
+        modal.style.display = 'block';
+        modal.classList.add('open');
+        if (titleEl) titleEl.textContent = `${i18n('petitioner.profile.title', 'Petitioner Profile')} - ${name}`;
+        if (totalEl) totalEl.textContent = '...';
+        if (closedEl) closedEl.textContent = '...';
+        if (openEl) openEl.textContent = '...';
+        if (lodgedEl) lodgedEl.textContent = '...';
+        if (recentBody) recentBody.innerHTML = `<tr><td colspan="5" class="empty-state">${escapeHtml(i18n('common.loading', 'Loading...'))}</td></tr>`;
+
+        try {
+            const res = await fetch(`/api/petitioner-profile?name=${encodeURIComponent(name)}`);
+            const payload = await res.json();
+            if (!res.ok) throw new Error(payload.error || i18n('petitioner.profile.load_error', 'Unable to load petitioner profile.'));
+            if (totalEl) totalEl.textContent = String(payload.total_petitions || 0);
+            if (closedEl) closedEl.textContent = String(payload.closed_count || 0);
+            if (openEl) openEl.textContent = String(payload.open_count || 0);
+            if (lodgedEl) lodgedEl.textContent = String(payload.lodged_count || 0);
+
+            const recent = Array.isArray(payload.recent_petitions) ? payload.recent_petitions : [];
+            if (recentBody) {
+                if (!recent.length) {
+                    recentBody.innerHTML = `<tr><td colspan="5" class="empty-state">${escapeHtml(i18n('common.no_petitions_found', 'No petitions found.'))}</td></tr>`;
+                } else {
+                    recentBody.innerHTML = recent.map((r) => `
+                        <tr>
+                            <td>${escapeHtml(r.sno || '-')}</td>
+                            <td title="${escapeHtml(r.subject || '-')}">${escapeHtml((r.subject || '-').slice(0, 120))}</td>
+                            <td>${escapeHtml(r.status || '-')}</td>
+                            <td>${escapeHtml(r.received_date || '-')}</td>
+                            <td><a href="${escapeHtml(r.view_url || '#')}" class="btn btn-xs btn-outline">${escapeHtml(i18n('common.view', 'View'))}</a></td>
+                        </tr>
+                    `).join('');
+                }
+            }
+            await renderCharts(payload);
+        } catch (err) {
+            if (recentBody) recentBody.innerHTML = `<tr><td colspan="5" class="empty-state">${escapeHtml(err.message || i18n('petitioner.profile.load_profile_error', 'Unable to load profile'))}</td></tr>`;
+        }
+    };
+
+    document.addEventListener('click', (event) => {
+        const link = event.target.closest('.petitioner-profile-link');
+        if (link) {
+            event.preventDefault();
+            event.stopPropagation();
+            openProfile(link.getAttribute('data-petitioner-name') || link.textContent || '');
+            return;
+        }
+        if (!modal.classList.contains('open')) return;
+        if (event.target.closest('#petitionerProfileModal .dash-modal-panel')) return;
+    });
+
+    document.addEventListener('keydown', (event) => {
+        if (event.key === 'Escape') closeModal();
+    });
+
+    window.closePetitionerProfileModal = closeModal;
 }
 
 

@@ -91,7 +91,7 @@
         </form>
     </div>
 
-    <div class="stats-grid">
+    <div class="stats-grid dashboard-kpi-grid">
         {% for card in stats.get('kpi_cards', []) %}
         <div class="stat-card {{ card.get('style', 'stat-primary') }} is-drilldown" data-metric="{{ card.get('metric', 'all') }}" data-title="{{ card.get('label', 'KPI') }}">
             <div class="stat-icon">
@@ -105,50 +105,89 @@
         </div>
         {% endfor %}
     </div>
+    {% if stats.get('electrical_accident_total', 0) > 0 %}
+    <div class="card" style="margin-bottom:16px;">
+        <div class="card-header">
+            <h3>Electrical Accident Snapshot</h3>
+        </div>
+        <div class="stats-grid accident-kpi-grid">
+            <div class="stat-card stat-warning is-drilldown" data-metric="accident:electrical_total" data-title="Electrical Accident Cases">
+                <div class="stat-content">
+                    <span class="stat-value">{{ stats.get('electrical_accident_total', 0) }}</span>
+                    <span class="stat-label">Electrical Accident Cases</span>
+                </div>
+            </div>
+            <div class="stat-card stat-danger is-drilldown" data-metric="accident:fatal" data-title="Fatal Cases">
+                <div class="stat-content">
+                    <span class="stat-value">{{ stats.get('electrical_accident_fatal', 0) }}</span>
+                    <span class="stat-label">Fatal</span>
+                </div>
+            </div>
+            <div class="stat-card stat-info is-drilldown" data-metric="accident:non_fatal" data-title="Non Fatal Cases">
+                <div class="stat-content">
+                    <span class="stat-value">{{ stats.get('electrical_accident_non_fatal', 0) }}</span>
+                    <span class="stat-label">Non Fatal</span>
+                </div>
+            </div>
+            <div class="stat-card stat-primary is-drilldown" data-metric="accident:departmental" data-title="Departmental">
+                <div class="stat-content">
+                    <span class="stat-value">{{ stats.get('electrical_accident_departmental', 0) }}</span>
+                    <span class="stat-label">Departmental</span>
+                </div>
+            </div>
+            <div class="stat-card stat-violet is-drilldown" data-metric="accident:non_departmental_private" data-title="Non Departmental - Private">
+                <div class="stat-content">
+                    <span class="stat-value">{{ stats.get('electrical_accident_non_departmental_private', 0) }}</span>
+                    <span class="stat-label">Non Dept (Private)</span>
+                </div>
+            </div>
+            <div class="stat-card stat-violet is-drilldown" data-metric="accident:non_departmental_contract" data-title="Non Departmental - Contract">
+                <div class="stat-content">
+                    <span class="stat-value">{{ stats.get('electrical_accident_non_departmental_contract', 0) }}</span>
+                    <span class="stat-label">Non Dept (Contract)</span>
+                </div>
+            </div>
+            <div class="stat-card stat-success is-drilldown" data-metric="accident:general_public" data-title="General Public Cases">
+                <div class="stat-content">
+                    <span class="stat-value">{{ stats.get('electrical_accident_general_public_count', 0) }}</span>
+                    <span class="stat-label">General Public Count</span>
+                </div>
+            </div>
+            <div class="stat-card stat-success is-drilldown" data-metric="accident:animals" data-title="Animal Cases">
+                <div class="stat-content">
+                    <span class="stat-value">{{ stats.get('electrical_accident_animals_count', 0) }}</span>
+                    <span class="stat-label">Animals Count</span>
+                </div>
+            </div>
+        </div>
+    </div>
+    {% endif %}
 
-    <div class="card sla-card compact-sla-panel">
-        <div class="card-header sla-header">
-            <div>
-                <h2>SLA Dashboard</h2>
-                <p class="sla-subtitle">Target: Preliminary 7 days, Detailed 45 days from assignment to closure</p>
+    <div class="card main-sla-mini-card">
+        <div class="main-sla-mini">
+            <div class="main-sla-mini-title">
+                <h3 data-i18n="dash.sla_dashboard">SLA Dashboard</h3>
+                <p data-i18n="dash.sla_subtitle">Target: Preliminary 15 days, Detailed 60 days, Electronic and Print Media 45 days (any petition hard capped at 90 days)</p>
             </div>
-        </div>
-        <div class="stats-grid sla-stats-grid">
-            <div class="stat-card stat-primary sla-stat is-drilldown" data-metric="sla_total" data-title="SLA Total Cases">
-                <div class="stat-content">
-                    <span class="stat-value countup" data-target="{{ stats.get('sla_total', 0) }}">{{ stats.get('sla_total', 0) }}</span>
-                    <span class="stat-label">Total SLA Cases</span>
-                    <span class="sla-chip">Monitored</span>
-                    <div class="stat-sparkline" aria-hidden="true"></div>
+            <div class="main-sla-mini-kpis">
+                <div class="main-sla-mini-kpi is-total is-drilldown" data-metric="sla_total" data-title="SLA Total Cases">
+                    <span class="v">{{ stats.get('sla_total', 0) }}</span>
+                    <span class="l">Total</span>
+                </div>
+                <div class="main-sla-mini-kpi is-open is-drilldown" data-metric="sla_open_total" data-title="Open Petitions">
+                    <span class="v">{{ stats.get('sla_open_total', 0) }}</span>
+                    <span class="l">Open</span>
+                </div>
+                <div class="main-sla-mini-kpi is-closed is-drilldown" data-metric="sla_closed_total" data-title="Closed Petitions">
+                    <span class="v">{{ stats.get('sla_closed_total', 0) }}</span>
+                    <span class="l">Closed</span>
+                </div>
+                <div class="main-sla-mini-kpi is-beyond is-drilldown" data-metric="sla_total_beyond" data-title="Total Beyond SLA">
+                    <span class="v">{{ stats.get('sla_total_beyond', stats.get('sla_breached', 0)) }}</span>
+                    <span class="l">Beyond SLA</span>
                 </div>
             </div>
-            <div class="stat-card stat-warning sla-stat is-drilldown" data-metric="sla_in_progress" data-title="SLA In Progress">
-                <div class="stat-content">
-                    <span class="stat-value countup" data-target="{{ stats.get('sla_in_progress', 0) }}">{{ stats.get('sla_in_progress', 0) }}</span>
-                    <span class="stat-label">In Progress</span>
-                    <span class="sla-chip">Active Window</span>
-                    <div class="stat-sparkline" aria-hidden="true"></div>
-                </div>
-            </div>
-            <div class="stat-card stat-success sla-stat is-drilldown" data-metric="sla_within" data-title="SLA Within">
-                <div class="stat-content">
-                    <span class="stat-value countup" data-target="{{ stats.get('sla_within', 0) }}">{{ stats.get('sla_within', 0) }}</span>
-                    <span class="stat-label">Within SLA</span>
-                    <span class="sla-chip is-good">On Time</span>
-                    <div class="stat-sparkline" aria-hidden="true"></div>
-                </div>
-            </div>
-            <div class="stat-card stat-danger sla-stat is-drilldown {% if stats.get('sla_breached', 0) > 0 %}threshold-crossed{% endif %}" data-threshold-crossed="{{ 1 if stats.get('sla_breached', 0) > 0 else 0 }}" data-metric="sla_breached" data-title="SLA Breached">
-                <div class="stat-content">
-                    <span class="stat-value countup" data-target="{{ stats.get('sla_breached', 0) }}">{{ stats.get('sla_breached', 0) }}</span>
-                    <span class="stat-label">Breached</span>
-                    <span class="sla-chip is-breach">{% if stats.get('sla_breached', 0) > 0 %}Threshold Crossed{% else %}No Breach{% endif %}</span>
-                    <div class="stat-sparkline" aria-hidden="true"></div>
-                </div>
-            </div>
-        </div>
-        <div class="sla-note">
-            SLA is measured from <strong>assignment to field officer</strong> until <strong>petition closure</strong>, based on enquiry type target.
+            <a href="{{ url_for('sla_dashboard') }}" class="btn btn-sm btn-primary">Open SLA Dashboard</a>
         </div>
     </div>
 
@@ -224,8 +263,8 @@
             <span class="analytics-summary-label" data-i18n="dash.sla_within">SLA Within</span>
             <strong class="analytics-summary-value" id="dashSummarySlaWithin">{{ analytics.summary.sla_within }}</strong>
         </div>
-        <div class="analytics-summary-item is-drilldown" data-metric="sla_breached" data-title="SLA Breached">
-            <span class="analytics-summary-label" data-i18n="dash.sla_breached">SLA Breached</span>
+        <div class="analytics-summary-item is-drilldown" data-metric="sla_breached" data-title="Beyond SLA">
+            <span class="analytics-summary-label" data-i18n="dash.sla_breached">Beyond SLA</span>
             <strong class="analytics-summary-value" id="dashSummarySlaBreached">{{ analytics.summary.sla_breached }}</strong>
         </div>
     </div>
@@ -254,7 +293,13 @@
                     <tr class="js-petition-row" data-href="{{ url_for('petition_view', petition_id=p.id) }}" tabindex="0" role="link" aria-label="Open petition {{ p.sno }}">
                         <td class="font-mono"><a href="{{ url_for('petition_view', petition_id=p.id) }}" class="petition-row-link">{{ p.sno }}</a></td>
                         <td>{{ p.efile_no or '-' }}</td>
-                        <td>{{ p.petitioner_name }}</td>
+                        <td>
+                            {% if p.petitioner_name and p.petitioner_name|lower not in ['anonymous', '-'] %}
+                            <a href="#" class="petitioner-profile-link" data-petitioner-name="{{ p.petitioner_name|e }}">{{ p.petitioner_name }}</a>
+                            {% else %}
+                            {{ p.petitioner_name }}
+                            {% endif %}
+                        </td>
                         <td class="text-truncate" title="{{ p.subject }}">{{ p.subject[:50] }}{% if p.subject|length > 50 %}...{% endif %}</td>
                         <td><span class="badge badge-type">{{ petition_types.get(p.petition_type, p.petition_type) }}</span></td>
                         <td><span class="status-badge" style="--status-color: {{ status_colors.get(p.status, '#6b7280') }}">{{ status_labels.get(p.status, p.status) }}</span></td>
@@ -359,12 +404,13 @@
                         <th>Petitioner</th>
                         <th>Subject</th>
                         <th>Status</th>
+                        <th>Accident Details</th>
                         <th>Date</th>
                         <th></th>
                     </tr>
                 </thead>
                 <tbody id="dashModalBody">
-                    <tr><td colspan="6" class="empty-state">Loading...</td></tr>
+                    <tr><td colspan="7" class="empty-state">Loading...</td></tr>
                 </tbody>
             </table>
         </div>
@@ -423,7 +469,7 @@ async function openDashboardDrilldown(metric, title, sourceEl) {
     const heading = document.getElementById('dashModalTitle');
     hideDashboardRowDetail();
     heading.textContent = title;
-    body.innerHTML = '<tr><td colspan="6" class="empty-state">Loading...</td></tr>';
+    body.innerHTML = '<tr><td colspan="7" class="empty-state">Loading...</td></tr>';
     modal.style.display = 'block';
     modal.classList.add('open');
     animateCardToModal(sourceEl, panel);
@@ -434,22 +480,23 @@ async function openDashboardDrilldown(metric, title, sourceEl) {
         const items = data.items || [];
         dashCurrentRows = items;
         if (!items.length) {
-            body.innerHTML = '<tr><td colspan="6" class="empty-state">No data found</td></tr>';
+            body.innerHTML = '<tr><td colspan="7" class="empty-state">No data found</td></tr>';
             return;
         }
         body.innerHTML = items.map((i, idx) => `
             <tr class="dash-modal-row" data-row-index="${idx}">
                 <td class="font-mono">${escapeHtml(i.sno || '-')}</td>
-                <td>${escapeHtml(i.petitioner_name || '-')}</td>
+                <td>${(i.petitioner_name && String(i.petitioner_name).toLowerCase() !== 'anonymous' && i.petitioner_name !== '-') ? `<a href="#" class="petitioner-profile-link" data-petitioner-name="${escapeHtml(i.petitioner_name)}">${escapeHtml(i.petitioner_name)}</a>` : escapeHtml(i.petitioner_name || '-')}</td>
                 <td title="${escapeHtml(i.subject || '')}">${escapeHtml((i.subject || '-').slice(0, 70))}${(i.subject || '').length > 70 ? '...' : ''}</td>
                 <td>${escapeHtml(i.status || '-')}</td>
+                <td>${escapeHtml(i.accident_summary || '-')}</td>
                 <td>${escapeHtml(i.received_date || '-')}</td>
                 <td><a href="/petitions/${i.id}" class="btn btn-xs btn-outline">View</a></td>
             </tr>
         `).join('');
         bindDashboardRowTransitions();
     } catch (e) {
-        body.innerHTML = '<tr><td colspan="6" class="empty-state">Failed to load data</td></tr>';
+        body.innerHTML = '<tr><td colspan="7" class="empty-state">Failed to load data</td></tr>';
     }
 }
 
@@ -473,8 +520,9 @@ function openDashboardRowDetail(item, rowEl) {
     detailBody.innerHTML = `
         <div class="dash-row-detail-grid">
             <div><span>S.No</span><strong>${escapeHtml(item.sno || '-')}</strong></div>
-            <div><span>Petitioner</span><strong>${escapeHtml(item.petitioner_name || '-')}</strong></div>
+            <div><span>Petitioner</span><strong>${(item.petitioner_name && String(item.petitioner_name).toLowerCase() !== 'anonymous' && item.petitioner_name !== '-') ? `<a href="#" class="petitioner-profile-link" data-petitioner-name="${escapeHtml(item.petitioner_name)}">${escapeHtml(item.petitioner_name)}</a>` : escapeHtml(item.petitioner_name || '-')}</strong></div>
             <div><span>Status</span><strong>${escapeHtml(item.status || '-')}</strong></div>
+            <div><span>Accident Details</span><strong>${escapeHtml(item.accident_summary || '-')}</strong></div>
             <div><span>Received Date</span><strong>${escapeHtml(item.received_date || '-')}</strong></div>
             <div class="full"><span>Subject</span><strong>${escapeHtml(item.subject || '-')}</strong></div>
         </div>
@@ -577,7 +625,7 @@ function initAnalyticsDashboard() {
     };
 
     const sourceMetricMap = {
-        'Media': 'source:media',
+        'Electronic and Print Media': 'source:media',
         'Public': 'source:public_individual',
         'Govt': 'source:govt',
         'Sumoto': 'source:sumoto'
@@ -858,7 +906,8 @@ function initAnalyticsDashboard() {
 
 document.querySelectorAll('.is-drilldown').forEach(card => {
     card.addEventListener('click', () => {
-        openDashboardDrilldown(card.dataset.metric, card.dataset.title || 'Drilldown', card);
+        const translatedTitle = (card.querySelector('.stat-label, .analytics-summary-label')?.textContent || '').trim();
+        openDashboardDrilldown(card.dataset.metric, translatedTitle || card.dataset.title || 'Drilldown', card);
     });
 });
 

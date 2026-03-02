@@ -86,7 +86,11 @@ def test_user_management_db_functions(monkeypatch):
     bind_db(monkeypatch, fetchall_items=[[{"id": 1}]])
     assert len(models.get_users_by_role("inspector", "apspdcl")) == 1
 
-    bind_db(monkeypatch, fetchone_items=[{"id": 1, "role": "cvo_apspdcl", "cvo_office": "apspdcl"}], fetchall_items=[[{"id": 5}]])
+    bind_db(
+        monkeypatch,
+        fetchone_items=[{"id": 1, "role": "cvo_apspdcl", "cvo_office": "apspdcl"}],
+        fetchall_items=[[{"id": 1}], [{"id": 5}]],
+    )
     assert models.get_inspectors_by_cvo(1)[0]["id"] == 5
 
     bind_db(monkeypatch, fetchall_items=[[{"id": 99}]])
@@ -204,7 +208,7 @@ def test_workflow_functions_success_paths(monkeypatch):
     models.set_ereceipt(1, 5, "E2", "r.pdf")
     assert conn.commits == 1
 
-    conn, _ = bind_db(monkeypatch, fetchone_items=[{"assigned_cvo_id": 4}])
+    conn, _ = bind_db(monkeypatch, fetchone_items=[{"status": "assigned_to_inspector"}, {"assigned_cvo_id": 4}])
     models.submit_enquiry_report(1, 8, "report", "", "rec", "file.pdf")
     assert conn.commits == 1
 

@@ -100,31 +100,36 @@
                 </select>
                 {% endif %}
             </div>
-            
-            <div class="form-group full-width">
-                <label for="petitioner_name"><span data-i18n="petition.form.petitioner_name">{{ f_petitioner_name.label }}</span> {% if f_petitioner_name.required %}<span class="required">*</span>{% endif %}</label>
-                {% if f_petitioner_name.type == 'textarea' %}
-                <textarea id="petitioner_name" name="petitioner_name" rows="2" {% if f_petitioner_name.required %}required{% endif %} placeholder="Leave blank if anonymous" data-i18n-placeholder="petition.form.ph_petitioner_name">{{ request.form.get('petitioner_name', '') }}</textarea>
-                {% else %}
-                <input type="{{ f_petitioner_name.type }}" id="petitioner_name" name="petitioner_name" value="{{ request.form.get('petitioner_name', '') }}" {% if f_petitioner_name.required %}required{% endif %} placeholder="Leave blank if anonymous" data-i18n-placeholder="petition.form.ph_petitioner_name">
-                {% endif %}
+
+            <div class="form-group">
+                <label for="petitioner_identity_type">Petitioner Identity</label>
+                <select id="petitioner_identity_type" name="petitioner_identity_type">
+                    <option value="identified" {% if (request.form.get('petitioner_identity_type') or 'identified') == 'identified' %}selected{% endif %}>Identified Petition</option>
+                    <option value="anonymous" {% if request.form.get('petitioner_identity_type') == 'anonymous' %}selected{% endif %}>Anonymous Petition</option>
+                </select>
             </div>
             
-            <div class="form-group">
+            <div class="form-group full-width" id="petitioner_name_group">
+                <label for="petitioner_name"><span data-i18n="petition.form.petitioner_name">{{ f_petitioner_name.label }}</span> {% if f_petitioner_name.required %}<span class="required">*</span>{% endif %}</label>
+                <input type="text" id="petitioner_name" name="petitioner_name" list="petitioner_name_suggestions" value="{{ request.form.get('petitioner_name', '') }}" {% if f_petitioner_name.required %}required{% endif %} data-base-required="{{ 1 if f_petitioner_name.required else 0 }}" placeholder="Name" data-i18n-placeholder="petition.form.ph_petitioner_name" autocomplete="off">
+                <datalist id="petitioner_name_suggestions"></datalist>
+            </div>
+            
+            <div class="form-group" id="contact_group">
                 <label for="contact"><span data-i18n="petition.form.contact">{{ f_contact.label }}</span> {% if f_contact.required %}<span class="required">*</span>{% endif %}</label>
                 {% if f_contact.type == 'textarea' %}
-                <textarea id="contact" name="contact" rows="2" {% if f_contact.required %}required{% endif %} placeholder="Phone number" data-i18n-placeholder="petition.form.ph_contact">{{ request.form.get('contact', '') }}</textarea>
+                <textarea id="contact" name="contact" rows="2" {% if f_contact.required %}required{% endif %} data-base-required="{{ 1 if f_contact.required else 0 }}" placeholder="Phone number" data-i18n-placeholder="petition.form.ph_contact">{{ request.form.get('contact', '') }}</textarea>
                 {% else %}
-                <input type="{{ f_contact.type }}" id="contact" name="contact" value="{{ request.form.get('contact', '') }}" pattern="[0-9+\-\s()]{7,20}" {% if f_contact.required %}required{% endif %} placeholder="Phone number" data-i18n-placeholder="petition.form.ph_contact">
+                <input type="{{ f_contact.type }}" id="contact" name="contact" value="{{ request.form.get('contact', '') }}" pattern="[0-9+\-\s()]{7,20}" {% if f_contact.required %}required{% endif %} data-base-required="{{ 1 if f_contact.required else 0 }}" placeholder="Phone number" data-i18n-placeholder="petition.form.ph_contact">
                 {% endif %}
             </div>
             
-            <div class="form-group">
+            <div class="form-group" id="place_group">
                 <label for="place"><span data-i18n="petition.form.place">{{ f_place.label }}</span> {% if f_place.required %}<span class="required">*</span>{% endif %}</label>
                 {% if f_place.type == 'textarea' %}
-                <textarea id="place" name="place" rows="2" {% if f_place.required %}required{% endif %} placeholder="Location / Area" data-i18n-placeholder="petition.form.ph_place">{{ request.form.get('place', '') }}</textarea>
+                <textarea id="place" name="place" rows="2" {% if f_place.required %}required{% endif %} data-base-required="{{ 1 if f_place.required else 0 }}" placeholder="Location / Area" data-i18n-placeholder="petition.form.ph_place">{{ request.form.get('place', '') }}</textarea>
                 {% else %}
-                <input type="{{ f_place.type }}" id="place" name="place" value="{{ request.form.get('place', '') }}" {% if f_place.required %}required{% endif %} placeholder="Location / Area" data-i18n-placeholder="petition.form.ph_place">
+                <input type="{{ f_place.type }}" id="place" name="place" value="{{ request.form.get('place', '') }}" {% if f_place.required %}required{% endif %} data-base-required="{{ 1 if f_place.required else 0 }}" placeholder="Location / Area" data-i18n-placeholder="petition.form.ph_place">
                 {% endif %}
             </div>
             
@@ -158,7 +163,7 @@
             <div class="form-group">
                 <label for="source_of_petition"><span data-i18n="petition.form.source_of_petition">{{ f_source.label }}</span> {% if f_source.required %}<span class="required">*</span>{% endif %}</label>
                 <select id="source_of_petition" name="source_of_petition" {% if f_source.required %}required{% endif %}>
-                    <option value="media" data-i18n="petition.form.source.media" {% if request.form.get('source_of_petition') == 'media' %}selected{% endif %}>Media</option>
+                    <option value="media" data-i18n="petition.form.source.media" {% if request.form.get('source_of_petition') == 'media' %}selected{% endif %}>Electronic and Print Media</option>
                     <option value="public_individual" data-i18n="petition.form.source.public_individual" {% if (request.form.get('source_of_petition') or 'public_individual') == 'public_individual' %}selected{% endif %}>Public (Individual)</option>
                     <option value="govt" data-i18n="petition.form.source.govt" {% if request.form.get('source_of_petition') == 'govt' %}selected{% endif %}>Govt</option>
                     <option value="sumoto" data-i18n="petition.form.source.sumoto" {% if request.form.get('source_of_petition') == 'sumoto' %}selected{% endif %}>Sumoto</option>
@@ -179,7 +184,7 @@
 
             <div class="form-group">
                 <label data-i18n="petition.form.workflow_note">Workflow Note</label>
-                <input type="text" value="Detailed SLA: 45 days | Preliminary SLA: 7 days" data-i18n-value="petition.form.workflow_note_value" readonly>
+                <input type="text" value="Detailed SLA: 60 days | Preliminary SLA: 15 days | Electronic and Print Media: 45 days" data-i18n-value="petition.form.workflow_note_value" readonly>
             </div>
             
             <div class="form-group full-width">
@@ -211,6 +216,14 @@
     const sourcePetition = document.getElementById('source_of_petition');
     const govtInstitutionGroup = document.getElementById('govt_institution_group');
     const govtInstitutionType = document.getElementById('govt_institution_type');
+    const petitionerIdentityType = document.getElementById('petitioner_identity_type');
+    const petitionerNameGroup = document.getElementById('petitioner_name_group');
+    const contactGroup = document.getElementById('contact_group');
+    const placeGroup = document.getElementById('place_group');
+    const petitionerNameInput = document.getElementById('petitioner_name');
+    const petitionerNameSuggestions = document.getElementById('petitioner_name_suggestions');
+    const contactInput = document.getElementById('contact');
+    const placeInput = document.getElementById('place');
     const ereceiptFileInput = document.getElementById('ereceipt_file');
     const ereceiptFileBtn = document.getElementById('ereceipt_file_btn');
     const ereceiptFileName = document.getElementById('ereceipt_file_name');
@@ -251,6 +264,54 @@
 
     sourcePetition.addEventListener('change', syncGovtInstitutionField);
     syncGovtInstitutionField();
+
+    const syncPetitionerIdentityFields = () => {
+        if (!petitionerIdentityType || !petitionerNameGroup || !contactGroup || !placeGroup || !petitionerNameInput || !contactInput || !placeInput) return;
+        const isAnonymous = petitionerIdentityType.value === 'anonymous';
+        petitionerNameGroup.style.display = isAnonymous ? 'none' : '';
+        contactGroup.style.display = isAnonymous ? 'none' : '';
+        placeGroup.style.display = isAnonymous ? 'none' : '';
+
+        const petitionerBaseRequired = petitionerNameInput.dataset.baseRequired === '1';
+        const contactBaseRequired = contactInput.dataset.baseRequired === '1';
+        const placeBaseRequired = placeInput.dataset.baseRequired === '1';
+        petitionerNameInput.required = !isAnonymous && petitionerBaseRequired;
+        contactInput.required = !isAnonymous && contactBaseRequired;
+        placeInput.required = !isAnonymous && placeBaseRequired;
+    };
+
+    if (petitionerIdentityType) {
+        petitionerIdentityType.addEventListener('change', syncPetitionerIdentityFields);
+        syncPetitionerIdentityFields();
+    }
+
+    let suggestionReq = null;
+    const loadPetitionerSuggestions = async () => {
+        if (!petitionerNameInput || !petitionerNameSuggestions || !petitionerIdentityType) return;
+        if (petitionerIdentityType.value !== 'identified') return;
+        const q = (petitionerNameInput.value || '').trim();
+        if (q.length < 2) {
+            petitionerNameSuggestions.innerHTML = '';
+            return;
+        }
+        if (suggestionReq) {
+            clearTimeout(suggestionReq);
+        }
+        suggestionReq = setTimeout(async () => {
+            try {
+                const res = await fetch(`{{ url_for('api_petitioner_suggestions') }}?q=${encodeURIComponent(q)}`);
+                const payload = await res.json();
+                const items = Array.isArray(payload.items) ? payload.items : [];
+                petitionerNameSuggestions.innerHTML = items.map((it) => `<option value="${String(it.name || '').replace(/"/g, '&quot;')}"></option>`).join('');
+            } catch (_) {
+                petitionerNameSuggestions.innerHTML = '';
+            }
+        }, 120);
+    };
+    if (petitionerNameInput) {
+        petitionerNameInput.addEventListener('input', loadPetitionerSuggestions);
+        petitionerNameInput.addEventListener('focus', loadPetitionerSuggestions);
+    }
 
     if (ereceiptFileInput && ereceiptFileBtn && ereceiptFileName) {
         ereceiptFileBtn.addEventListener('click', () => ereceiptFileInput.click());

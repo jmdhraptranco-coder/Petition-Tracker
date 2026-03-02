@@ -4,7 +4,7 @@ from conftest import login_as
 
 
 def test_petition_new_jmd_routes_to_po(client):
-    login_as(client, role="data_entry")
+    login_as(client, role="super_admin")
     payload = {
         "received_date": "2026-02-17",
         "received_at": "jmd_office",
@@ -13,8 +13,9 @@ def test_petition_new_jmd_routes_to_po(client):
         "petition_type": "bribe",
         "source_of_petition": "media",
         "remarks": "x",
+        "ereceipt_file": (io.BytesIO(b"%PDF-1.4 test"), "deo_jmd.pdf"),
     }
-    resp = client.post("/petitions/new", data=payload)
+    resp = client.post("/petitions/new", data=payload, content_type="multipart/form-data")
     assert resp.status_code == 302
     call_names = [c[0] for c in client.models_stub.calls]
     assert "create_petition" in call_names
@@ -33,8 +34,9 @@ def test_petition_new_non_jmd_routes_to_cvo(client):
         "subject": "Test subject",
         "petition_type": "bribe",
         "source_of_petition": "media",
+        "ereceipt_file": (io.BytesIO(b"%PDF-1.4 test"), "deo_non_jmd.pdf"),
     }
-    resp = client.post("/petitions/new", data=payload)
+    resp = client.post("/petitions/new", data=payload, content_type="multipart/form-data")
     assert resp.status_code == 302
     call_names = [c[0] for c in client.models_stub.calls]
     assert "create_petition" in call_names
@@ -47,10 +49,14 @@ def test_petition_new_requires_govt_institution_when_source_is_govt(client):
     payload = {
         "received_date": "2026-02-17",
         "received_at": "jmd_office",
+        "target_cvo": "apspdcl",
         "petitioner_name": "Anonymous",
+        "contact": "+919999999999",
+        "place": "Hyd",
         "subject": "Test subject",
         "petition_type": "bribe",
         "source_of_petition": "govt",
+        "remarks": "x",
     }
     resp = client.post("/petitions/new", data=payload)
     assert resp.status_code == 200

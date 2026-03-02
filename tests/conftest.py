@@ -37,9 +37,17 @@ def client(monkeypatch):
         yield c
 
 
-def login_as(client, user_id=1, role="super_admin", full_name="Test User"):
+def login_as(client, user_id=1, role="super_admin", full_name="Test User", cvo_office=None):
+    if cvo_office is None:
+        if role in ("data_entry", "cvo_apspdcl"):
+            cvo_office = "apspdcl"
+        elif role == "cvo_apcpdcl":
+            cvo_office = "apcpdcl"
+        elif role == "cvo_apepdcl":
+            cvo_office = "apepdcl"
     with client.session_transaction() as sess:
         sess["user_id"] = user_id
         sess["user_role"] = role
         sess["full_name"] = full_name
         sess["username"] = "tester"
+        sess["cvo_office"] = cvo_office

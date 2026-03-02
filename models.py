@@ -23,8 +23,8 @@ def _target_cvos_for_cvo_role(user_role):
     role_targets = {
         'cvo_apspdcl': ['apspdcl', 'apcpdcl'],
         'cvo_apepdcl': ['apepdcl'],
-        # CPDCL queue is merged into SPDCL CVO login.
-        'cvo_apcpdcl': [],
+        # CPDCL and SPDCL queues are merged. Both logins share the same visibility.
+        'cvo_apcpdcl': ['apspdcl', 'apcpdcl'],
         'dsp': ['headquarters'],
     }
     return role_targets.get((user_role or '').strip(), [])
@@ -72,6 +72,32 @@ def ensure_schema_updates():
         cur.execute("""
             ALTER TABLE enquiry_reports
             ADD COLUMN IF NOT EXISTS cvo_consolidated_report_file VARCHAR(255)
+        """)
+        # Normalize historical naming typo in user display names.
+        cur.execute("""
+            UPDATE users
+            SET full_name = regexp_replace(full_name, 'APS?CPDCL', 'APCPDCL', 'gi')
+            WHERE full_name ~* 'APS?CPDCL'
+        """)
+        cur.execute("""
+            ALTER TABLE enquiry_reports
+            ADD COLUMN IF NOT EXISTS accident_type VARCHAR(20)
+        """)
+        cur.execute("""
+            ALTER TABLE enquiry_reports
+            ADD COLUMN IF NOT EXISTS deceased_category VARCHAR(30)
+        """)
+        cur.execute("""
+            ALTER TABLE enquiry_reports
+            ADD COLUMN IF NOT EXISTS non_departmental_type VARCHAR(20)
+        """)
+        cur.execute("""
+            ALTER TABLE enquiry_reports
+            ADD COLUMN IF NOT EXISTS general_public_count INTEGER
+        """)
+        cur.execute("""
+            ALTER TABLE enquiry_reports
+            ADD COLUMN IF NOT EXISTS animals_count INTEGER
         """)
         cur.execute("""
             CREATE TABLE IF NOT EXISTS form_field_configs (
@@ -438,21 +464,42 @@ def get_inspectors_by_cvo(cvo_user_id):
     conn = get_db()
     try:
         cur = dict_cursor(conn)
-        # Fetch inspectors mapped to this exact CVO/DSP.
-        # Fallback: include office-matched inspectors only when explicit mapping is missing.
+        # Fetch inspectors mapped to CVO/DSP scope.
+        # For merged APSPDCL+APCPDCL queue, include inspectors mapped to either CVO login.
         cur.execute("SELECT id, role, cvo_office FROM users WHERE id = %s", (cvo_user_id,))
         cvo = cur.fetchone()
         if not cvo:
             return []
 
         handled_offices = []
-        if cvo.get('role') == 'cvo_apspdcl':
+        if cvo.get('role') in ('cvo_apspdcl', 'cvo_apcpdcl'):
             handled_offices = ['apspdcl', 'apcpdcl']
         elif cvo.get('cvo_office'):
             handled_offices = [cvo.get('cvo_office')]
 
+        related_cvo_ids = [int(cvo_user_id)]
+        if handled_offices:
+            office_placeholders = ', '.join(['%s'] * len(handled_offices))
+            cur.execute(f"""
+                SELECT id
+                FROM users
+                WHERE is_active = TRUE
+                  AND role IN ('cvo_apspdcl', 'cvo_apepdcl', 'cvo_apcpdcl', 'dsp')
+                  AND cvo_office IN ({office_placeholders})
+            """, tuple(handled_offices))
+            related_cvo_ids.extend(
+                int(row['id']) for row in cur.fetchall() if row and row.get('id')
+            )
+        related_cvo_ids = sorted(set(related_cvo_ids))
+
+        assigned_clause = "i.assigned_cvo_id = %s"
+        params = []
+        if related_cvo_ids:
+            id_placeholders = ', '.join(['%s'] * len(related_cvo_ids))
+            assigned_clause = f"i.assigned_cvo_id IN ({id_placeholders})"
+            params.extend(related_cvo_ids)
+
         office_clause = ''
-        params = [cvo_user_id]
         if handled_offices:
             office_placeholders = ', '.join(['%s'] * len(handled_offices))
             office_clause = f"OR (i.assigned_cvo_id IS NULL AND i.cvo_office IS NOT NULL AND i.cvo_office IN ({office_placeholders}))"
@@ -464,7 +511,7 @@ def get_inspectors_by_cvo(cvo_user_id):
             WHERE i.role = 'inspector'
               AND i.is_active = TRUE
               AND (
-                    i.assigned_cvo_id = %s
+                    {assigned_clause}
                     {office_clause}
               )
             ORDER BY i.full_name
@@ -478,6 +525,21 @@ def get_cvo_users():
     try:
         cur = dict_cursor(conn)
         cur.execute("SELECT * FROM users WHERE role IN ('cvo_apspdcl', 'cvo_apepdcl', 'cvo_apcpdcl', 'dsp') AND is_active = TRUE")
+        return [dict(row) for row in cur.fetchall()]
+    finally:
+        conn.close()
+
+def get_cmd_cgm_users():
+    conn = get_db()
+    try:
+        cur = dict_cursor(conn)
+        cur.execute("""
+            SELECT id, username, full_name, role
+            FROM users
+            WHERE role IN ('cmd_apspdcl', 'cmd_apepdcl', 'cmd_apcpdcl', 'cgm_hr_transco')
+              AND is_active = TRUE
+            ORDER BY role, full_name
+        """)
         return [dict(row) for row in cur.fetchall()]
     finally:
         conn.close()
@@ -1024,6 +1086,85 @@ def cvo_send_receipt_to_po(petition_id, cvo_user_id, comments=None, attachment_f
         conn.close()
 
 
+def update_imported_petition_state(
+    petition_id,
+    actor_user_id,
+    *,
+    status=None,
+    current_handler_id=None,
+    assigned_inspector_id=None,
+    target_cvo=None,
+    requires_permission=None,
+    permission_status=None,
+    enquiry_type=None,
+    received_date=None,
+    remarks=None,
+):
+    """Adjust petition state after bulk import and write a tracking audit entry."""
+    conn = get_db()
+    try:
+        cur = dict_cursor(conn)
+        cur.execute("SELECT status FROM petitions WHERE id = %s FOR UPDATE", (petition_id,))
+        row = cur.fetchone()
+        if not row:
+            raise ValueError('Petition not found for state update.')
+        status_before = row.get('status')
+
+        fields = []
+        params = []
+        if status:
+            fields.append("status = %s")
+            params.append(status)
+        if current_handler_id is not None:
+            fields.append("current_handler_id = %s")
+            params.append(current_handler_id)
+        if assigned_inspector_id is not None:
+            fields.append("assigned_inspector_id = %s")
+            params.append(assigned_inspector_id)
+        if target_cvo is not None:
+            fields.append("target_cvo = %s")
+            params.append(target_cvo)
+        if requires_permission is not None:
+            fields.append("requires_permission = %s")
+            params.append(requires_permission)
+        if permission_status is not None:
+            fields.append("permission_status = %s")
+            params.append(permission_status)
+        if enquiry_type is not None:
+            fields.append("enquiry_type = %s")
+            params.append(enquiry_type)
+        if received_date is not None:
+            fields.append("received_date = %s")
+            params.append(received_date)
+        if remarks is not None:
+            fields.append("remarks = %s")
+            params.append(remarks)
+
+        if fields:
+            fields.append("updated_at = CURRENT_TIMESTAMP")
+            params.extend([petition_id])
+            cur.execute(f"UPDATE petitions SET {', '.join(fields)} WHERE id = %s", tuple(params))
+
+        status_after = status or status_before
+        cur.execute("""
+            INSERT INTO petition_tracking (petition_id, from_user_id, from_role, action, comments, status_before, status_after)
+            VALUES (%s, %s, (SELECT role FROM users WHERE id = %s), 'Bulk Petition Import Sync', %s, %s, %s)
+        """, (
+            petition_id,
+            actor_user_id,
+            actor_user_id,
+            'Historical petition imported and mapped through bulk upload.',
+            status_before,
+            status_after,
+        ))
+        conn.commit()
+    except Exception as e:
+        conn.rollback()
+        raise e
+    finally:
+        conn.close()
+
+
 def cvo_mark_direct_enquiry(petition_id, cvo_user_id, comments=None, enquiry_type=None):
     """CVO confirms direct enquiry (no PO permission route)."""
     conn = get_db()
@@ -1209,7 +1350,12 @@ def submit_enquiry_report(
     recommendation,
     report_file=None,
     request_detailed_permission=False,
-    detailed_request_reason=None
+    detailed_request_reason=None,
+    accident_type=None,
+    deceased_category=None,
+    non_departmental_type=None,
+    general_public_count=None,
+    animals_count=None
 ):
     """Inspector submits enquiry report"""
     conn = get_db()
@@ -1225,10 +1371,16 @@ def submit_enquiry_report(
         cvo_id = inspector['assigned_cvo_id'] if inspector else None
         
         cur.execute("""
-            INSERT INTO enquiry_reports (petition_id, submitted_by, report_text, findings, recommendation, report_file)
-            VALUES (%s, %s, %s, %s, %s, %s)
+            INSERT INTO enquiry_reports (
+                petition_id, submitted_by, report_text, findings, recommendation, report_file,
+                accident_type, deceased_category, non_departmental_type, general_public_count, animals_count
+            )
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             RETURNING id
-        """, (petition_id, inspector_id, report_text, findings, recommendation, report_file))
+        """, (
+            petition_id, inspector_id, report_text, findings, recommendation, report_file,
+            accident_type, deceased_category, non_departmental_type, general_public_count, animals_count
+        ))
         
         cur.execute("""
             UPDATE petitions SET status = 'enquiry_report_submitted', 
@@ -1500,7 +1652,7 @@ def po_give_conclusion(petition_id, po_user_id, efile_no, final_conclusion, inst
         conn.close()
 
 
-def po_send_to_cmd(petition_id, po_user_id, instructions=None, efile_no=None):
+def po_send_to_cmd(petition_id, po_user_id, instructions=None, efile_no=None, cmd_user_id=None):
     """PO forwards case to concerned CMD for action based on petition target CVO."""
     conn = get_db()
     try:
@@ -1510,16 +1662,34 @@ def po_send_to_cmd(petition_id, po_user_id, instructions=None, efile_no=None):
         if not petition:
             raise Exception("Petition not found.")
 
-        cmd_role_map = {'apspdcl': 'cmd_apspdcl', 'apepdcl': 'cmd_apepdcl', 'apcpdcl': 'cmd_apcpdcl', 'headquarters': 'cgm_hr_transco'}
-        cmd_role = cmd_role_map.get(petition['target_cvo'])
-        if not cmd_role:
-            raise Exception("No CMD role configured for this jurisdiction.")
+        cmd_role = None
+        cmd_id = None
+        if cmd_user_id:
+            cur.execute("""
+                SELECT id, role
+                FROM users
+                WHERE id = %s
+                  AND role IN ('cmd_apspdcl', 'cmd_apepdcl', 'cmd_apcpdcl', 'cgm_hr_transco')
+                  AND is_active = TRUE
+                LIMIT 1
+            """, (cmd_user_id,))
+            cmd_user = cur.fetchone()
+            if not cmd_user:
+                raise Exception("Selected CMD/CGM-HR assignee is invalid.")
+            cmd_id = cmd_user['id']
+            cmd_role = cmd_user['role']
+        else:
+            # Backward-compatible fallback for flows not yet passing an explicit assignee.
+            cmd_role_map = {'apspdcl': 'cmd_apspdcl', 'apepdcl': 'cmd_apepdcl', 'apcpdcl': 'cmd_apcpdcl', 'headquarters': 'cgm_hr_transco'}
+            cmd_role = cmd_role_map.get(petition['target_cvo'])
+            if not cmd_role:
+                raise Exception("No CMD role configured for this jurisdiction.")
 
-        cur.execute("SELECT id FROM users WHERE role = %s AND is_active = TRUE LIMIT 1", (cmd_role,))
-        cmd_user = cur.fetchone()
-        cmd_id = cmd_user['id'] if cmd_user else None
-        if not cmd_id:
-            raise Exception(f"No active user found for role {cmd_role}.")
+            cur.execute("SELECT id FROM users WHERE role = %s AND is_active = TRUE LIMIT 1", (cmd_role,))
+            cmd_user = cur.fetchone()
+            cmd_id = cmd_user['id'] if cmd_user else None
+            if not cmd_id:
+                raise Exception(f"No active user found for role {cmd_role}.")
 
         status_before = petition['status']
         cur.execute("""
@@ -1732,6 +1902,37 @@ def po_direct_lodge_no_enquiry(petition_id, po_user_id, lodge_remarks=None, efil
     finally:
         conn.close()
 
+def cvo_direct_lodge_petition(petition_id, cvo_user_id, lodge_remarks=None):
+    """CVO directly lodges petition for eligible media-source cases."""
+    conn = get_db()
+    try:
+        cur = dict_cursor(conn)
+        cur.execute("SELECT status FROM petitions WHERE id = %s", (petition_id,))
+        petition = cur.fetchone()
+        if not petition:
+            raise Exception("Petition not found.")
+        status_before = petition['status']
+
+        cur.execute("""
+            UPDATE petitions
+            SET status = 'lodged',
+                current_handler_id = %s,
+                updated_at = CURRENT_TIMESTAMP
+            WHERE id = %s
+        """, (cvo_user_id, petition_id))
+
+        cur.execute("""
+            INSERT INTO petition_tracking (petition_id, from_user_id, from_role, action, comments, status_before, status_after)
+            VALUES (%s, %s, (SELECT role FROM users WHERE id = %s), 'Direct Lodged by CVO (Media Source)', %s, %s, 'lodged')
+        """, (petition_id, cvo_user_id, cvo_user_id, lodge_remarks, status_before))
+
+        conn.commit()
+    except Exception as e:
+        conn.rollback()
+        raise e
+    finally:
+        conn.close()
+
 def cvo_take_action(petition_id, cvo_user_id, action_taken):
     """CVO takes necessary action and closes petition"""
     conn = get_db()
@@ -1862,12 +2063,41 @@ def get_enquiry_report(petition_id):
     finally:
         conn.close()
 
+
+def get_latest_enquiry_report_accident_details(petition_ids):
+    if not petition_ids:
+        return {}
+    conn = get_db()
+    try:
+        cur = dict_cursor(conn)
+        placeholders = ', '.join(['%s'] * len(petition_ids))
+        cur.execute(f"""
+            SELECT DISTINCT ON (er.petition_id)
+                er.petition_id,
+                er.accident_type,
+                er.deceased_category,
+                er.non_departmental_type,
+                er.general_public_count,
+                er.animals_count
+            FROM enquiry_reports er
+            WHERE er.petition_id IN ({placeholders})
+            ORDER BY er.petition_id, er.submitted_at DESC, er.id DESC
+        """, tuple(petition_ids))
+        out = {}
+        for row in cur.fetchall():
+            r = dict(row)
+            out[int(r['petition_id'])] = r
+        return out
+    finally:
+        conn.close()
+
 def get_dashboard_stats(user_role, user_id=None, cvo_office=None):
     visible_petitions = get_petitions_for_user(user_id, user_role, cvo_office, status_filter=None)
     stats = {}
     stats['total_visible'] = len(visible_petitions)
     stats.update(_get_workflow_stage_stats(visible_petitions))
     stats.update(_get_sla_stats_for_petitions(visible_petitions))
+    stats.update(_get_electrical_accident_stats_for_petitions(visible_petitions))
     stats['kpi_cards'] = _build_role_kpi_cards(user_role, visible_petitions, user_id)
     return stats
 
@@ -1905,9 +2135,10 @@ def _get_po_permission_given_count(po_user_id):
 def _build_role_kpi_cards(user_role, petitions, user_id=None):
     counts = _count_statuses(petitions)
     is_cvo_like = user_role in ('cvo_apspdcl', 'cvo_apepdcl', 'cvo_apcpdcl', 'dsp')
+    electrical_total = sum(1 for p in petitions if (p.get('petition_type') or '').strip() == 'electrical_accident')
 
     if user_role in ('super_admin',):
-        return [
+        cards = [
             {'label': 'Received', 'value': counts.get('received', 0), 'metric': 'status:received', 'style': 'stat-primary'},
             {'label': 'Forwarded to CVO/DSP', 'value': counts.get('forwarded_to_cvo', 0), 'metric': 'status:forwarded_to_cvo', 'style': 'stat-info'},
             {'label': 'Sent for Permission', 'value': counts.get('sent_for_permission', 0), 'metric': 'status:sent_for_permission', 'style': 'stat-warning'},
@@ -1919,6 +2150,11 @@ def _build_role_kpi_cards(user_role, petitions, user_id=None):
             {'label': 'Lodged', 'value': counts.get('lodged', 0), 'metric': 'status:lodged', 'style': 'stat-amber'},
             {'label': 'Closed', 'value': counts.get('closed', 0), 'metric': 'status:closed', 'style': 'stat-violet'},
         ]
+        if electrical_total:
+            cards.extend([
+                {'label': 'Electrical Accident Cases', 'value': electrical_total, 'metric': 'accident:electrical_total', 'style': 'stat-warning'},
+            ])
+        return cards
     if user_role == 'po':
         return [
             {'label': 'Permission Pending', 'value': counts.get('sent_for_permission', 0), 'metric': 'status:sent_for_permission', 'style': 'stat-warning'},
@@ -1937,6 +2173,7 @@ def _build_role_kpi_cards(user_role, petitions, user_id=None):
             {'label': 'Sent Back for Re-enquiry', 'value': counts.get('sent_back_for_reenquiry', 0), 'metric': 'status:sent_back_for_reenquiry', 'style': 'stat-warning'},
             {'label': 'Enquiry Reports Received', 'value': counts.get('enquiry_report_submitted', 0), 'metric': 'status:enquiry_report_submitted', 'style': 'stat-info'},
             {'label': 'Forwarded to PO', 'value': _count_multi(counts, ['forwarded_to_po', 'forwarded_to_jmd']), 'metric': 'multi:forwarded_to_po,forwarded_to_jmd', 'style': 'stat-violet'},
+            {'label': 'Lodged', 'value': counts.get('lodged', 0), 'metric': 'status:lodged', 'style': 'stat-amber'},
         ]
     if user_role in ('cmd_apspdcl', 'cmd_apepdcl', 'cmd_apcpdcl', 'cgm_hr_transco'):
         return [
@@ -1955,6 +2192,7 @@ def _build_role_kpi_cards(user_role, petitions, user_id=None):
             {'label': 'Received', 'value': counts.get('received', 0), 'metric': 'status:received', 'style': 'stat-primary'},
             {'label': 'Forwarded to CVO/DSP', 'value': counts.get('forwarded_to_cvo', 0), 'metric': 'status:forwarded_to_cvo', 'style': 'stat-info'},
             {'label': 'Sent for Permission', 'value': counts.get('sent_for_permission', 0), 'metric': 'status:sent_for_permission', 'style': 'stat-warning'},
+            {'label': 'Lodged', 'value': counts.get('lodged', 0), 'metric': 'status:lodged', 'style': 'stat-amber'},
         ]
     return [
         {'label': 'Total', 'value': len(petitions), 'metric': 'all', 'style': 'stat-primary'},
@@ -1985,6 +2223,75 @@ def _get_workflow_stage_stats(petitions):
         stage = stage_map.get(p.get('status'), 1)
         counts[f'stage_{stage}'] += 1
     return counts
+
+
+def _get_latest_enquiry_reports_for_petitions(petition_ids):
+    if not petition_ids:
+        return []
+    conn = get_db()
+    try:
+        cur = dict_cursor(conn)
+        placeholders = ', '.join(['%s'] * len(petition_ids))
+        cur.execute(f"""
+            SELECT DISTINCT ON (er.petition_id)
+                er.petition_id,
+                er.accident_type,
+                er.deceased_category,
+                er.non_departmental_type,
+                er.general_public_count,
+                er.animals_count,
+                er.submitted_at
+            FROM enquiry_reports er
+            WHERE er.petition_id IN ({placeholders})
+            ORDER BY er.petition_id, er.submitted_at DESC, er.id DESC
+        """, tuple(petition_ids))
+        return [dict(r) for r in cur.fetchall()]
+    finally:
+        conn.close()
+
+
+def _get_electrical_accident_stats_for_petitions(petitions):
+    electrical_petitions = [p for p in petitions if (p.get('petition_type') or '').strip() == 'electrical_accident']
+    petition_ids = [p.get('id') for p in electrical_petitions if p.get('id')]
+    reports = _get_latest_enquiry_reports_for_petitions(petition_ids)
+    stats = {
+        'electrical_accident_total': len(electrical_petitions),
+        'electrical_accident_fatal': 0,
+        'electrical_accident_non_fatal': 0,
+        'electrical_accident_departmental': 0,
+        'electrical_accident_non_departmental_private': 0,
+        'electrical_accident_non_departmental_contract': 0,
+        'electrical_accident_general_public_petitions': 0,
+        'electrical_accident_general_public_count': 0,
+        'electrical_accident_animals_petitions': 0,
+        'electrical_accident_animals_count': 0,
+    }
+    for row in reports:
+        accident_type = (row.get('accident_type') or '').strip()
+        deceased_category = (row.get('deceased_category') or '').strip()
+        non_departmental_type = (row.get('non_departmental_type') or '').strip()
+        general_public_count = int(row.get('general_public_count') or 0)
+        animals_count = int(row.get('animals_count') or 0)
+
+        if accident_type == 'fatal':
+            stats['electrical_accident_fatal'] += 1
+        elif accident_type == 'non_fatal':
+            stats['electrical_accident_non_fatal'] += 1
+
+        if deceased_category == 'departmental':
+            stats['electrical_accident_departmental'] += 1
+        elif deceased_category == 'non_departmental':
+            if non_departmental_type == 'private':
+                stats['electrical_accident_non_departmental_private'] += 1
+            elif non_departmental_type == 'contract':
+                stats['electrical_accident_non_departmental_contract'] += 1
+        elif deceased_category == 'general_public':
+            stats['electrical_accident_general_public_petitions'] += 1
+            stats['electrical_accident_general_public_count'] += max(general_public_count, 0)
+        elif deceased_category == 'animals':
+            stats['electrical_accident_animals_petitions'] += 1
+            stats['electrical_accident_animals_count'] += max(animals_count, 0)
+    return stats
 
 
 def get_dashboard_drilldown(user_role, user_id, cvo_office, metric):
@@ -2030,6 +2337,33 @@ def get_dashboard_drilldown(user_role, user_id, cvo_office, metric):
     if metric.startswith('petition_type:'):
         wanted = metric.split(':', 1)[1]
         return [p for p in petitions if (p.get('petition_type') or '') == wanted][:500]
+
+    if metric.startswith('accident:'):
+        accident_metric = metric.split(':', 1)[1]
+        electrical_petitions = [p for p in petitions if (p.get('petition_type') or '').strip() == 'electrical_accident']
+        if accident_metric == 'electrical_total':
+            return electrical_petitions[:500]
+        petition_ids = [p.get('id') for p in electrical_petitions if p.get('id')]
+        latest_reports = _get_latest_enquiry_reports_for_petitions(petition_ids)
+        by_petition = {int(r['petition_id']): r for r in latest_reports if r.get('petition_id')}
+        filtered = []
+        for p in electrical_petitions:
+            report = by_petition.get(int(p.get('id') or 0), {})
+            if accident_metric == 'fatal' and (report.get('accident_type') == 'fatal'):
+                filtered.append(p)
+            elif accident_metric == 'non_fatal' and (report.get('accident_type') == 'non_fatal'):
+                filtered.append(p)
+            elif accident_metric == 'departmental' and (report.get('deceased_category') == 'departmental'):
+                filtered.append(p)
+            elif accident_metric == 'non_departmental_private' and (report.get('deceased_category') == 'non_departmental') and (report.get('non_departmental_type') == 'private'):
+                filtered.append(p)
+            elif accident_metric == 'non_departmental_contract' and (report.get('deceased_category') == 'non_departmental') and (report.get('non_departmental_type') == 'contract'):
+                filtered.append(p)
+            elif accident_metric == 'general_public' and (report.get('deceased_category') == 'general_public'):
+                filtered.append(p)
+            elif accident_metric == 'animals' and (report.get('deceased_category') == 'animals'):
+                filtered.append(p)
+        return filtered[:500]
 
     if metric.startswith('source:'):
         wanted = metric.split(':', 1)[1]
@@ -2085,22 +2419,71 @@ def get_dashboard_drilldown(user_role, user_id, cvo_office, metric):
         finally:
             conn.close()
 
-    if metric not in {'sla_total', 'sla_in_progress', 'sla_within', 'sla_breached'}:
+    if metric not in {
+        'sla_total',
+        'sla_closed_total',
+        'sla_open_total',
+        'sla_closed_within',
+        'sla_closed_beyond',
+        'sla_open_within',
+        'sla_open_beyond',
+        'sla_total_within',
+        'sla_total_beyond',
+        'sla_in_progress',
+        'sla_within',
+        'sla_breached',
+        'sla_beyond',
+    }:
         return []
 
     return _get_sla_filtered_petitions(petitions, metric)[:500]
 
 
 def _get_sla_stats_for_petitions(petitions):
+    rows = get_sla_evaluation_rows(petitions)
+    closed_rows = [r for r in rows if r.get('closed_at')]
+    open_rows = [r for r in rows if not r.get('closed_at')]
+
+    closed_within = sum(1 for r in closed_rows if r.get('sla_state') == 'within')
+    closed_beyond = sum(1 for r in closed_rows if r.get('sla_state') == 'beyond')
+    open_within = sum(1 for r in open_rows if r.get('sla_bucket') == 'within')
+    open_beyond = sum(1 for r in open_rows if r.get('sla_bucket') == 'beyond')
+
+    total_within = closed_within + open_within
+    total_beyond = closed_beyond + open_beyond
+    closed_total = len(closed_rows)
+    open_total = len(open_rows)
+
     return {
-        'sla_total': len(_get_sla_filtered_petitions(petitions, 'sla_total')),
-        'sla_in_progress': len(_get_sla_filtered_petitions(petitions, 'sla_in_progress')),
-        'sla_within': len(_get_sla_filtered_petitions(petitions, 'sla_within')),
-        'sla_breached': len(_get_sla_filtered_petitions(petitions, 'sla_breached')),
+        'sla_total': len(rows),
+        'sla_closed_total': closed_total,
+        'sla_open_total': open_total,
+        'sla_closed_within': closed_within,
+        'sla_closed_beyond': closed_beyond,
+        'sla_open_within': open_within,
+        'sla_open_beyond': open_beyond,
+        'sla_total_within': total_within,
+        'sla_total_beyond': total_beyond,
+        # Backward-compatible keys used in existing dashboard/UI components.
+        'sla_in_progress': open_total,
+        'sla_within': total_within,
+        'sla_breached': total_beyond,
+        'sla_beyond': total_beyond,
     }
 
 
-def _get_sla_filtered_petitions(petitions, metric):
+def _resolve_sla_days_for_petition(petition, converted_to_detailed=False):
+    source = (petition.get('source_of_petition') or '').strip()
+    enquiry_type = (petition.get('enquiry_type') or 'detailed').strip()
+    if source == 'media':
+        # Electronic and print media petitions have dedicated SLA.
+        return 45
+    if enquiry_type == 'preliminary':
+        return 15
+    return 60
+
+
+def get_sla_evaluation_rows(petitions):
     if not petitions:
         return []
     petition_ids = [p['id'] for p in petitions if p.get('id')]
@@ -2115,7 +2498,15 @@ def _get_sla_filtered_petitions(petitions, metric):
             SELECT
                 petition_id,
                 MIN(CASE WHEN status_after = 'assigned_to_inspector' THEN created_at END) AS assigned_at,
-                MIN(CASE WHEN status_after = 'closed' THEN created_at END) AS closed_at
+                MIN(CASE WHEN status_after = 'closed' THEN created_at END) AS closed_at,
+                MAX(
+                    CASE
+                        WHEN LOWER(COALESCE(action, '')) LIKE '%%detailed enquiry%%'
+                         AND LOWER(COALESCE(action, '')) LIKE '%%permission%%'
+                        THEN 1
+                        ELSE 0
+                    END
+                ) AS converted_to_detailed
             FROM petition_tracking
             WHERE petition_id = ANY(%s)
             GROUP BY petition_id
@@ -2127,42 +2518,95 @@ def _get_sla_filtered_petitions(petitions, metric):
 
     now = datetime.now()
     out = []
-    for p in petitions:
-        t = tracking_index.get(p['id']) or {}
-        assigned_at = t.get('assigned_at')
-        closed_at = t.get('closed_at')
+    for petition in petitions:
+        petition_id = petition.get('id')
+        if not petition_id:
+            continue
+        track = tracking_index.get(petition_id) or {}
+        assigned_at = track.get('assigned_at')
+        closed_at = track.get('closed_at')
         if not assigned_at:
             continue
 
-        sla_days = 7 if (p.get('enquiry_type') == 'preliminary') else 45
+        converted_to_detailed = bool(track.get('converted_to_detailed'))
+        sla_days = _resolve_sla_days_for_petition(petition, converted_to_detailed)
         end_time = closed_at or now
-        elapsed_days = (end_time - assigned_at).days
-        is_within = closed_at and elapsed_days <= sla_days
-        is_breached = (closed_at and elapsed_days > sla_days) or (not closed_at and elapsed_days > sla_days)
-        is_in_progress = (not closed_at and elapsed_days <= sla_days)
+        elapsed_days = max(0, (end_time - assigned_at).days)
 
-        include = (
-            metric == 'sla_total'
-            or (metric == 'sla_within' and is_within)
-            or (metric == 'sla_breached' and is_breached)
-            or (metric == 'sla_in_progress' and is_in_progress)
-        )
-        if include:
-            out.append(p)
+        if closed_at:
+            sla_state = 'within' if elapsed_days <= sla_days else 'beyond'
+            sla_bucket = sla_state
+        else:
+            sla_state = 'beyond' if elapsed_days > sla_days else 'in_progress'
+            sla_bucket = 'beyond' if elapsed_days > sla_days else 'within'
+
+        row = dict(petition)
+        row.update({
+            'assigned_at': assigned_at,
+            'closed_at': closed_at,
+            'converted_to_detailed': converted_to_detailed,
+            'sla_days': sla_days,
+            'elapsed_days': elapsed_days,
+            'sla_state': sla_state,
+            'sla_bucket': sla_bucket,
+        })
+        out.append(row)
     return out
+
+
+def _get_sla_filtered_petitions(petitions, metric):
+    rows = get_sla_evaluation_rows(petitions)
+    if metric == 'sla_total':
+        return rows
+    if metric == 'sla_closed_total':
+        return [r for r in rows if r.get('closed_at')]
+    if metric == 'sla_open_total':
+        return [r for r in rows if not r.get('closed_at')]
+    if metric == 'sla_closed_within':
+        return [r for r in rows if r.get('closed_at') and r.get('sla_state') == 'within']
+    if metric == 'sla_closed_beyond':
+        return [r for r in rows if r.get('closed_at') and r.get('sla_state') == 'beyond']
+    if metric == 'sla_open_within':
+        return [r for r in rows if (not r.get('closed_at')) and r.get('sla_bucket') == 'within']
+    if metric == 'sla_open_beyond':
+        return [r for r in rows if (not r.get('closed_at')) and r.get('sla_bucket') == 'beyond']
+    if metric == 'sla_total_within':
+        return [r for r in rows if r.get('sla_bucket') == 'within']
+    if metric == 'sla_total_beyond':
+        return [r for r in rows if r.get('sla_bucket') == 'beyond']
+    if metric == 'sla_within':
+        return [r for r in rows if r.get('sla_bucket') == 'within']
+    if metric in ('sla_breached', 'sla_beyond'):
+        return [r for r in rows if r.get('sla_bucket') == 'beyond']
+    if metric == 'sla_in_progress':
+        return [r for r in rows if not r.get('closed_at')]
+    return []
 
 
 def _get_sla_stats(conn, user_role, user_id=None):
     """
-    SLA window: 7 days (preliminary) / 45 days (detailed) from assignment to petition closure.
+    SLA window:
+    - Preliminary: 15 days
+    - Detailed: 60 days
+    - Electronic and Print Media source: 45 days
+    - Hard cap for any petition: 90 days total
     """
     cur = dict_cursor(conn)
     query = """
         SELECT
             p.id,
             p.enquiry_type,
+            p.source_of_petition,
             MIN(CASE WHEN pt.status_after = 'assigned_to_inspector' THEN pt.created_at END) AS assigned_at,
-            MIN(CASE WHEN pt.status_after = 'closed' THEN pt.created_at END) AS closed_at
+            MIN(CASE WHEN pt.status_after = 'closed' THEN pt.created_at END) AS closed_at,
+            MAX(
+                CASE
+                    WHEN LOWER(COALESCE(pt.action, '')) LIKE '%%detailed enquiry%%'
+                     AND LOWER(COALESCE(pt.action, '')) LIKE '%%permission%%'
+                    THEN 1
+                    ELSE 0
+                END
+            ) AS converted_to_detailed
         FROM petitions p
         LEFT JOIN petition_tracking pt ON pt.petition_id = p.id
     """
@@ -2200,8 +2644,8 @@ def _get_sla_stats(conn, user_role, user_id=None):
     for row in rows:
         assigned_at = row.get('assigned_at')
         closed_at = row.get('closed_at')
-        enquiry_type = row.get('enquiry_type') or 'detailed'
-        sla_days = 7 if enquiry_type == 'preliminary' else 45
+        converted_to_detailed = bool(row.get('converted_to_detailed'))
+        sla_days = _resolve_sla_days_for_petition(row, converted_to_detailed)
         if not assigned_at:
             continue
 
@@ -2224,6 +2668,217 @@ def _get_sla_stats(conn, user_role, user_id=None):
         'sla_total': total,
         'sla_within': within,
         'sla_breached': breached,
+        'sla_beyond': breached,
         'sla_in_progress': in_progress,
+    }
+
+
+def _get_all_sla_officers():
+    conn = get_db()
+    try:
+        cur = dict_cursor(conn)
+        cur.execute("""
+            SELECT id, full_name, role, cvo_office
+            FROM users
+            WHERE is_active = TRUE
+              AND role IN (
+                'cmd_apspdcl', 'cmd_apepdcl', 'cmd_apcpdcl', 'cgm_hr_transco',
+                'dsp', 'cvo_apspdcl', 'cvo_apepdcl', 'cvo_apcpdcl',
+                'inspector'
+              )
+            ORDER BY full_name NULLS LAST, id
+        """)
+        return [dict(row) for row in cur.fetchall()]
+    finally:
+        conn.close()
+
+
+def _get_user_roles_map(user_ids):
+    ids = [int(i) for i in (user_ids or []) if int(i or 0) > 0]
+    if not ids:
+        return {}
+    conn = get_db()
+    try:
+        cur = dict_cursor(conn)
+        cur.execute("SELECT id, role FROM users WHERE id = ANY(%s)", (ids,))
+        return {int(r['id']): (r.get('role') or '').strip() for r in cur.fetchall()}
+    finally:
+        conn.close()
+
+
+def _resolve_sla_row_officer(row, user_roles=None):
+    # Prefer current handler so dashboard reflects "petitions with officer now";
+    # fallback to assigned inspector for rows without a current handler.
+    allowed_roles = {
+        'cmd_apspdcl', 'cmd_apepdcl', 'cmd_apcpdcl', 'cgm_hr_transco',
+        'dsp', 'cvo_apspdcl', 'cvo_apepdcl', 'cvo_apcpdcl', 'inspector'
+    }
+    role_map = user_roles or {}
+
+    handler_id = int(row.get('current_handler_id') or 0)
+    handler_role = (role_map.get(handler_id) or '').strip()
+    if handler_id and handler_role in allowed_roles:
+        handler_name = (row.get('handler_name') or '').strip() or f'Officer {handler_id}'
+        return handler_id, handler_name
+
+    inspector_id = int(row.get('assigned_inspector_id') or 0)
+    inspector_role = (role_map.get(inspector_id) or '').strip()
+    if inspector_id and (not inspector_role or inspector_role in allowed_roles):
+        inspector_name = (row.get('inspector_name') or '').strip() or f'Officer {inspector_id}'
+        return inspector_id, inspector_name
+    return 0, ''
+
+
+def get_sla_dashboard_data_for_user(user_role, user_id=None, cvo_office=None):
+    petitions = get_petitions_for_user(user_id, user_role, cvo_office, status_filter=None)
+    if user_role == 'data_entry' and user_id:
+        # In SLA dashboard, DEO should only see petitions related to their own login.
+        petitions = [
+            p for p in petitions
+            if int(p.get('created_by') or 0) == int(user_id)
+            or int(p.get('current_handler_id') or 0) == int(user_id)
+        ]
+    eval_rows = get_sla_evaluation_rows(petitions)
+    summary = _get_sla_stats_for_petitions(petitions)
+    relevant_user_ids = set()
+    for r in eval_rows:
+        hid = int(r.get('current_handler_id') or 0)
+        iid = int(r.get('assigned_inspector_id') or 0)
+        if hid:
+            relevant_user_ids.add(hid)
+        if iid:
+            relevant_user_ids.add(iid)
+    user_roles = _get_user_roles_map(list(relevant_user_ids))
+
+    privileged_full_access = user_role in ('super_admin', 'po')
+    employee_map = {}
+    if privileged_full_access:
+        officers = _get_all_sla_officers()
+        employee_map = {
+            int(o['id']): {
+                'officer_id': int(o['id']),
+                'officer_name': (o.get('full_name') or '').strip() or f"Officer {o['id']}",
+                'officer_role': o.get('role'),
+                'total': 0,
+                'within': 0,
+                'beyond': 0,
+                'in_progress': 0,
+            }
+            for o in officers if o.get('id')
+        }
+
+    for row in eval_rows:
+        officer_id, officer_name = _resolve_sla_row_officer(row, user_roles=user_roles)
+        if not officer_id:
+            continue
+        bucket = employee_map.setdefault(officer_id, {
+            'officer_id': officer_id,
+            'officer_name': officer_name,
+            'officer_role': None,
+            'total': 0,
+            'within': 0,
+            'beyond': 0,
+            'in_progress': 0,
+        })
+        if not bucket.get('officer_name'):
+            bucket['officer_name'] = officer_name
+        bucket['total'] += 1
+        bucket_state = row.get('sla_bucket')
+        if bucket_state == 'within':
+            bucket['within'] += 1
+        elif bucket_state == 'beyond':
+            bucket['beyond'] += 1
+        if not row.get('closed_at'):
+            bucket['in_progress'] += 1
+
+    if not privileged_full_access:
+        # For non-PO/non-super-admin, show only officers in their visibility scope.
+        employee_map = {
+            k: v for k, v in employee_map.items()
+            if int(v.get('total') or 0) > 0 or int(v.get('officer_id') or 0) == int(user_id or 0)
+        }
+
+    employees = sorted(
+        employee_map.values(),
+        key=lambda x: (-x['beyond'], -x['total'], x['officer_name'].lower())
+    )
+
+    return {
+        'summary': summary,
+        'employees': employees,
+        'petitions': eval_rows,
+    }
+
+
+def get_sla_employee_profile_for_user(user_role, viewer_user_id, cvo_office, officer_id):
+    dashboard_data = get_sla_dashboard_data_for_user(user_role, viewer_user_id, cvo_office)
+    privileged_full_access = user_role in ('super_admin', 'po')
+    allowed_officer_ids = {
+        int(e.get('officer_id') or 0)
+        for e in dashboard_data.get('employees', [])
+        if int(e.get('officer_id') or 0)
+    }
+    if not privileged_full_access and int(officer_id) not in allowed_officer_ids:
+        return {
+            'officer': None,
+            'summary': {
+                'total': 0,
+                'closed_total': 0,
+                'open_total': 0,
+                'closed_within': 0,
+                'closed_beyond': 0,
+                'open_within': 0,
+                'open_beyond': 0,
+                'total_within': 0,
+                'total_beyond': 0,
+                'within': 0,
+                'beyond': 0,
+                'in_progress': 0,
+            },
+            'petitions': [],
+            'unauthorized': True,
+        }
+
+    relevant_user_ids = set()
+    for r in dashboard_data.get('petitions', []):
+        hid = int(r.get('current_handler_id') or 0)
+        iid = int(r.get('assigned_inspector_id') or 0)
+        if hid:
+            relevant_user_ids.add(hid)
+        if iid:
+            relevant_user_ids.add(iid)
+    user_roles = _get_user_roles_map(list(relevant_user_ids))
+
+    petitions = [
+        row for row in dashboard_data.get('petitions', [])
+        if int(_resolve_sla_row_officer(row, user_roles=user_roles)[0] or 0) == int(officer_id)
+    ]
+    closed_rows = [p for p in petitions if p.get('closed_at')]
+    open_rows = [p for p in petitions if not p.get('closed_at')]
+    closed_within = sum(1 for p in closed_rows if p.get('sla_state') == 'within')
+    closed_beyond = sum(1 for p in closed_rows if p.get('sla_state') == 'beyond')
+    open_within = sum(1 for p in open_rows if p.get('sla_bucket') == 'within')
+    open_beyond = sum(1 for p in open_rows if p.get('sla_bucket') == 'beyond')
+    summary = {
+        'total': len(petitions),
+        'closed_total': len(closed_rows),
+        'open_total': len(open_rows),
+        'closed_within': closed_within,
+        'closed_beyond': closed_beyond,
+        'open_within': open_within,
+        'open_beyond': open_beyond,
+        'total_within': (closed_within + open_within),
+        'total_beyond': (closed_beyond + open_beyond),
+        # Backward compatibility
+        'within': (closed_within + open_within),
+        'beyond': (closed_beyond + open_beyond),
+        'in_progress': len(open_rows),
+    }
+    officer = get_user_by_id(officer_id)
+    return {
+        'officer': officer,
+        'summary': summary,
+        'petitions': petitions,
+        'unauthorized': False,
     }
 

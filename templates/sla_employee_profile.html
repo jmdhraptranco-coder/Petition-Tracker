@@ -1,0 +1,458 @@
+{% extends "base.html" %}
+{% block title %}Employee SLA Profile - Petition Tracker{% endblock %}
+{% block page_title %}<span data-i18n="sla.emp.page_title">Employee SLA Profile</span>{% endblock %}
+
+{% block content %}
+<style>
+.sla-profile-compact {
+    display: grid;
+    gap: 8px;
+    padding: 8px 10px 10px;
+}
+.sla-profile-compact .card {
+    margin: 0 !important;
+    border-radius: 14px;
+}
+.sla-profile-compact .card-header {
+    padding: 14px 16px !important;
+}
+.sla-profile-compact .stats-grid {
+    gap: 8px;
+    grid-template-columns: repeat(3, minmax(160px, 1fr));
+    margin: 0 !important;
+    padding: 4px 6px 10px;
+}
+.sla-emp-kpi {
+    border-radius: 12px;
+    min-height: 92px;
+    padding: 12px 14px;
+    color: #fff;
+    position: relative;
+    overflow: hidden;
+    border: 1px solid rgba(255,255,255,.24);
+    cursor: pointer;
+    transition: transform .16s ease, box-shadow .16s ease;
+}
+.sla-emp-kpi::after {
+    content: "";
+    position: absolute;
+    right: -18px;
+    top: -18px;
+    width: 78px;
+    height: 78px;
+    border-radius: 999px;
+    background: rgba(255,255,255,.16);
+}
+.sla-emp-kpi:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 9px 16px rgba(2, 6, 23, .2);
+}
+.sla-emp-kpi .v {
+    font-size: 36px;
+    font-weight: 800;
+    line-height: 1;
+}
+.sla-emp-kpi .l {
+    margin-top: 6px;
+    font-size: 13px;
+    opacity: .95;
+}
+.sla-emp-kpi.kpi-total { background: linear-gradient(135deg, #2563eb, #7c3aed); }
+.sla-emp-kpi.kpi-closed { background: linear-gradient(135deg, #0284c7, #22a3df); }
+.sla-emp-kpi.kpi-open { background: linear-gradient(135deg, #ca8a04, #f59e0b); }
+.sla-emp-kpi.kpi-closed-within { background: linear-gradient(135deg, #059669, #22c55e); }
+.sla-emp-kpi.kpi-closed-beyond { background: linear-gradient(135deg, #dc2626, #f97316); }
+.sla-emp-kpi.kpi-open-within { background: linear-gradient(135deg, #059669, #22c55e); }
+.sla-emp-kpi.kpi-open-beyond { background: linear-gradient(135deg, #dc2626, #f97316); }
+.sla-emp-kpi.kpi-total-within { background: linear-gradient(135deg, #059669, #22c55e); }
+.sla-emp-kpi.kpi-total-beyond { background: linear-gradient(135deg, #dc2626, #f97316); }
+.sla-profile-table-wrap {
+    overflow-x: hidden;
+    padding: 0 12px 12px !important;
+}
+.sla-profile-table {
+    width: 100%;
+    min-width: 0;
+    border-collapse: separate;
+    border-spacing: 0;
+    table-layout: fixed;
+}
+.sla-profile-table th,
+.sla-profile-table td {
+    padding: 12px 14px !important;
+    font-size: 0.82rem;
+    vertical-align: top;
+    white-space: normal;
+    overflow-wrap: anywhere;
+    word-break: break-word;
+    box-sizing: border-box;
+    overflow: hidden;
+}
+.sla-profile-table.data-table {
+    min-width: 0 !important;
+}
+.sla-profile-table thead th {
+    position: static;
+    background: #f6f9ff;
+    color: #6f7f9f;
+    border-bottom-color: #e0e9fb;
+}
+.sla-profile-table td {
+    color: #2a3652;
+    border-bottom-color: #edf2ff;
+}
+.sla-profile-table th:nth-child(1) { width: 7%; }
+.sla-profile-table th:nth-child(2) { width: 14%; }
+.sla-profile-table th:nth-child(3) { width: 28%; }
+.sla-profile-table th:nth-child(4) { width: 12%; }
+.sla-profile-table th:nth-child(5) { width: 11%; }
+.sla-profile-table th:nth-child(6) { width: 11%; }
+.sla-profile-table th:nth-child(7) { width: 10%; }
+.sla-profile-table th:nth-child(8) { width: 7%; }
+.sla-profile-table td:nth-child(3) { line-height: 1.3; }
+
+.sla-emp-drill-table {
+    width: 100%;
+    min-width: 0 !important;
+    table-layout: fixed;
+    border-collapse: separate;
+    border-spacing: 0;
+}
+.sla-emp-drill-wrap {
+    overflow-x: hidden !important;
+    padding: 0 12px 12px !important;
+}
+.sla-emp-drill-table th,
+.sla-emp-drill-table td {
+    padding: 12px 14px !important;
+    font-size: 0.82rem;
+    vertical-align: top;
+    overflow-wrap: anywhere;
+    word-break: break-word;
+    white-space: normal;
+    box-sizing: border-box;
+    overflow: hidden;
+}
+.sla-emp-drill-table th:nth-child(1) { width: 8%; }
+.sla-emp-drill-table th:nth-child(2) { width: 14%; }
+.sla-emp-drill-table th:nth-child(3) { width: 28%; }
+.sla-emp-drill-table th:nth-child(4) { width: 12%; }
+.sla-emp-drill-table th:nth-child(5) { width: 11%; }
+.sla-emp-drill-table th:nth-child(6) { width: 11%; }
+.sla-emp-drill-table th:nth-child(7) { width: 10%; }
+.sla-emp-drill-table th:nth-child(8) { width: 6%; }
+.sla-emp-drill-table thead th {
+    position: static;
+    background: #f6f9ff;
+    color: #6f7f9f;
+    border-bottom-color: #e0e9fb;
+}
+.sla-emp-drill-table td {
+    color: #2a3652;
+    border-bottom-color: #edf2ff;
+}
+.sla-emp-drill-table tbody tr {
+    transition: background 0.18s ease, transform 0.18s ease, box-shadow 0.18s ease;
+}
+@media (hover: hover) {
+    .sla-emp-drill-table tbody tr:hover {
+        background: #f3f8ff;
+        transform: translateY(-1px);
+        box-shadow: 0 8px 16px rgba(36, 66, 140, 0.09);
+    }
+}
+.sla-profile-table td:nth-child(1),
+.sla-profile-table td:nth-child(2),
+.sla-profile-table td:nth-child(4),
+.sla-profile-table td:nth-child(5),
+.sla-profile-table td:nth-child(6),
+.sla-profile-table td:nth-child(7) {
+    white-space: normal;
+}
+.sla-profile-table tbody tr[data-href] {
+    cursor: pointer;
+}
+.sla-profile-table tbody tr[data-href]:hover {
+    background: #f3f8ff;
+    transform: translateY(-1px);
+    box-shadow: 0 8px 16px rgba(36, 66, 140, 0.09);
+}
+.sla-profile-table .petition-link {
+    color: inherit;
+    text-decoration: underline;
+    text-underline-offset: 2px;
+}
+@media (max-width: 860px) {
+    .sla-profile-compact .card-header h2 {
+        font-size: 1rem;
+        line-height: 1.2;
+    }
+    .sla-profile-compact .card-header p {
+        font-size: 12px;
+        line-height: 1.35;
+    }
+    .sla-profile-compact .stats-grid {
+        grid-template-columns: repeat(2, minmax(140px, 1fr));
+    }
+    .sla-profile-table { min-width: 0; }
+    .sla-profile-table th,
+    .sla-profile-table td {
+        font-size: 12px;
+        padding: 8px 9px !important;
+    }
+    .sla-emp-drill-table th,
+    .sla-emp-drill-table td {
+        font-size: 12px;
+        padding: 8px 9px !important;
+    }
+    .sla-emp-kpi .v { font-size: 30px; }
+}
+@media (max-width: 560px) {
+    .sla-profile-compact .stats-grid {
+        grid-template-columns: 1fr;
+    }
+    .sla-profile-compact {
+        padding: 4px 4px 8px;
+    }
+    .sla-profile-compact .card-header {
+        padding: 8px 10px !important;
+    }
+    .sla-emp-kpi { min-height: 74px; padding: 8px 10px; }
+    .sla-emp-kpi .v { font-size: 24px; }
+    .sla-emp-kpi .l { font-size: 11px; margin-top: 4px; }
+    .sla-profile-table-wrap {
+        padding: 0 4px 8px !important;
+    }
+    .sla-profile-table { min-width: 0; }
+    .sla-profile-table th,
+    .sla-profile-table td {
+        font-size: 11px;
+        padding: 7px 8px !important;
+    }
+    .sla-emp-drill-table th,
+    .sla-emp-drill-table td {
+        font-size: 11px;
+        padding: 7px 8px !important;
+    }
+    .status-badge {
+        font-size: 10px !important;
+        padding: 2px 7px !important;
+    }
+    .btn.btn-xs {
+        padding: 5px 8px !important;
+        font-size: 10px !important;
+    }
+}
+@media (max-width: 420px) {
+    .sla-profile-table { min-width: 0; }
+}
+</style>
+<div class="sla-profile-compact">
+<div class="card">
+    <div class="card-header">
+        <h2>{{ officer.get('full_name', 'Officer') }}</h2>
+        <p><span data-i18n="sla.emp.role">Role</span>: {{ role_labels.get(officer.get('role'), officer.get('role')) }}</p>
+        {% if officer.get('phone') or officer.get('email') %}
+        <p>
+            {% if officer.get('phone') %}Phone: {{ officer.get('phone') }}{% endif %}
+            {% if officer.get('phone') and officer.get('email') %} | {% endif %}
+            {% if officer.get('email') %}Email: {{ officer.get('email') }}{% endif %}
+        </p>
+        {% endif %}
+        <a href="{{ url_for('sla_dashboard') }}" class="btn btn-xs btn-outline" data-i18n="sla.emp.back">Back to SLA Dashboard</a>
+    </div>
+    <div class="stats-grid">
+        <div class="sla-emp-kpi kpi-total" data-metric="total" data-title="Total Petitions">
+            <div class="v">{{ sla_summary.get('total', 0) }}</div>
+            <div class="l" data-i18n="sla.kpi.total_petitions">Total Petitions</div>
+        </div>
+        <div class="sla-emp-kpi kpi-open" data-metric="open_total" data-title="Open Petitions">
+            <div class="v">{{ sla_summary.get('open_total', 0) }}</div>
+            <div class="l" data-i18n="sla.kpi.open">Open</div>
+        </div>
+        <div class="sla-emp-kpi kpi-closed" data-metric="closed_total" data-title="Closed Petitions">
+            <div class="v">{{ sla_summary.get('closed_total', 0) }}</div>
+            <div class="l" data-i18n="sla.kpi.closed">Closed</div>
+        </div>
+        <div class="sla-emp-kpi kpi-total-within" data-metric="total_within" data-title="Total Within SLA">
+            <div class="v">{{ sla_summary.get('total_within', sla_summary.get('within', 0)) }}</div>
+            <div class="l" data-i18n="sla.kpi.total_within">Total Within SLA</div>
+        </div>
+        <div class="sla-emp-kpi kpi-open-within" data-metric="open_within" data-title="Open Within SLA">
+            <div class="v">{{ sla_summary.get('open_within', 0) }}</div>
+            <div class="l" data-i18n="sla.kpi.open_within">Open Within SLA</div>
+        </div>
+        <div class="sla-emp-kpi kpi-closed-within" data-metric="closed_within" data-title="Closed Within SLA">
+            <div class="v">{{ sla_summary.get('closed_within', 0) }}</div>
+            <div class="l" data-i18n="sla.kpi.closed_within">Closed Within SLA</div>
+        </div>
+        <div class="sla-emp-kpi kpi-total-beyond" data-metric="total_beyond" data-title="Total Beyond SLA">
+            <div class="v">{{ sla_summary.get('total_beyond', sla_summary.get('beyond', 0)) }}</div>
+            <div class="l" data-i18n="sla.kpi.total_beyond">Total Beyond SLA</div>
+        </div>
+        <div class="sla-emp-kpi kpi-open-beyond" data-metric="open_beyond" data-title="Open Beyond SLA">
+            <div class="v">{{ sla_summary.get('open_beyond', 0) }}</div>
+            <div class="l" data-i18n="sla.kpi.open_beyond">Open Beyond SLA</div>
+        </div>
+        <div class="sla-emp-kpi kpi-closed-beyond" data-metric="closed_beyond" data-title="Closed Beyond SLA">
+            <div class="v">{{ sla_summary.get('closed_beyond', 0) }}</div>
+            <div class="l" data-i18n="sla.kpi.closed_beyond">Closed Beyond SLA</div>
+        </div>
+    </div>
+</div>
+
+<div class="card">
+    <div class="card-header">
+        <h3 data-i18n="sla.emp.petitions_with_employee">Petitions with Employee</h3>
+    </div>
+    <div class="sla-profile-table-wrap">
+        <table class="sla-profile-table data-table">
+            <thead>
+                <tr>
+                    <th data-i18n="table.sno">S.No</th>
+                    <th data-i18n="table.petitioner">Petitioner</th>
+                    <th data-i18n="table.subject">Subject</th>
+                    <th data-i18n="table.status">Status</th>
+                    <th data-i18n="sla.emp.sla_target_days">SLA Target (days)</th>
+                    <th data-i18n="sla.emp.elapsed_days">Elapsed (days)</th>
+                    <th data-i18n="sla.emp.sla_state">SLA State</th>
+                    <th></th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for p in sla_petitions %}
+                <tr data-href="{{ url_for('petition_view', petition_id=p.id) }}">
+                    <td><a class="petition-link" href="{{ url_for('petition_view', petition_id=p.id) }}">{{ p.sno or '-' }}</a></td>
+                    <td>
+                        {% if p.petitioner_name and p.petitioner_name|lower not in ['anonymous', '-'] %}
+                        <a href="#" class="petitioner-profile-link" data-petitioner-name="{{ p.petitioner_name|e }}">{{ p.petitioner_name }}</a>
+                        {% else %}
+                        {{ p.petitioner_name or '-' }}
+                        {% endif %}
+                    </td>
+                    <td title="{{ p.subject }}"><a class="petition-link" href="{{ url_for('petition_view', petition_id=p.id) }}">{{ (p.subject or '-')[:80] }}{% if (p.subject or '')|length > 80 %}...{% endif %}</a></td>
+                    <td>{{ status_labels.get(p.status, p.status) }}</td>
+                    <td>{{ p.sla_days or '-' }}</td>
+                    <td>{{ p.elapsed_days or '-' }}</td>
+                    <td>
+                        {% if p.sla_state == 'within' %}
+                            <span class="status-badge" style="--status-color:#16a34a;" data-i18n="sla.state.within">Within SLA</span>
+                        {% elif p.sla_state == 'beyond' %}
+                            <span class="status-badge" style="--status-color:#dc2626;" data-i18n="sla.state.beyond">Beyond SLA</span>
+                        {% else %}
+                            <span class="status-badge" style="--status-color:#f59e0b;" data-i18n="sla.state.in_progress">In Progress</span>
+                        {% endif %}
+                    </td>
+                    <td><a href="{{ url_for('petition_view', petition_id=p.id) }}" class="btn btn-xs btn-outline" data-i18n="common.view">View</a></td>
+                </tr>
+                {% else %}
+                <tr><td colspan="8" class="empty-state" data-i18n="sla.emp.no_petitions_in_scope">No petitions assigned to this employee in current visibility scope.</td></tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+</div>
+<div id="slaEmpDrilldownModal" class="dash-modal" style="display:none;">
+    <div class="dash-modal-backdrop" onclick="closeSlaEmpDrilldown()"></div>
+    <div class="dash-modal-panel">
+        <div class="card-header">
+            <h3 id="slaEmpDrilldownTitle" data-i18n="sla.emp.drilldown_title">SLA Drilldown</h3>
+            <button class="btn btn-xs btn-outline" type="button" onclick="closeSlaEmpDrilldown()" data-i18n="common.close">Close</button>
+        </div>
+        <div class="table-wrapper sla-emp-drill-wrap">
+            <table class="sla-emp-drill-table data-table">
+                <thead>
+                    <tr>
+                        <th data-i18n="table.sno">S.No</th>
+                        <th data-i18n="table.petitioner">Petitioner</th>
+                        <th data-i18n="table.subject">Subject</th>
+                        <th data-i18n="table.status">Status</th>
+                        <th data-i18n="sla.emp.sla_target">SLA Target</th>
+                        <th data-i18n="sla.emp.elapsed">Elapsed</th>
+                        <th data-i18n="sla.emp.sla_state">SLA State</th>
+                        <th></th>
+                    </tr>
+                </thead>
+                <tbody id="slaEmpDrilldownBody">
+                    <tr><td colspan="8" class="empty-state" data-i18n="common.no_petitions_found">No petitions found.</td></tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+<script>
+(() => {
+    const payload = {{ sla_petitions_json|tojson }};
+    const stateMap = { within: 'Within SLA', beyond: 'Beyond SLA', in_progress: 'In Progress' };
+    const escapeHtml = (val) => String(val || '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+    const byMetric = (metric) => {
+        if (metric === 'total') return payload;
+        if (metric === 'closed_total') return payload.filter(r => r.is_closed);
+        if (metric === 'open_total') return payload.filter(r => !r.is_closed);
+        if (metric === 'closed_within') return payload.filter(r => r.is_closed && (r.sla_bucket || 'within') === 'within');
+        if (metric === 'closed_beyond') return payload.filter(r => r.is_closed && (r.sla_bucket || 'beyond') === 'beyond');
+        if (metric === 'open_within') return payload.filter(r => !r.is_closed && (r.sla_bucket || 'within') === 'within');
+        if (metric === 'open_beyond') return payload.filter(r => !r.is_closed && (r.sla_bucket || 'beyond') === 'beyond');
+        if (metric === 'total_within' || metric === 'within') return payload.filter(r => (r.sla_bucket || 'within') === 'within');
+        if (metric === 'total_beyond' || metric === 'beyond') return payload.filter(r => (r.sla_bucket || 'beyond') === 'beyond');
+        if (metric === 'in_progress') return payload.filter(r => !r.is_closed);
+        return payload;
+    };
+    const openSlaEmpDrilldown = (metric, title) => {
+        const modal = document.getElementById('slaEmpDrilldownModal');
+        const titleEl = document.getElementById('slaEmpDrilldownTitle');
+        const bodyEl = document.getElementById('slaEmpDrilldownBody');
+        if (!modal || !titleEl || !bodyEl) return;
+        const rows = byMetric(metric);
+        titleEl.textContent = title || 'SLA Drilldown';
+        if (!rows.length) {
+            bodyEl.innerHTML = '<tr><td colspan="8" class="empty-state">No petitions found.</td></tr>';
+        } else {
+            bodyEl.innerHTML = rows.map((p) => `
+                <tr>
+                    <td>${escapeHtml(p.sno || '-')}</td>
+                    <td>${(p.petitioner_name && String(p.petitioner_name).toLowerCase() !== 'anonymous' && p.petitioner_name !== '-') ? `<a href="#" class="petitioner-profile-link" data-petitioner-name="${escapeHtml(p.petitioner_name)}">${escapeHtml(p.petitioner_name)}</a>` : escapeHtml(p.petitioner_name || '-')}</td>
+                    <td title="${escapeHtml(p.subject || '-')}">${escapeHtml((p.subject || '-').slice(0, 120))}</td>
+                    <td>${escapeHtml(p.status || '-')}</td>
+                    <td>${escapeHtml(p.sla_days || '-')}</td>
+                    <td>${escapeHtml(p.elapsed_days || '-')}</td>
+                    <td><span class="status-badge" style="--status-color:${(p.sla_state === 'within') ? '#16a34a' : ((p.sla_state === 'beyond') ? '#dc2626' : '#f59e0b')};">${escapeHtml(stateMap[p.sla_state] || 'In Progress')}</span></td>
+                    <td><a href="${escapeHtml(p.view_url)}" class="btn btn-xs btn-outline">View</a></td>
+                </tr>
+            `).join('');
+        }
+        modal.style.display = 'block';
+        modal.classList.add('open');
+    };
+    window.closeSlaEmpDrilldown = () => {
+        const modal = document.getElementById('slaEmpDrilldownModal');
+        if (!modal) return;
+        modal.classList.remove('open');
+        modal.style.display = 'none';
+    };
+    document.querySelectorAll('.sla-emp-kpi[data-metric]').forEach((kpi) => {
+        kpi.addEventListener('click', () => {
+            const translatedTitle = (kpi.querySelector('.l')?.textContent || '').trim();
+            openSlaEmpDrilldown(kpi.getAttribute('data-metric'), translatedTitle || kpi.getAttribute('data-title'));
+        });
+    });
+    const rows = document.querySelectorAll('.sla-profile-table tbody tr[data-href]');
+    rows.forEach((row) => {
+        row.addEventListener('click', (event) => {
+            const target = event.target;
+            if (target && target.closest('a, button, input, textarea, select, label')) {
+                return;
+            }
+            const href = row.getAttribute('data-href');
+            if (href) window.location.href = href;
+        });
+    });
+})();
+</script>
+{% endblock %}

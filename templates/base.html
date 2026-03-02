@@ -37,6 +37,10 @@
                     <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>
                     <span data-i18n="nav.dashboard">Dashboard</span>
                 </a>
+                <a href="{{ url_for('sla_dashboard') }}" class="nav-item {% if request.endpoint in ('sla_dashboard', 'sla_employee_profile') %}active{% endif %}">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3v18h18"/><path d="m7 14 3-3 3 2 4-5"/></svg>
+                    <span data-i18n="nav.sla_dashboard">SLA Dashboard</span>
+                </a>
                 
                 <a href="{{ url_for('petitions_list') }}" class="nav-item {% if request.endpoint in ('petitions_list', 'petition_view') %}active{% endif %}">
                     <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="M16 13H8"/><path d="M16 17H8"/><path d="M10 9H8"/></svg>
@@ -50,6 +54,10 @@
                 <a href="{{ url_for('petitions_list', mode='direct') }}" class="nav-item {% if request.endpoint == 'petitions_list' and request.args.get('mode') == 'direct' %}active{% endif %}">
                     <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3h18v18H3z"/><path d="M8 8h8"/><path d="M8 12h8"/><path d="M8 16h5"/></svg>
                     <span data-i18n="nav.direct_petitions">Direct Petitions</span>
+                </a>
+                <a href="{{ url_for('petitions_import') }}" class="nav-item {% if request.endpoint in ('petitions_import',) %}active{% endif %}">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 16V4"/><path d="m7 11 5 5 5-5"/><path d="M4 20h16"/></svg>
+                    <span data-i18n="nav.bulk_petition_upload">Bulk Petition Upload</span>
                 </a>
                 {% endif %}
 
@@ -154,7 +162,7 @@
                     </div>
                     <div class="lang-toggle" role="group" aria-label="Language switch">
                         <button type="button" class="lang-pill" data-lang="en">EN</button>
-                        <button type="button" class="lang-pill" data-lang="te">తె</button>
+                        <button type="button" class="lang-pill" data-lang="te">TE</button>
                     </div>
                     {% if dashboard_active_filter_count is defined and dashboard_active_filter_count > 0 %}
                     <span class="top-filter-indicator" title="{{ dashboard_active_filter_labels|join(', ') }}">
@@ -194,6 +202,50 @@
 
             <div class="content-area">
                 {% block content %}{% endblock %}
+            </div>
+
+            <div id="petitionerProfileModal" class="dash-modal petitioner-profile-modal" style="display:none;">
+                <div class="dash-modal-backdrop" onclick="window.closePetitionerProfileModal && window.closePetitionerProfileModal()"></div>
+                <div class="dash-modal-panel">
+                    <div class="card-header">
+                        <h3 id="petitionerProfileTitle" data-i18n="petitioner.profile.title">Petitioner Profile</h3>
+                        <button class="btn btn-xs btn-outline" type="button" onclick="window.closePetitionerProfileModal && window.closePetitionerProfileModal()" data-i18n="common.close">Close</button>
+                    </div>
+                    <div class="petitioner-profile-body">
+                        <div class="stats-grid petitioner-profile-kpis">
+                            <div class="stat-card stat-primary"><div class="stat-content"><span class="stat-value" id="petitionerTotal">0</span><span class="stat-label" data-i18n="petitioner.profile.kpi.total">Total</span></div></div>
+                            <div class="stat-card stat-success"><div class="stat-content"><span class="stat-value" id="petitionerClosed">0</span><span class="stat-label" data-i18n="petitioner.profile.kpi.closed">Closed</span></div></div>
+                            <div class="stat-card stat-warning"><div class="stat-content"><span class="stat-value" id="petitionerOpen">0</span><span class="stat-label" data-i18n="petitioner.profile.kpi.open">Open</span></div></div>
+                            <div class="stat-card stat-amber"><div class="stat-content"><span class="stat-value" id="petitionerLodged">0</span><span class="stat-label" data-i18n="petitioner.profile.kpi.lodged">Lodged</span></div></div>
+                        </div>
+                        <div class="petitioner-profile-charts">
+                            <div class="card petitioner-profile-chart-card">
+                                <div class="card-header"><h3 data-i18n="petitioner.profile.trend">Petition Trend</h3></div>
+                                <div class="petitioner-profile-chart-body"><canvas id="petitionerTrendChart" height="140"></canvas></div>
+                            </div>
+                            <div class="card petitioner-profile-chart-card">
+                                <div class="card-header"><h3 data-i18n="petitioner.profile.status_split">Status Split</h3></div>
+                                <div class="petitioner-profile-chart-body"><canvas id="petitionerStatusChart" height="140"></canvas></div>
+                            </div>
+                        </div>
+                        <div class="table-wrapper petitioner-profile-table-wrap">
+                            <table class="data-table">
+                                <thead>
+                                    <tr>
+                                        <th data-i18n="table.sno">S.No</th>
+                                        <th data-i18n="table.subject">Subject</th>
+                                        <th data-i18n="table.status">Status</th>
+                                        <th data-i18n="table.date">Date</th>
+                                        <th></th>
+                                    </tr>
+                                </thead>
+                                <tbody id="petitionerRecentBody">
+                                    <tr><td colspan="5" class="empty-state" data-i18n="common.no_petitions_found">No petitions found.</td></tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
             </div>
         </main>
     </div>

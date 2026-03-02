@@ -96,7 +96,13 @@
                 {% endif %}
                 <div class="info-item">
                     <span class="info-label">Petitioner Name</span>
-                    <span class="info-value">{{ petition.petitioner_name }}</span>
+                    <span class="info-value">
+                        {% if petition.petitioner_name and petition.petitioner_name|lower not in ['anonymous', '-'] %}
+                        <a href="#" class="petitioner-profile-link" data-petitioner-name="{{ petition.petitioner_name|e }}">{{ petition.petitioner_name }}</a>
+                        {% else %}
+                        {{ petition.petitioner_name }}
+                        {% endif %}
+                    </span>
                 </div>
                 <div class="info-item">
                     <span class="info-label">Contact</span>
@@ -127,7 +133,13 @@
                 <div class="info-item">
                     <span class="info-label">SLA Target</span>
                     <span class="info-value">
-                        {% if petition.enquiry_type == 'preliminary' %}7 days{% else %}45 days{% endif %}
+                        {% if petition.source_of_petition == 'media' %}
+                            45 days
+                        {% elif petition.enquiry_type == 'preliminary' %}
+                            15 days
+                        {% else %}
+                            60 days
+                        {% endif %}
                     </span>
                 </div>
                 <div class="info-item">
@@ -176,6 +188,33 @@
                     <span>Submitted by: <strong>{{ report.submitted_by_name }}</strong></span>
                     <span>Date: {{ report.submitted_at.strftime('%d %b %Y %H:%M') if report.submitted_at else '-' }}</span>
                 </div>
+                {% if petition.petition_type == 'electrical_accident' %}
+                <div class="reenquiry-reference" style="margin-bottom:12px;">
+                    <div class="reenquiry-reference-head">
+                        <span class="reenquiry-reference-chip">Electrical Accident Details</span>
+                    </div>
+                    <div class="reenquiry-reference-grid">
+                        <div class="reenquiry-reference-item">
+                            <span class="reenquiry-reference-label">Type of Accident</span>
+                            <p>
+                                {% if report.accident_type == 'fatal' %}Fatal
+                                {% elif report.accident_type == 'non_fatal' %}Non Fatal
+                                {% else %}-{% endif %}
+                            </p>
+                        </div>
+                        <div class="reenquiry-reference-item">
+                            <span class="reenquiry-reference-label">Deceased Person/Category</span>
+                            <p>
+                                {% if report.deceased_category == 'departmental' %}Departmental
+                                {% elif report.deceased_category == 'non_departmental' %}Non Departmental{% if report.non_departmental_type %} ({{ 'Private' if report.non_departmental_type == 'private' else 'Contract' }}){% endif %}
+                                {% elif report.deceased_category == 'general_public' %}General Public{% if report.general_public_count %} - {{ report.general_public_count }}{% endif %}
+                                {% elif report.deceased_category == 'animals' %}Animals{% if report.animals_count %} - {{ report.animals_count }}{% endif %}
+                                {% else %}-{% endif %}
+                            </p>
+                        </div>
+                    </div>
+                </div>
+                {% endif %}
                 <div class="report-stage-flow-wrap">
                     <div class="report-stage-flow">
                         <button type="button" class="report-stage-node" data-title="CI Report" data-content="{{ report.report_text|e }}" data-file-url="{{ url_for('enquiry_file', filename=report.report_file) if report.report_file else '' }}" data-file-label="View Uploaded File" onclick="openReportStageModal(this)">
@@ -364,18 +403,24 @@
                 <div class="action-panel">
                     <h4>PO Decision</h4>
                     {% set cmd_actor_label = 'CGM/HR TRANSCO' if petition.target_cvo == 'headquarters' else 'CMD' %}
+                    {% set has_cmd_cgm_users = (cmd_cgm_users|length > 0) %}
                     <form method="POST" action="{{ url_for('petition_action', petition_id=petition.id) }}">
-                        <input type="hidden" id="po_action_hidden" name="action" value="send_to_cmd">
+                        <input type="hidden" id="po_action_hidden" name="action" value="{{ 'send_to_cmd' if has_cmd_cgm_users else 'po_lodge' }}">
+                        <input type="hidden" id="po_cmd_handler_input" name="cmd_handler_id" value="{{ cmd_cgm_users[0].id if has_cmd_cgm_users else '' }}">
                         <div class="form-group">
                             <label>Choose Action</label>
                             <select id="po_action_selector" onchange="togglePoUnifiedActionFields()">
-                                <option value="send_to_cmd">Send to {{ cmd_actor_label }} for Action</option>
+                                {% for officer in cmd_cgm_users %}
+                                <option value="send_to_cmd:{{ officer.id }}">
+                                    Send to {{ role_labels.get(officer.role, officer.role) }} for Action
+                                </option>
+                                {% endfor %}
                                 <option value="po_lodge">Lodge in PO (No {{ cmd_actor_label }} Action Required)</option>
                             </select>
                         </div>
                         <div class="form-group" id="po_cmd_instructions_group">
                             <label>{{ f_po_send_cmd_instructions.label }}</label>
-                            <textarea name="cmd_instructions" rows="3" {% if f_po_send_cmd_instructions.required %}required{% endif %} placeholder="Instructions to concerned {{ cmd_actor_label }}"></textarea>
+                            <textarea name="cmd_instructions" rows="3" {% if f_po_send_cmd_instructions.required %}required{% endif %} placeholder="Instructions to selected CMD/CGM-HR officer"></textarea>
                         </div>
                         <div class="form-group">
                             <label id="po_efile_label">{{ f_po_send_cmd_efile.label }} {% if f_po_send_cmd_efile.required %}<span class="required">*</span>{% endif %}</label>
@@ -399,15 +444,17 @@
                         const poLodgeEfileLabel = {{ f_po_lodge_efile.label|tojson }};
                         const sel = document.getElementById('po_action_selector');
                         const action = document.getElementById('po_action_hidden');
+                        const cmdHandlerInput = document.getElementById('po_cmd_handler_input');
                         const cmdGroup = document.getElementById('po_cmd_instructions_group');
                         const lodgeGroup = document.getElementById('po_lodge_remarks_group');
                         const btn = document.getElementById('po_unified_submit_btn');
                         const efileLabel = document.getElementById('po_efile_label');
                         const efileInput = document.getElementById('po_efile_input');
                         const efileHelp = document.getElementById('po_efile_help');
-                        if (!sel || !action || !cmdGroup || !lodgeGroup || !btn || !efileLabel || !efileInput || !efileHelp) return;
+                        if (!sel || !action || !cmdHandlerInput || !cmdGroup || !lodgeGroup || !btn || !efileLabel || !efileInput || !efileHelp) return;
                         if (sel.value === 'po_lodge') {
                             action.value = 'po_lodge';
+                            cmdHandlerInput.value = '';
                             cmdGroup.style.display = 'none';
                             lodgeGroup.style.display = '';
                             btn.className = 'btn btn-success';
@@ -416,14 +463,18 @@
                             efileLabel.innerHTML = `${poLodgeEfileLabel} ${efileInput.required ? '<span class="required">*</span>' : '(Optional)'}`;
                             efileHelp.textContent = `${efileInput.required ? 'Required' : 'Optional'} when lodging at PO.`;
                         } else {
+                            const selectedVal = sel.value || '';
+                            const selectedUserId = selectedVal.includes(':') ? selectedVal.split(':')[1] : '';
+                            const selectedText = sel.options[sel.selectedIndex] ? sel.options[sel.selectedIndex].text : '';
                             action.value = 'send_to_cmd';
+                            cmdHandlerInput.value = selectedUserId;
                             cmdGroup.style.display = '';
                             lodgeGroup.style.display = 'none';
                             btn.className = 'btn btn-warning';
-                            btn.textContent = `Forward to ${cmdActorLabel}`;
+                            btn.textContent = selectedText ? selectedText.replace('Send to ', 'Forward to ').replace(' for Action', '') : `Forward to ${cmdActorLabel}`;
                             efileInput.required = efileInput.dataset.sendRequired === '1';
                             efileLabel.innerHTML = `${poSendEfileLabel} ${efileInput.required ? '<span class="required">*</span>' : '(Optional)'}`;
-                            efileHelp.textContent = `${efileInput.required ? 'Required' : 'Optional'} when sending to ${cmdActorLabel}.`;
+                            efileHelp.textContent = `${efileInput.required ? 'Required' : 'Optional'} when sending for CMD/CGM-HR action.`;
                         }
                     }
                     togglePoUnifiedActionFields();
@@ -469,6 +520,34 @@
             {% endif %}
 
             {% if current_user_role in ('cvo_apspdcl', 'cvo_apepdcl', 'cvo_apcpdcl', 'dsp', 'super_admin') %}
+                {% set is_media_cvo_stage = petition.source_of_petition == 'media' and petition.status in ('forwarded_to_cvo', 'permission_approved') %}
+                {% if is_media_cvo_stage %}
+                <div class="action-panel">
+                    <h4>CVO Decision (Electronic and Print Media)</h4>
+                    <div class="form-group">
+                        <label>Choose Path</label>
+                        <select id="cvo_media_decision_selector" onchange="toggleCvoMediaDecisionPanels()">
+                            <option value="direct_lodge" selected>Direct Lodge</option>
+                            <option value="proceed_enquiry">Proceed with Enquiry</option>
+                        </select>
+                    </div>
+                    <small class="form-help">Choose direct lodge when no field enquiry is required; otherwise proceed with enquiry workflow.</small>
+                </div>
+                <div class="action-divider">OR</div>
+                <div class="action-panel" id="cvo_media_direct_lodge_panel">
+                    <h4>Direct Lodge at CVO (Electronic and Print Media)</h4>
+                    <form method="POST" action="{{ url_for('petition_action', petition_id=petition.id) }}">
+                        <input type="hidden" name="action" value="cvo_direct_lodge">
+                        <div class="form-group">
+                            <label>Remarks <span class="required">*</span></label>
+                            <textarea name="lodge_remarks" rows="3" required placeholder="Reason for direct lodge at CVO"></textarea>
+                        </div>
+                        <button type="submit" class="btn btn-success">Direct Lodge Petition</button>
+                    </form>
+                </div>
+                {% endif %}
+
+                <div id="cvo_media_enquiry_panel" {% if is_media_cvo_stage %}style="display:none;"{% endif %}>
                 {% if petition.status == 'forwarded_to_cvo' and petition.requires_permission %}
                 <div class="action-panel">
                     <h4>Select Enquiry Permission</h4>
@@ -574,6 +653,21 @@
                     </form>
                 </div>
                 {% endif %}
+                </div>
+                {% if is_media_cvo_stage %}
+                <script>
+                function toggleCvoMediaDecisionPanels() {
+                    const selector = document.getElementById('cvo_media_decision_selector');
+                    const directPanel = document.getElementById('cvo_media_direct_lodge_panel');
+                    const enquiryPanel = document.getElementById('cvo_media_enquiry_panel');
+                    if (!selector || !directPanel || !enquiryPanel) return;
+                    const isDirect = selector.value === 'direct_lodge';
+                    directPanel.style.display = isDirect ? '' : 'none';
+                    enquiryPanel.style.display = isDirect ? 'none' : '';
+                }
+                toggleCvoMediaDecisionPanels();
+                </script>
+                {% endif %}
 
                 {% if petition.status == 'enquiry_report_submitted' %}
                 <div class="action-panel">
@@ -664,6 +758,26 @@
                                 <span class="reenquiry-reference-label">Recommendations</span>
                                 <p>{{ report.recommendation or '-' }}</p>
                             </div>
+                            {% if petition.petition_type == 'electrical_accident' %}
+                            <div class="reenquiry-reference-item">
+                                <span class="reenquiry-reference-label">Type of Accident</span>
+                                <p>
+                                    {% if report.accident_type == 'fatal' %}Fatal
+                                    {% elif report.accident_type == 'non_fatal' %}Non Fatal
+                                    {% else %}-{% endif %}
+                                </p>
+                            </div>
+                            <div class="reenquiry-reference-item">
+                                <span class="reenquiry-reference-label">Deceased Person/Category</span>
+                                <p>
+                                    {% if report.deceased_category == 'departmental' %}Departmental
+                                    {% elif report.deceased_category == 'non_departmental' %}Non Departmental{% if report.non_departmental_type %} ({{ 'Private' if report.non_departmental_type == 'private' else 'Contract' }}){% endif %}
+                                    {% elif report.deceased_category == 'general_public' %}General Public{% if report.general_public_count %} - {{ report.general_public_count }}{% endif %}
+                                    {% elif report.deceased_category == 'animals' %}Animals{% if report.animals_count %} - {{ report.animals_count }}{% endif %}
+                                    {% else %}-{% endif %}
+                                </p>
+                            </div>
+                            {% endif %}
                             {% if report.cvo_comments %}
                             <div class="reenquiry-reference-item reenquiry-reference-item-full">
                                 <span class="reenquiry-reference-label">CVO Comments</span>
@@ -678,11 +792,72 @@
                     {% endif %}
                     <form method="POST" action="{{ url_for('petition_action', petition_id=petition.id) }}" enctype="multipart/form-data">
                         <input type="hidden" name="action" value="submit_report">
+                        {% if petition.petition_type == 'electrical_accident' %}
+                        <div class="form-group">
+                            <label>Type of Accident <span class="required">*</span></label>
+                            <select name="accident_type" required>
+                                <option value="">Select Type of Accident</option>
+                                <option value="fatal">Fatal</option>
+                                <option value="non_fatal">Non Fatal</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label>Deceased Person/Category <span class="required">*</span></label>
+                            <select id="deceased_category_select" name="deceased_category" onchange="toggleElectricalAccidentCategoryFields()" required>
+                                <option value="">Select Category</option>
+                                <option value="departmental">Departmental</option>
+                                <option value="non_departmental">Non Departmental</option>
+                                <option value="general_public">General Public</option>
+                                <option value="animals">Animals</option>
+                            </select>
+                        </div>
+                        <div class="form-group" id="non_departmental_type_group" style="display:none;">
+                            <label>Non Departmental Type <span class="required">*</span></label>
+                            <select id="non_departmental_type_select" name="non_departmental_type">
+                                <option value="">Select Type</option>
+                                <option value="private">Private</option>
+                                <option value="contract">Contract</option>
+                            </select>
+                        </div>
+                        <div class="form-group" id="general_public_count_group" style="display:none;">
+                            <label>No. of General Public <span class="required">*</span></label>
+                            <input id="general_public_count_input" type="number" min="1" step="1" name="general_public_count" placeholder="Enter number of general public">
+                        </div>
+                        <div class="form-group" id="animals_count_group" style="display:none;">
+                            <label>No. of Animals <span class="required">*</span></label>
+                            <input id="animals_count_input" type="number" min="1" step="1" name="animals_count" placeholder="Enter number of animals">
+                        </div>
+                        {% endif %}
                         <div class="form-group"><label>{{ f_inspector_report_text.label }}{% if f_inspector_report_text.required %} <span class="required">*</span>{% endif %}</label><textarea name="report_text" rows="5" {% if f_inspector_report_text.required %}required{% endif %} placeholder="Enter conclusion of enquiry report"></textarea></div>
                         <div class="form-group"><label>{{ f_inspector_recommendation.label }}{% if f_inspector_recommendation.required %} <span class="required">*</span>{% endif %}</label><textarea name="recommendation" rows="3" {% if f_inspector_recommendation.required %}required{% endif %} placeholder="Enter recommendations/suggestions"></textarea></div>
                         <div class="form-group"><label>{{ f_inspector_report_file.label }}{% if f_inspector_report_file.required %} <span class="required">*</span>{% endif %}</label><input type="file" name="report_file" accept=".pdf" {% if f_inspector_report_file.required %}required{% endif %}></div>
                         <button type="submit" class="btn btn-primary">Upload Report</button>
                     </form>
+                    {% if petition.petition_type == 'electrical_accident' %}
+                    <script>
+                    function toggleElectricalAccidentCategoryFields() {
+                        const categorySel = document.getElementById('deceased_category_select');
+                        const nonDeptGroup = document.getElementById('non_departmental_type_group');
+                        const nonDeptSelect = document.getElementById('non_departmental_type_select');
+                        const gpGroup = document.getElementById('general_public_count_group');
+                        const gpInput = document.getElementById('general_public_count_input');
+                        const animalsGroup = document.getElementById('animals_count_group');
+                        const animalsInput = document.getElementById('animals_count_input');
+                        if (!categorySel || !nonDeptGroup || !nonDeptSelect || !gpGroup || !gpInput || !animalsGroup || !animalsInput) return;
+                        const v = categorySel.value;
+                        nonDeptGroup.style.display = (v === 'non_departmental') ? '' : 'none';
+                        nonDeptSelect.required = (v === 'non_departmental');
+                        if (v !== 'non_departmental') nonDeptSelect.value = '';
+                        gpGroup.style.display = (v === 'general_public') ? '' : 'none';
+                        gpInput.required = (v === 'general_public');
+                        if (v !== 'general_public') gpInput.value = '';
+                        animalsGroup.style.display = (v === 'animals') ? '' : 'none';
+                        animalsInput.required = (v === 'animals');
+                        if (v !== 'animals') animalsInput.value = '';
+                    }
+                    toggleElectricalAccidentCategoryFields();
+                    </script>
+                    {% endif %}
                 </div>
                 {% endif %}
             {% endif %}

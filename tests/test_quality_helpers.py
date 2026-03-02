@@ -231,16 +231,25 @@ def test_sla_filtered_and_summary_helpers(monkeypatch):
     monkeypatch.setattr(models, "datetime", _FakeDateTime)
 
     assert len(models._get_sla_filtered_petitions(petitions, "sla_total")) == 3
-    assert len(models._get_sla_filtered_petitions(petitions, "sla_within")) == 1
-    assert len(models._get_sla_filtered_petitions(petitions, "sla_breached")) == 1
-    assert len(models._get_sla_filtered_petitions(petitions, "sla_in_progress")) == 1
+    assert len(models._get_sla_filtered_petitions(petitions, "sla_within")) == 3
+    assert len(models._get_sla_filtered_petitions(petitions, "sla_breached")) == 0
+    assert len(models._get_sla_filtered_petitions(petitions, "sla_in_progress")) == 2
 
     summary = models._get_sla_stats_for_petitions(petitions)
     assert summary == {
         "sla_total": 3,
-        "sla_in_progress": 1,
-        "sla_within": 1,
-        "sla_breached": 1,
+        "sla_in_progress": 2,
+        "sla_within": 3,
+        "sla_breached": 0,
+        "sla_beyond": 0,
+        "sla_open_total": 2,
+        "sla_closed_total": 1,
+        "sla_open_within": 2,
+        "sla_open_beyond": 0,
+        "sla_closed_within": 1,
+        "sla_closed_beyond": 0,
+        "sla_total_within": 3,
+        "sla_total_beyond": 0,
     }
 
 
@@ -264,7 +273,7 @@ def test_sla_stats_with_conn_role_filters(monkeypatch):
 
     stats = models._get_sla_stats(conn, "cvo_apspdcl", user_id=None)
     assert stats["sla_total"] == 3
-    assert stats["sla_within"] == 1
-    assert stats["sla_breached"] == 2
-    assert stats["sla_in_progress"] == 0
-    assert any("WHERE p.target_cvo = %s" in q for q, _ in cursor.queries)
+    assert stats["sla_within"] == 2
+    assert stats["sla_breached"] == 0
+    assert stats["sla_in_progress"] == 1
+    assert any("WHERE p.target_cvo IN (" in q for q, _ in cursor.queries)

@@ -1,4 +1,4 @@
-from flask import Flask, render_template, request, redirect, url_for, session, flash, jsonify, send_from_directory, g, has_request_context
+from flask import Flask, render_template, request, redirect, url_for, session, flash, jsonify, send_from_directory, g, has_request_context, Response
 from functools import wraps
 from config import Config
 import models
@@ -58,6 +58,78 @@ VALID_PETITION_TYPES = {
     'fake_certificates',
     'theft_misappropriation_materials',
     'other',
+}
+IMPORT_ALLOWED_STATUSES = {
+    'received',
+    'forwarded_to_cvo',
+    'sent_for_permission',
+    'permission_approved',
+    'permission_rejected',
+    'assigned_to_inspector',
+    'sent_back_for_reenquiry',
+    'enquiry_in_progress',
+    'enquiry_report_submitted',
+    'forwarded_to_jmd',
+    'forwarded_to_po',
+    'action_instructed',
+    'action_taken',
+    'lodged',
+    'closed',
+}
+IMPORT_PETITION_HEADERS = [
+    'received_date',
+    'received_at',
+    'target_cvo',
+    'petitioner_name',
+    'contact',
+    'place',
+    'subject',
+    'petition_type',
+    'source_of_petition',
+    'govt_institution_type',
+    'enquiry_type',
+    'permission_request_type',
+    'requires_permission',
+    'permission_status',
+    'status',
+    'efile_no',
+    'ereceipt_no',
+    'remarks',
+    'assigned_inspector_username',
+]
+IMPORT_HEADER_ALIASES = {
+    'date': 'received_date',
+    'receiveddate': 'received_date',
+    'received date': 'received_date',
+    'received on': 'received_date',
+    'office': 'received_at',
+    'received office': 'received_at',
+    'received_at_office': 'received_at',
+    'target': 'target_cvo',
+    'target office': 'target_cvo',
+    'petitioner': 'petitioner_name',
+    'petitioner name': 'petitioner_name',
+    'mobile': 'contact',
+    'phone': 'contact',
+    'location': 'place',
+    'address': 'place',
+    'type': 'petition_type',
+    'petition type': 'petition_type',
+    'source': 'source_of_petition',
+    'source of petition': 'source_of_petition',
+    'institution': 'govt_institution_type',
+    'government institution type': 'govt_institution_type',
+    'enquiry mode': 'enquiry_type',
+    'permission type': 'permission_request_type',
+    'permission request': 'permission_request_type',
+    'permission required': 'requires_permission',
+    'permission status': 'permission_status',
+    'current status': 'status',
+    'eoffice no': 'efile_no',
+    'e-office no': 'efile_no',
+    'ereceipt no': 'ereceipt_no',
+    'e-receipt no': 'ereceipt_no',
+    'inspector username': 'assigned_inspector_username',
 }
 PETITION_TYPE_LABELS = {
     # Current workflow values
@@ -207,7 +279,7 @@ DEFAULT_FORM_FIELD_CONFIGS = {
         'type': 'select',
         'required': True,
         'options': [
-            {'value': 'media', 'label': 'Media'},
+            {'value': 'media', 'label': 'Electronic and Print Media'},
             {'value': 'public_individual', 'label': 'Public (Individual)'},
             {'value': 'govt', 'label': 'Govt'},
             {'value': 'sumoto', 'label': 'Sumoto'},
@@ -287,6 +359,254 @@ def parse_date_input(value):
     except ValueError:
         return None
 
+
+def parse_flexible_date(value):
+    text = (value or '').strip()
+    if not text:
+        return None
+    for fmt in ('%Y-%m-%d', '%d-%m-%Y', '%d/%m/%Y', '%m/%d/%Y', '%Y/%m/%d'):
+        try:
+            return datetime.strptime(text, fmt).date()
+        except ValueError:
+            continue
+    return None
+
+
+def _normalize_header_key(raw):
+    text = str(raw or '').strip().lower()
+    text = re.sub(r'[^a-z0-9]+', '_', text).strip('_')
+    if not text:
+        return ''
+    alias_key = text.replace('_', ' ')
+    return IMPORT_HEADER_ALIASES.get(alias_key) or IMPORT_HEADER_ALIASES.get(text) or text
+
+
+def _parse_tabular_upload_rows(upload, required_headers, allowed_headers):
+    filename = secure_filename(upload.filename or '')
+    ext = filename.rsplit('.', 1)[-1].lower() if '.' in filename else ''
+    if ext not in ('xlsx', 'csv'):
+        raise ValueError('Only .xlsx or .csv files are allowed.')
+
+    rows = []
+    header_map = {}
+    if ext == 'csv':
+        content = upload.stream.read().decode('utf-8-sig')
+        reader = csv.DictReader(io.StringIO(content))
+        raw_headers = reader.fieldnames or []
+        for h in raw_headers:
+            canonical = _normalize_header_key(h)
+            if canonical and canonical in allowed_headers and canonical not in header_map:
+                header_map[canonical] = h
+        if not set(required_headers).issubset(set(header_map.keys())):
+            missing = [h for h in required_headers if h not in header_map]
+            raise ValueError(f'Missing required column(s): {", ".join(missing)}')
+        for row in reader:
+            data = {}
+            for canonical, original in header_map.items():
+                data[canonical] = str(row.get(original) or '').strip()
+            if any(v for v in data.values()):
+                rows.append(data)
+    else:
+        if load_workbook is None:
+            raise ValueError('Excel support requires openpyxl dependency.')
+        wb = load_workbook(upload, read_only=True, data_only=True)
+        ws = wb.active
+        all_rows = list(ws.iter_rows(values_only=True))
+        if not all_rows:
+            return []
+        raw_headers = [str(h).strip() if h is not None else '' for h in all_rows[0]]
+        for idx, h in enumerate(raw_headers):
+            canonical = _normalize_header_key(h)
+            if canonical and canonical in allowed_headers and canonical not in header_map:
+                header_map[canonical] = idx
+        if not set(required_headers).issubset(set(header_map.keys())):
+            missing = [h for h in required_headers if h not in header_map]
+            raise ValueError(f'Missing required column(s): {", ".join(missing)}')
+        for row in all_rows[1:]:
+            data = {}
+            for canonical, idx in header_map.items():
+                value = row[idx] if idx < len(row) else ''
+                data[canonical] = str(value).strip() if value is not None else ''
+            if any(v for v in data.values()):
+                rows.append(data)
+    return rows
+
+
+def _normalize_received_at(value):
+    val = (value or '').strip().lower()
+    if not val:
+        return None
+    alias = {
+        'jmd': 'jmd_office',
+        'jmd office': 'jmd_office',
+        'po office': 'jmd_office',
+        'cvo apspdcl tirupathi': 'cvo_apspdcl_tirupathi',
+        'apspdcl': 'cvo_apspdcl_tirupathi',
+        'tirupathi': 'cvo_apspdcl_tirupathi',
+        'cvo apepdcl vizag': 'cvo_apepdcl_vizag',
+        'apepdcl': 'cvo_apepdcl_vizag',
+        'vizag': 'cvo_apepdcl_vizag',
+        'cvo apcpdcl vijayawada': 'cvo_apcpdcl_vijayawada',
+        'apcpdcl': 'cvo_apcpdcl_vijayawada',
+        'vijayawada': 'cvo_apcpdcl_vijayawada',
+    }
+    return val if val in VALID_RECEIVED_AT else alias.get(val)
+
+
+def _normalize_target_cvo(value):
+    val = (value or '').strip().lower()
+    if not val:
+        return None
+    alias = {
+        'hq': 'headquarters',
+        'headquarter': 'headquarters',
+        'headquarters dsp': 'headquarters',
+        'dsp': 'headquarters',
+        'apspdcl tirupathi': 'apspdcl',
+        'apepdcl vizag': 'apepdcl',
+        'apcpdcl vijayawada': 'apcpdcl',
+    }
+    return val if val in VALID_TARGET_CVO else alias.get(val)
+
+
+def _normalize_source(value):
+    val = (value or '').strip().lower()
+    alias = {
+        'electronic and print media': 'media',
+        'print media': 'media',
+        'electronic media': 'media',
+        'public': 'public_individual',
+        'public individual': 'public_individual',
+        'gov': 'govt',
+        'government': 'govt',
+        'suo motu': 'sumoto',
+        'suomoto': 'sumoto',
+        'o/o cmd': 'cmd_office',
+        'cmd office': 'cmd_office',
+    }
+    normalized = alias.get(val, val)
+    return normalized if normalized in VALID_SOURCE_OF_PETITION else 'public_individual'
+
+
+def _normalize_petition_type(value):
+    val = (value or '').strip().lower()
+    alias = {
+        'electrical accident': 'electrical_accident',
+        'works related': 'works_related',
+        'irregularities in tenders': 'irregularities_in_tenders',
+        'illegal assets': 'illegal_assets',
+        'fake certificates': 'fake_certificates',
+        'theft/misappropriation of materials': 'theft_misappropriation_materials',
+        'theft misappropriation materials': 'theft_misappropriation_materials',
+    }
+    normalized = alias.get(val, val)
+    return normalized if normalized in VALID_PETITION_TYPES else 'other'
+
+
+def _to_bool(value, default=False):
+    text = (value or '').strip().lower()
+    if text in {'1', 'true', 'yes', 'y', 'required'}:
+        return True
+    if text in {'0', 'false', 'no', 'n', 'not_required', 'direct'}:
+        return False
+    return default
+
+
+def _normalize_petitioner_name(value):
+    text = re.sub(r'\s+', ' ', (value or '').strip())
+    return text
+
+
+def _build_petitioner_profile_payload(petitions, petitioner_name):
+    target = _normalize_petitioner_name(petitioner_name).lower()
+    matches = []
+    for p in petitions:
+        pname = _normalize_petitioner_name(p.get('petitioner_name') or '')
+        if not pname or pname.lower() in {'anonymous', '-'}:
+            continue
+        if pname.lower() == target:
+            matches.append(p)
+
+    total = len(matches)
+    status_counts = Counter()
+    type_counts = Counter()
+    source_counts = Counter()
+    month_counts = Counter()
+    recent = []
+    for p in matches:
+        status = (p.get('status') or 'unknown').strip()
+        ptype = (p.get('petition_type') or 'other').strip()
+        source = (p.get('source_of_petition') or 'public_individual').strip()
+        rd = p.get('received_date')
+        status_counts[status] += 1
+        type_counts[ptype] += 1
+        source_counts[source] += 1
+        if rd:
+            month_counts[rd.strftime('%Y-%m')] += 1
+        recent.append({
+            'id': int(p.get('id') or 0),
+            'sno': p.get('sno') or '-',
+            'subject': p.get('subject') or '-',
+            'status': status_labels_for_api().get(status, status.replace('_', ' ').title()),
+            'received_date': rd.strftime('%d/%m/%Y') if rd else '-',
+            '_received_sort': rd.isoformat() if rd else '',
+            'view_url': url_for('petition_view', petition_id=int(p.get('id') or 0)) if int(p.get('id') or 0) > 0 else '#',
+        })
+    recent.sort(key=lambda r: r.get('_received_sort', ''), reverse=True)
+
+    years_months = sorted(month_counts.keys())
+    trend_labels = []
+    trend_values = []
+    for ym in years_months[-12:]:
+        try:
+            dt = datetime.strptime(ym + '-01', '%Y-%m-%d')
+            trend_labels.append(dt.strftime('%b %Y'))
+        except Exception:
+            trend_labels.append(ym)
+        trend_values.append(month_counts[ym])
+
+    def top_counter(counter_obj, limit=8):
+        items = sorted(counter_obj.items(), key=lambda x: x[1], reverse=True)[:limit]
+        return {
+            'labels': [k.replace('_', ' ').title() for k, _ in items],
+            'values': [v for _, v in items],
+        }
+
+    return {
+        'petitioner_name': petitioner_name,
+        'total_petitions': total,
+        'closed_count': status_counts.get('closed', 0),
+        'open_count': max(0, total - status_counts.get('closed', 0)),
+        'lodged_count': status_counts.get('lodged', 0),
+        'trend': {
+            'labels': trend_labels,
+            'values': trend_values,
+        },
+        'status_split': top_counter(status_counts, limit=10),
+        'type_split': top_counter(type_counts, limit=8),
+        'source_split': top_counter(source_counts, limit=6),
+        'recent_petitions': [{k: v for k, v in item.items() if not k.startswith('_')} for item in recent[:12]],
+    }
+
+
+def status_labels_for_api():
+    return {
+        'received': 'Received',
+        'forwarded_to_cvo': 'Forwarded to CVO/DSP',
+        'sent_for_permission': 'Sent for Permission',
+        'permission_approved': 'Permission Approved',
+        'permission_rejected': 'Permission Rejected',
+        'assigned_to_inspector': 'Assigned to Inspector',
+        'sent_back_for_reenquiry': 'Sent Back for Re-enquiry',
+        'enquiry_in_progress': 'Enquiry In Progress',
+        'enquiry_report_submitted': 'Enquiry Report Submitted',
+        'forwarded_to_po': 'Forwarded to PO',
+        'forwarded_to_jmd': 'Forwarded to PO',
+        'action_instructed': 'Action Pending at CMD',
+        'action_taken': 'Action Taken by CMD',
+        'lodged': 'Lodged',
+        'closed': 'Closed',
+    }
 
 def reset_login_captcha():
     a = random.randint(1, 9)
@@ -626,7 +946,7 @@ def inject_globals():
     }
     petition_types = PETITION_TYPE_LABELS
     petition_sources = {
-        'media': 'Media',
+        'media': 'Electronic and Print Media',
         'public_individual': 'Public (Individual)',
         'govt': 'Govt',
         'sumoto': 'Sumoto',
@@ -636,6 +956,12 @@ def inject_globals():
     govt_options = cfg.get('deo_petition.govt_institution_type', {}).get('options', [])
     govt_labels = {o.get('value'): o.get('label') for o in govt_options if isinstance(o, dict)}
     profile_photo = session.get('profile_photo')
+    current_user_name = session.get('full_name')
+    if isinstance(current_user_name, str) and current_user_name:
+        normalized_user_name = re.sub(r'APS?CPDCL', 'APCPDCL', current_user_name, flags=re.IGNORECASE)
+        if normalized_user_name != current_user_name:
+            current_user_name = normalized_user_name
+            session['full_name'] = normalized_user_name
     notification = {
         'received_count': 0,
         'pending_count': 0,
@@ -692,7 +1018,7 @@ def inject_globals():
         status_to_stage=status_to_stage,
         current_user_role=session.get('user_role'),
         current_user_username=session.get('username'),
-        current_user_name=session.get('full_name'),
+        current_user_name=current_user_name,
         current_user_id=session.get('user_id'),
         current_user_phone=session.get('phone'),
         current_user_email=session.get('email'),
@@ -889,7 +1215,7 @@ def dashboard():
 
     petition_type_labels = PETITION_TYPE_LABELS
     source_labels = {
-        'media': 'Media',
+        'media': 'Electronic and Print Media',
         'public_individual': 'Public (Individual)',
         'govt': 'Govt',
         'sumoto': 'Sumoto',
@@ -961,6 +1287,89 @@ def dashboard():
             'start_item': (start + 1) if total_items else 0,
             'end_item': min(end, total_items),
         }
+    )
+
+
+@app.route('/sla-dashboard')
+@login_required
+def sla_dashboard():
+    user_role = session['user_role']
+    user_id = session['user_id']
+    cvo_office = session.get('cvo_office')
+    sla_data = models.get_sla_dashboard_data_for_user(user_role, user_id, cvo_office)
+    employees = sla_data.get('employees', [])
+    eval_rows = sla_data.get('petitions', [])
+    chart_items = employees[:20]
+    employee_chart = {
+        'labels': [e.get('officer_name', f"Officer {e.get('officer_id')}") for e in chart_items],
+        'keys': [str(e.get('officer_id')) for e in chart_items],
+        'within': [int(e.get('within') or 0) for e in chart_items],
+        'beyond': [int(e.get('beyond') or 0) for e in chart_items],
+        'in_progress': [int(e.get('in_progress') or 0) for e in chart_items],
+    }
+    sla_drilldown_rows = [
+        {
+            'id': int(r.get('id') or 0),
+            'sno': r.get('sno') or f"#{r.get('id')}",
+            'petitioner_name': r.get('petitioner_name') or '-',
+            'subject': r.get('subject') or '-',
+            'status': r.get('status') or '-',
+            'sla_days': int(r.get('sla_days') or 0),
+            'elapsed_days': int(r.get('elapsed_days') or 0),
+            'sla_state': r.get('sla_state') or 'in_progress',
+            'sla_bucket': r.get('sla_bucket') or ('beyond' if (r.get('sla_state') == 'beyond') else 'within'),
+            'is_closed': bool(r.get('closed_at')),
+            'assigned_date': (r.get('assigned_at').strftime('%Y-%m-%d') if r.get('assigned_at') else None),
+            'closed_date': (r.get('closed_at').strftime('%Y-%m-%d') if r.get('closed_at') else None),
+            'view_url': url_for('petition_view', petition_id=int(r.get('id') or 0)),
+        }
+        for r in eval_rows
+        if int(r.get('id') or 0) > 0
+    ]
+    return render_template(
+        'sla_dashboard.html',
+        sla_summary=sla_data.get('summary', {}),
+        sla_employees=employees,
+        sla_employee_chart=employee_chart,
+        sla_drilldown_rows=sla_drilldown_rows,
+    )
+
+
+@app.route('/sla-dashboard/employee/<int:officer_id>')
+@login_required
+def sla_employee_profile(officer_id):
+    user_role = session['user_role']
+    user_id = session['user_id']
+    cvo_office = session.get('cvo_office')
+    profile_data = models.get_sla_employee_profile_for_user(user_role, user_id, cvo_office, officer_id)
+    if profile_data.get('unauthorized'):
+        flash('You can view only SLA officers available in your login scope.', 'warning')
+        return redirect(url_for('sla_dashboard'))
+    officer = profile_data.get('officer') or {'id': officer_id, 'full_name': f'Officer {officer_id}', 'role': 'inspector'}
+    petitions = profile_data.get('petitions', [])
+    petitions_json = [
+        {
+            'id': int(p.get('id') or 0),
+            'sno': p.get('sno') or f"#{p.get('id')}",
+            'petitioner_name': p.get('petitioner_name') or '-',
+            'subject': p.get('subject') or '-',
+            'status': p.get('status') or '-',
+            'sla_days': int(p.get('sla_days') or 0) if p.get('sla_days') is not None else '-',
+            'elapsed_days': int(p.get('elapsed_days') or 0) if p.get('elapsed_days') is not None else '-',
+            'sla_state': p.get('sla_state') or 'in_progress',
+            'sla_bucket': p.get('sla_bucket') or ('beyond' if (p.get('sla_state') == 'beyond') else 'within'),
+            'is_closed': bool(p.get('closed_at')),
+            'view_url': url_for('petition_view', petition_id=int(p.get('id') or 0)),
+        }
+        for p in petitions
+        if int(p.get('id') or 0) > 0
+    ]
+    return render_template(
+        'sla_employee_profile.html',
+        officer=officer,
+        sla_summary=profile_data.get('summary', {}),
+        sla_petitions=petitions,
+        sla_petitions_json=petitions_json,
     )
 
 
@@ -1061,7 +1470,7 @@ def _build_dashboard_analytics(petitions, stats):
     }
     petition_type_labels = PETITION_TYPE_LABELS
     source_labels = {
-        'media': 'Media',
+        'media': 'Electronic and Print Media',
         'public_individual': 'Public',
         'govt': 'Govt',
         'sumoto': 'Sumoto',
@@ -1159,6 +1568,34 @@ def _build_dashboard_analytics(petitions, stats):
         }
     }
 
+
+def _format_electrical_accident_summary(detail_row):
+    if not detail_row:
+        return '-'
+    accident_type = (detail_row.get('accident_type') or '').strip()
+    deceased_category = (detail_row.get('deceased_category') or '').strip()
+    non_departmental_type = (detail_row.get('non_departmental_type') or '').strip()
+    general_public_count = int(detail_row.get('general_public_count') or 0)
+    animals_count = int(detail_row.get('animals_count') or 0)
+
+    accident_label = 'Fatal' if accident_type == 'fatal' else 'Non Fatal' if accident_type == 'non_fatal' else '-'
+    category_label = '-'
+    if deceased_category == 'departmental':
+        category_label = 'Departmental'
+    elif deceased_category == 'non_departmental':
+        if non_departmental_type == 'private':
+            category_label = 'Non Departmental (Private)'
+        elif non_departmental_type == 'contract':
+            category_label = 'Non Departmental (Contract)'
+        else:
+            category_label = 'Non Departmental'
+    elif deceased_category == 'general_public':
+        category_label = f'General Public ({max(general_public_count, 0)})'
+    elif deceased_category == 'animals':
+        category_label = f'Animals ({max(animals_count, 0)})'
+
+    return f"{accident_label} | {category_label}"
+
 # ========================================
 # PETITION ROUTES
 # ========================================
@@ -1175,8 +1612,22 @@ def petitions_list():
         petitions = models.get_all_petitions(status_filter, enquiry_mode)
     else:
         petitions = models.get_petitions_for_user(user_id, user_role, session.get('cvo_office'), status_filter, enquiry_mode)
-    
-    return render_template('petitions_list.html', petitions=petitions, status_filter=status_filter, enquiry_mode=enquiry_mode)
+
+    accident_detail_map = {}
+    petition_ids = [int(p.get('id')) for p in petitions if p.get('id')]
+    if petition_ids:
+        try:
+            accident_detail_map = models.get_latest_enquiry_report_accident_details(petition_ids) or {}
+        except Exception:
+            accident_detail_map = {}
+
+    return render_template(
+        'petitions_list.html',
+        petitions=petitions,
+        status_filter=status_filter,
+        enquiry_mode=enquiry_mode,
+        accident_detail_map=accident_detail_map
+    )
 
 @app.route('/petitions/new', methods=['GET', 'POST'])
 @login_required
@@ -1206,6 +1657,7 @@ def petition_new():
         petitioner_name = request.form.get('petitioner_name', '').strip()
         contact = request.form.get('contact', '').strip()
         place = request.form.get('place', '').strip()
+        petitioner_identity_type = (request.form.get('petitioner_identity_type') or 'identified').strip().lower()
         subject = request.form.get('subject', '').strip()
         petition_type = (request.form.get('petition_type') or '').strip()
         source_of_petition = (request.form.get('source_of_petition') or '').strip()
@@ -1248,6 +1700,12 @@ def petition_new():
         cfg_source = petition_cfg.get('deo_petition.source_of_petition', DEFAULT_FORM_FIELD_CONFIGS['deo_petition.source_of_petition'])
         cfg_remarks = petition_cfg.get('deo_petition.remarks', DEFAULT_FORM_FIELD_CONFIGS['deo_petition.remarks'])
         cfg_govt_institution = petition_cfg.get('deo_petition.govt_institution_type', DEFAULT_FORM_FIELD_CONFIGS['deo_petition.govt_institution_type'])
+        if petitioner_identity_type not in ('identified', 'anonymous'):
+            petitioner_identity_type = 'identified'
+        if petitioner_identity_type == 'anonymous':
+            petitioner_name = ''
+            contact = ''
+            place = ''
 
         if cfg_received_date.get('required') and not received_date:
             flash(f"{cfg_received_date.get('label', 'Received Date')} is required.", 'warning')
@@ -1286,13 +1744,13 @@ def petition_new():
         if source_of_petition == 'govt' and govt_institution_type and govt_institution_type not in govt_option_values:
             flash('Please select a valid Govt institution type.', 'warning')
             return render_petition_form()
-        if cfg_petitioner.get('required') and not petitioner_name:
+        if petitioner_identity_type == 'identified' and cfg_petitioner.get('required') and not petitioner_name:
             flash(f"{cfg_petitioner.get('label', 'Petitioner Name')} is required.", 'warning')
             return render_petition_form()
-        if cfg_contact.get('required') and not contact:
+        if petitioner_identity_type == 'identified' and cfg_contact.get('required') and not contact:
             flash(f"{cfg_contact.get('label', 'Contact Number')} is required.", 'warning')
             return render_petition_form()
-        if cfg_place.get('required') and not place:
+        if petitioner_identity_type == 'identified' and cfg_place.get('required') and not place:
             flash(f"{cfg_place.get('label', 'Place')} is required.", 'warning')
             return render_petition_form()
         if cfg_remarks.get('required') and not remarks:
@@ -1320,7 +1778,7 @@ def petition_new():
         if len(place) > 255:
             flash('Place is too long.', 'warning')
             return render_petition_form()
-        if not validate_contact(contact):
+        if petitioner_identity_type == 'identified' and not validate_contact(contact):
             flash('Please provide a valid contact number.', 'warning')
             return render_petition_form()
         if cfg_ereceipt_file.get('required') and (not ereceipt_file or not ereceipt_file.filename):
@@ -1396,6 +1854,255 @@ def petition_new():
 
     return render_petition_form()
 
+
+@app.route('/petitions/import')
+@login_required
+@role_required('po')
+def petitions_import():
+    return render_template(
+        'petitions_import.html',
+        template_headers=IMPORT_PETITION_HEADERS,
+    )
+
+
+@app.route('/petitions/import/template')
+@login_required
+@role_required('po')
+def petitions_import_template():
+    sample = {
+        'received_date': date.today().strftime('%Y-%m-%d'),
+        'received_at': 'jmd_office',
+        'target_cvo': 'headquarters',
+        'petitioner_name': 'Sample Petitioner',
+        'contact': '9876543210',
+        'place': 'Vijayawada',
+        'subject': 'Historical petition import sample row',
+        'petition_type': 'other',
+        'source_of_petition': 'public_individual',
+        'govt_institution_type': '',
+        'enquiry_type': 'detailed',
+        'permission_request_type': 'direct_enquiry',
+        'requires_permission': 'no',
+        'permission_status': 'not_required',
+        'status': 'received',
+        'efile_no': '',
+        'ereceipt_no': '',
+        'remarks': 'Optional remarks',
+        'assigned_inspector_username': '',
+    }
+    out = io.StringIO()
+    writer = csv.DictWriter(out, fieldnames=IMPORT_PETITION_HEADERS)
+    writer.writeheader()
+    writer.writerow(sample)
+    csv_content = out.getvalue()
+    return Response(
+        csv_content,
+        mimetype='text/csv',
+        headers={'Content-Disposition': 'attachment; filename=petition_bulk_import_template.csv'}
+    )
+
+
+@app.route('/petitions/import/upload', methods=['POST'])
+@login_required
+@role_required('po')
+def petitions_import_upload():
+    upload = request.files.get('petitions_file')
+    if not upload or not upload.filename:
+        flash('Please choose an Excel/CSV file to upload.', 'warning')
+        return redirect(url_for('petitions_import'))
+
+    try:
+        rows = _parse_tabular_upload_rows(
+            upload,
+            required_headers={'subject'},
+            allowed_headers=set(IMPORT_PETITION_HEADERS),
+        )
+    except Exception as e:
+        flash(f'Unable to parse upload file: {str(e)}', 'danger')
+        return redirect(url_for('petitions_import'))
+
+    if not rows:
+        flash('Uploaded file is empty.', 'warning')
+        return redirect(url_for('petitions_import'))
+
+    active_users = [u for u in models.get_all_users() if u.get('is_active')]
+    user_by_username = {(u.get('username') or '').strip().lower(): u for u in active_users if u.get('username')}
+    first_role_user = {}
+    for u in active_users:
+        role = (u.get('role') or '').strip()
+        if role and role not in first_role_user:
+            first_role_user[role] = u
+
+    def role_user_id(role_name):
+        user = first_role_user.get(role_name)
+        return int(user['id']) if user and user.get('id') else None
+
+    target_for_received = {
+        'jmd_office': 'headquarters',
+        'cvo_apspdcl_tirupathi': 'apspdcl',
+        'cvo_apepdcl_vizag': 'apepdcl',
+        'cvo_apcpdcl_vijayawada': 'apcpdcl',
+    }
+    received_for_target = {
+        'headquarters': 'jmd_office',
+        'apspdcl': 'cvo_apspdcl_tirupathi',
+        'apepdcl': 'cvo_apepdcl_vizag',
+        'apcpdcl': 'cvo_apcpdcl_vijayawada',
+    }
+    cvo_role_for_target = {
+        'apspdcl': 'cvo_apspdcl',
+        'apcpdcl': 'cvo_apspdcl',
+        'apepdcl': 'cvo_apepdcl',
+        'headquarters': 'dsp',
+    }
+    cmd_role_for_target = {
+        'apspdcl': 'cmd_apspdcl',
+        'apcpdcl': 'cmd_apcpdcl',
+        'apepdcl': 'cmd_apepdcl',
+        'headquarters': 'cgm_hr_transco',
+    }
+
+    created = 0
+    failed = 0
+    warnings = []
+    errors = []
+    actor_user_id = session['user_id']
+    po_handler_id = actor_user_id
+
+    for idx, row in enumerate(rows, start=2):
+        try:
+            received_at = _normalize_received_at(row.get('received_at'))
+            target_cvo = _normalize_target_cvo(row.get('target_cvo'))
+            if not received_at and target_cvo:
+                received_at = received_for_target.get(target_cvo)
+            if not target_cvo and received_at:
+                target_cvo = target_for_received.get(received_at)
+            if not received_at:
+                received_at = 'jmd_office'
+            if not target_cvo:
+                target_cvo = target_for_received.get(received_at, 'headquarters')
+
+            received_date = parse_flexible_date(row.get('received_date')) or date.today()
+            petitioner_name = (row.get('petitioner_name') or '').strip()
+            contact = (row.get('contact') or '').strip()
+            place = (row.get('place') or '').strip()
+            subject = (row.get('subject') or '').strip()
+            remarks = (row.get('remarks') or '').strip()
+            if not subject:
+                subject = (remarks[:240] if remarks else '').strip() or 'Imported historical petition'
+
+            petition_type = _normalize_petition_type(row.get('petition_type'))
+            source_of_petition = _normalize_source(row.get('source_of_petition'))
+            govt_institution_type = (row.get('govt_institution_type') or '').strip().lower() or None
+            if source_of_petition != 'govt':
+                govt_institution_type = None
+            elif govt_institution_type not in VALID_GOVT_INSTITUTIONS:
+                warnings.append(f'Row {idx}: invalid govt_institution_type mapped to blank.')
+                govt_institution_type = None
+
+            enquiry_type_raw = (row.get('enquiry_type') or '').strip().lower()
+            enquiry_type = enquiry_type_raw if enquiry_type_raw in VALID_ENQUIRY_TYPES else 'detailed'
+
+            perm_req_type = (row.get('permission_request_type') or '').strip().lower()
+            if perm_req_type in ('direct', 'direct_enquiry', 'not_required'):
+                requires_permission = False
+            elif perm_req_type in ('permission', 'permission_required', 'required'):
+                requires_permission = True
+            else:
+                requires_permission = _to_bool(row.get('requires_permission'), default=(source_of_petition != 'media'))
+
+            permission_status_raw = (row.get('permission_status') or '').strip().lower()
+            if permission_status_raw not in {'pending', 'approved', 'rejected', 'not_required'}:
+                permission_status_raw = ''
+            permission_status = permission_status_raw
+            if not permission_status:
+                permission_status = 'pending' if requires_permission else 'not_required'
+
+            status_raw = (row.get('status') or '').strip().lower()
+            status_alias = {
+                'open': 'received',
+                'in_progress': 'enquiry_in_progress',
+                'beyond_sla': 'enquiry_in_progress',
+                'within_sla': 'enquiry_in_progress',
+            }
+            status = status_alias.get(status_raw, status_raw or 'received')
+            if status not in IMPORT_ALLOWED_STATUSES:
+                warnings.append(f'Row {idx}: invalid status "{status_raw}" mapped to "received".')
+                status = 'received'
+
+            assigned_inspector_id = None
+            inspector_username = (row.get('assigned_inspector_username') or '').strip().lower()
+            if inspector_username:
+                inspector = user_by_username.get(inspector_username)
+                if inspector and inspector.get('role') == 'inspector':
+                    assigned_inspector_id = int(inspector['id'])
+                else:
+                    warnings.append(f'Row {idx}: assigned_inspector_username "{inspector_username}" not found/invalid.')
+
+            data = {
+                'efile_no': (row.get('efile_no') or '').strip() or None,
+                'petitioner_name': petitioner_name or 'Anonymous',
+                'contact': contact or None,
+                'place': place or None,
+                'subject': subject,
+                'petition_type': petition_type,
+                'source_of_petition': source_of_petition,
+                'received_at': received_at,
+                'target_cvo': target_cvo,
+                'requires_permission': requires_permission,
+                'received_date': received_date,
+                'govt_institution_type': govt_institution_type,
+                'permission_status': permission_status,
+                'enquiry_type': enquiry_type,
+                'remarks': remarks or None,
+                'ereceipt_no': (row.get('ereceipt_no') or '').strip() or None,
+                'ereceipt_file': None,
+            }
+            created_petition = models.create_petition(data, actor_user_id)
+            petition_id = int(created_petition['id'])
+
+            cvo_handler_id = role_user_id(cvo_role_for_target.get(target_cvo, ''))
+            cmd_handler_id = role_user_id(cmd_role_for_target.get(target_cvo, ''))
+            if status in {'forwarded_to_cvo', 'permission_approved', 'sent_back_for_reenquiry'}:
+                current_handler_id = cvo_handler_id or po_handler_id
+            elif status in {'sent_for_permission', 'permission_rejected', 'forwarded_to_po', 'forwarded_to_jmd', 'action_taken', 'lodged', 'closed'}:
+                current_handler_id = po_handler_id
+            elif status in {'action_instructed'}:
+                current_handler_id = cmd_handler_id or po_handler_id
+            elif status in {'assigned_to_inspector', 'enquiry_in_progress', 'enquiry_report_submitted'}:
+                current_handler_id = assigned_inspector_id or cvo_handler_id or po_handler_id
+            else:
+                current_handler_id = po_handler_id
+
+            models.update_imported_petition_state(
+                petition_id,
+                actor_user_id,
+                status=status,
+                current_handler_id=current_handler_id,
+                assigned_inspector_id=assigned_inspector_id,
+                target_cvo=target_cvo,
+                requires_permission=requires_permission,
+                permission_status=permission_status,
+                enquiry_type=enquiry_type,
+                received_date=received_date,
+                remarks=(remarks or None),
+            )
+            created += 1
+        except Exception as e:
+            failed += 1
+            errors.append(f'Row {idx}: {str(e)}')
+
+    if created:
+        flash(f'Petition import complete. Imported: {created}, Failed: {failed}.', 'success')
+    if warnings:
+        preview = '; '.join(warnings[:4]) + ('; ...' if len(warnings) > 4 else '')
+        flash(f'Import warnings: {preview}', 'warning')
+    if errors:
+        preview = '; '.join(errors[:5]) + ('; ...' if len(errors) > 5 else '')
+        flash(f'Import errors: {preview}', 'danger')
+    return redirect(url_for('petitions_import'))
+
+
 @app.route('/petitions/<int:petition_id>')
 @login_required
 def petition_view(petition_id):
@@ -1410,7 +2117,8 @@ def petition_view(petition_id):
     # Get inspectors mapped to the relevant CVO/DSP officer
     inspectors = []
     cvo_users = []
-    cvo_like_roles = ('cvo_apspdcl', 'cvo_apepdcl', 'dsp')
+    cmd_cgm_users = []
+    cvo_like_roles = ('cvo_apspdcl', 'cvo_apepdcl', 'cvo_apcpdcl', 'dsp')
     if session['user_role'] in cvo_like_roles:
         inspectors = models.get_inspectors_by_cvo(session['user_id'])
     elif session['user_role'] == 'super_admin':
@@ -1421,10 +2129,11 @@ def petition_view(petition_id):
                 inspectors = models.get_inspectors_by_cvo(handler_id)
     if session['user_role'] in ('po', 'super_admin'):
         cvo_users = models.get_cvo_users()
+        cmd_cgm_users = models.get_cmd_cgm_users()
     
     return render_template('petition_view.html', 
                          petition=petition, tracking=tracking, report=report,
-                         inspectors=inspectors, cvo_users=cvo_users)
+                         inspectors=inspectors, cvo_users=cvo_users, cmd_cgm_users=cmd_cgm_users)
 
 # ========================================
 # WORKFLOW ACTION ROUTES
@@ -1550,6 +2259,30 @@ def petition_action(petition_id):
                 else:
                     models.cvo_mark_direct_enquiry(petition_id, user_id, comments, enquiry_type_decision)
                     flash('Direct enquiry mode selected. You can now assign inspector.', 'success')
+
+        elif action == 'cvo_direct_lodge':
+            if user_role not in ('super_admin', 'cvo_apspdcl', 'cvo_apepdcl', 'cvo_apcpdcl', 'dsp'):
+                flash('Only CVO/DSP can directly lodge this petition.', 'danger')
+                return redirect(url_for('petition_view', petition_id=petition_id))
+            petition = models.get_petition_by_id(petition_id)
+            if not petition:
+                flash('Petition not found.', 'danger')
+                return redirect(url_for('petitions_list'))
+            if petition.get('source_of_petition') != 'media':
+                flash('Direct lodge at CVO is allowed only for Electronic and Print Media source petitions.', 'warning')
+                return redirect(url_for('petition_view', petition_id=petition_id))
+            if petition.get('status') not in ('forwarded_to_cvo', 'permission_approved'):
+                flash('Direct lodge at CVO is allowed only when petition is pending at CVO stage.', 'warning')
+                return redirect(url_for('petition_view', petition_id=petition_id))
+            lodge_remarks = (request.form.get('lodge_remarks') or '').strip()
+            if not lodge_remarks:
+                flash('Remarks are required for direct lodge by CVO.', 'warning')
+                return redirect(url_for('petition_view', petition_id=petition_id))
+            if len(lodge_remarks) > 5000:
+                flash('Lodge remarks are too long.', 'warning')
+                return redirect(url_for('petition_view', petition_id=petition_id))
+            models.cvo_direct_lodge_petition(petition_id, user_id, lodge_remarks)
+            flash('Petition directly lodged by CVO for media source.', 'success')
             
         elif action == 'approve_permission':
             if user_role not in ('super_admin', 'po'):
@@ -1590,7 +2323,7 @@ def petition_action(petition_id):
             flash('Permission rejected.', 'warning')
             
         elif action == 'assign_inspector':
-            if user_role not in ('super_admin', 'cvo_apspdcl', 'cvo_apepdcl', 'dsp'):
+            if user_role not in ('super_admin', 'cvo_apspdcl', 'cvo_apepdcl', 'cvo_apcpdcl', 'dsp'):
                 flash('Only CVO/DSP can assign inspectors.', 'danger')
                 return redirect(url_for('petition_view', petition_id=petition_id))
             petition = models.get_petition_by_id(petition_id)
@@ -1653,6 +2386,45 @@ def petition_action(petition_id):
             recommendation = request.form.get('recommendation', '').strip()
             request_detailed_permission = (request.form.get('request_detailed_permission') or '').strip() == '1'
             detailed_request_reason = (request.form.get('detailed_request_reason') or '').strip()
+            accident_type = None
+            deceased_category = None
+            non_departmental_type = None
+            general_public_count = None
+            animals_count = None
+            if (petition.get('petition_type') or '').strip() == 'electrical_accident':
+                accident_type = (request.form.get('accident_type') or '').strip()
+                deceased_category = (request.form.get('deceased_category') or '').strip()
+                non_departmental_type = (request.form.get('non_departmental_type') or '').strip()
+                general_public_raw = (request.form.get('general_public_count') or '').strip()
+                animals_raw = (request.form.get('animals_count') or '').strip()
+                if accident_type not in ('fatal', 'non_fatal'):
+                    flash('Please select type of accident (Fatal / Non Fatal).', 'warning')
+                    return redirect(url_for('petition_view', petition_id=petition_id))
+                if deceased_category not in ('departmental', 'non_departmental', 'general_public', 'animals'):
+                    flash('Please select deceased person/category.', 'warning')
+                    return redirect(url_for('petition_view', petition_id=petition_id))
+                if deceased_category == 'non_departmental':
+                    if non_departmental_type not in ('private', 'contract'):
+                        flash('Please select non-departmental type (Private / Contract).', 'warning')
+                        return redirect(url_for('petition_view', petition_id=petition_id))
+                else:
+                    non_departmental_type = None
+                if deceased_category == 'general_public':
+                    try:
+                        general_public_count = int(general_public_raw)
+                    except (TypeError, ValueError):
+                        general_public_count = 0
+                    if general_public_count <= 0:
+                        flash('Please enter valid No. of General Public (greater than 0).', 'warning')
+                        return redirect(url_for('petition_view', petition_id=petition_id))
+                if deceased_category == 'animals':
+                    try:
+                        animals_count = int(animals_raw)
+                    except (TypeError, ValueError):
+                        animals_count = 0
+                    if animals_count <= 0:
+                        flash('Please enter valid No. of Animals (greater than 0).', 'warning')
+                        return redirect(url_for('petition_view', petition_id=petition_id))
             if cfg_report_text.get('required') and not report_text:
                 flash(f"{cfg_report_text.get('label', 'Conclusion of enquiry report')} is required.", 'warning')
                 return redirect(url_for('petition_view', petition_id=petition_id))
@@ -1684,7 +2456,12 @@ def petition_action(petition_id):
                 models.submit_enquiry_report(
                     petition_id, user_id, report_text, '', recommendation, report_filename,
                     request_detailed_permission=request_detailed_permission,
-                    detailed_request_reason=detailed_request_reason
+                    detailed_request_reason=detailed_request_reason,
+                    accident_type=accident_type,
+                    deceased_category=deceased_category,
+                    non_departmental_type=non_departmental_type,
+                    general_public_count=general_public_count,
+                    animals_count=animals_count
                 )
                 if request_detailed_permission:
                     flash(
@@ -1705,7 +2482,12 @@ def petition_action(petition_id):
             models.submit_enquiry_report(
                 petition_id, user_id, report_text, '', recommendation, report_filename,
                 request_detailed_permission=request_detailed_permission,
-                detailed_request_reason=detailed_request_reason
+                detailed_request_reason=detailed_request_reason,
+                accident_type=accident_type,
+                deceased_category=deceased_category,
+                non_departmental_type=non_departmental_type,
+                general_public_count=general_public_count,
+                animals_count=animals_count
             )
             if request_detailed_permission:
                 flash(
@@ -1716,7 +2498,7 @@ def petition_action(petition_id):
                 flash('Enquiry report uploaded successfully.', 'success')
             
         elif action == 'cvo_comments':
-            if user_role not in ('super_admin', 'cvo_apspdcl', 'cvo_apepdcl', 'dsp'):
+            if user_role not in ('super_admin', 'cvo_apspdcl', 'cvo_apepdcl', 'cvo_apcpdcl', 'dsp'):
                 flash('Only CVO/DSP can enter remarks.', 'danger')
                 return redirect(url_for('petition_view', petition_id=petition_id))
             form_cfg = get_effective_form_field_configs()
@@ -1745,7 +2527,7 @@ def petition_action(petition_id):
             flash('Forwarded to PO for conclusion.', 'success')
 
         elif action == 'cvo_send_back_reenquiry':
-            if user_role not in ('super_admin', 'cvo_apspdcl', 'cvo_apepdcl', 'dsp'):
+            if user_role not in ('super_admin', 'cvo_apspdcl', 'cvo_apepdcl', 'cvo_apcpdcl', 'dsp'):
                 flash('Only CVO/DSP can send back for re-enquiry.', 'danger')
                 return redirect(url_for('petition_view', petition_id=petition_id))
             petition = models.get_petition_by_id(petition_id)
@@ -1772,7 +2554,7 @@ def petition_action(petition_id):
             flash('Sent back to field level for re-enquiry.', 'success')
 
         elif action == 'upload_consolidated_report':
-            if user_role not in ('super_admin', 'cvo_apspdcl', 'cvo_apepdcl', 'dsp'):
+            if user_role not in ('super_admin', 'cvo_apspdcl', 'cvo_apepdcl', 'cvo_apcpdcl', 'dsp'):
                 flash('Only CVO/DSP can upload consolidated report.', 'danger')
                 return redirect(url_for('petition_view', petition_id=petition_id))
             petition = models.get_petition_by_id(petition_id)
@@ -1798,7 +2580,7 @@ def petition_action(petition_id):
             flash('Consolidated report uploaded successfully.', 'success')
 
         elif action == 'request_detailed_enquiry':
-            if user_role not in ('super_admin', 'cvo_apspdcl', 'cvo_apepdcl', 'dsp'):
+            if user_role not in ('super_admin', 'cvo_apspdcl', 'cvo_apepdcl', 'cvo_apcpdcl', 'dsp'):
                 flash('Only CVO/DSP can request detailed enquiry.', 'danger')
                 return redirect(url_for('petition_view', petition_id=petition_id))
             petition = models.get_petition_by_id(petition_id)
@@ -1880,7 +2662,11 @@ def petition_action(petition_id):
             if len(cmd_instructions) > 5000:
                 flash('CMD/CGM-HR instructions are too long.', 'warning')
                 return redirect(url_for('petition_view', petition_id=petition_id))
-            models.po_send_to_cmd(petition_id, user_id, cmd_instructions, efile_no)
+            cmd_handler_id = parse_optional_int(request.form.get('cmd_handler_id'))
+            if not cmd_handler_id:
+                flash('Please select CMD/CGM-HR assignee for action.', 'warning')
+                return redirect(url_for('petition_view', petition_id=petition_id))
+            models.po_send_to_cmd(petition_id, user_id, cmd_instructions, efile_no, cmd_handler_id)
             flash('Petition forwarded to concerned CMD/CGM-HR for action.', 'success')
 
         elif action == 'po_send_back_reenquiry':
@@ -2800,15 +3586,27 @@ def api_dashboard_drilldown():
         session.get('cvo_office'),
         metric
     )
+    accident_detail_map = {}
+    petition_ids = [int(p.get('id')) for p in rows if p.get('id')]
+    if petition_ids:
+        try:
+            accident_detail_map = models.get_latest_enquiry_report_accident_details(petition_ids) or {}
+        except Exception:
+            accident_detail_map = {}
     items = []
     for p in rows:
+        petition_id = int(p.get('id') or 0)
+        accident_summary = '-'
+        if (p.get('petition_type') or '').strip() == 'electrical_accident':
+            accident_summary = _format_electrical_accident_summary(accident_detail_map.get(petition_id))
         items.append({
-            'id': p.get('id'),
+            'id': petition_id,
             'sno': p.get('sno'),
             'petitioner_name': p.get('petitioner_name'),
             'subject': p.get('subject'),
             'status': p.get('status'),
-            'received_date': p.get('received_date').strftime('%d/%m/%Y') if p.get('received_date') else '-'
+            'received_date': p.get('received_date').strftime('%d/%m/%Y') if p.get('received_date') else '-',
+            'accident_summary': accident_summary
         })
     return jsonify({'items': items})
 
@@ -2831,6 +3629,36 @@ def api_dashboard_analytics():
     stats = _build_filtered_dashboard_stats(user_role, user_id, petitions, filtered_petitions)
     analytics = _build_dashboard_analytics(filtered_petitions, stats)
     return jsonify({'analytics': analytics, 'summary': analytics.get('summary', {})})
+
+
+@app.route('/api/petitioner-suggestions')
+@login_required
+def api_petitioner_suggestions():
+    q = _normalize_petitioner_name(request.args.get('q', ''))
+    if len(q) < 2:
+        return jsonify({'items': []})
+    petitions = get_petitions_for_user_cached(session['user_id'], session['user_role'], session.get('cvo_office'))
+    counter = Counter()
+    q_lower = q.lower()
+    for p in petitions:
+        pname = _normalize_petitioner_name(p.get('petitioner_name') or '')
+        if not pname or pname.lower() in {'anonymous', '-'}:
+            continue
+        if q_lower in pname.lower():
+            counter[pname] += 1
+    items = [{'name': name, 'count': count} for name, count in counter.most_common(12)]
+    return jsonify({'items': items})
+
+
+@app.route('/api/petitioner-profile')
+@login_required
+def api_petitioner_profile():
+    name = _normalize_petitioner_name(request.args.get('name', ''))
+    if not name:
+        return jsonify({'error': 'Petitioner name is required.'}), 400
+    petitions = get_petitions_for_user_cached(session['user_id'], session['user_role'], session.get('cvo_office'))
+    payload = _build_petitioner_profile_payload(petitions, name)
+    return jsonify(payload)
 
 @app.route('/healthz')
 def healthz():

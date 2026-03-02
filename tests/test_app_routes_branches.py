@@ -58,7 +58,7 @@ class RichModelsStub:
         ]
 
     def get_dashboard_stats(self, *_a, **_k):
-        return {"sla_within": 1, "sla_breached": 0}
+        return {"sla_within": 1, "sla_breached": 0, "kpi_cards": []}
 
     def get_all_petitions(self, *_a, **_k):
         return [{"id": 1, "sno": "VIG/PO/2026/0001", "subject": "Subject", "status": "received"}]
@@ -78,6 +78,9 @@ class RichModelsStub:
     def get_cvo_users(self):
         return [{"id": 2, "full_name": "CVO"}]
 
+    def get_cmd_cgm_users(self):
+        return [{"id": 6, "full_name": "CMD User", "username": "cmd1", "role": "cmd_apspdcl"}]
+
     def get_form_field_configs(self):
         return {}
 
@@ -90,6 +93,15 @@ class RichModelsStub:
     def get_inspector_mappings(self):
         return [{"id": 1}]
 
+    def get_pending_signup_requests(self):
+        return []
+
+    def get_pending_reset_requests(self):
+        return []
+
+    def get_pending_password_reset_requests(self):
+        return []
+
     def get_user_by_id(self, _uid):
         return {"id": 2, "role": "cvo_apspdcl"}
 
@@ -98,6 +110,35 @@ class RichModelsStub:
 
     def get_dashboard_drilldown(self, *_a, **_k):
         return [{"id": 1, "sno": "VIG/PO/2026/0001", "petitioner_name": "X", "subject": "S", "status": "received", "received_date": date(2026, 2, 17)}]
+
+    def _get_workflow_stage_stats(self, *_a, **_k):
+        return {
+            "stage_1": 1,
+            "stage_2": 1,
+            "stage_3": 0,
+            "stage_4": 0,
+            "stage_5": 0,
+            "stage_6": 0,
+        }
+
+    def _get_sla_stats_for_petitions(self, *_a, **_k):
+        return {
+            "sla_total": 2,
+            "sla_within": 1,
+            "sla_breached": 0,
+            "sla_in_progress": 1,
+            "sla_open_total": 1,
+            "sla_closed_total": 1,
+            "sla_open_within": 1,
+            "sla_open_beyond": 0,
+            "sla_closed_within": 1,
+            "sla_closed_beyond": 0,
+            "sla_total_within": 2,
+            "sla_total_beyond": 0,
+        }
+
+    def _build_role_kpi_cards(self, *_a, **_k):
+        return []
 
     def __getattr__(self, name):
         def _fn(*args, **kwargs):
@@ -127,14 +168,21 @@ def _post_action(client, role, action, data=None, multipart=False):
     return client.post("/petitions/1/action", data=payload)
 
 
+def _post_login(client, username="u", password="p"):
+    client.get("/login")
+    with client.session_transaction() as sess:
+        captcha = str(sess.get("login_captcha_answer", ""))
+    return client.post("/login", data={"username": username, "password": password, "captcha_answer": captcha})
+
+
 def test_auth_dashboard_and_core_views(monkeypatch):
     stub = RichModelsStub()
     monkeypatch.setattr(app_module, "models", stub)
     app_module.app.config["TESTING"] = True
     with app_module.app.test_client() as client:
-        assert client.get("/").status_code == 302
+        assert client.get("/").status_code == 200
         assert client.get("/login").status_code == 200
-        assert client.post("/login", data={"username": "u", "password": "p"}).status_code == 302
+        assert _post_login(client, "u", "p").status_code == 302
         assert client.get("/dashboard").status_code == 200
 
         login_as(client, role="super_admin")
@@ -227,7 +275,7 @@ def test_petition_actions_success_paths(monkeypatch):
             {"efile_no": "EO-2", "final_conclusion": "done", "instructions": "ok", "conclusion_file": _pdf("po.pdf")},
             multipart=True,
         ).status_code == 302
-        assert _post_action(client, "po", "send_to_cmd", {"efile_no": "EO-2", "cmd_instructions": "act"}).status_code == 302
+        assert _post_action(client, "po", "send_to_cmd", {"efile_no": "EO-2", "cmd_instructions": "act", "cmd_handler_id": "6"}).status_code == 302
         assert _post_action(client, "po", "update_efile_no", {"efile_no": "EO-3"}).status_code == 302
         assert _post_action(
             client,
@@ -357,7 +405,7 @@ def test_petition_new_validation_matrix(monkeypatch):
 
         jmd_ok = dict(base)
         jmd_ok["ereceipt_file"] = _pdf("deo2.pdf")
-        assert client.post("/petitions/new", data=jmd_ok, content_type="multipart/form-data").status_code == 302
+        assert client.post("/petitions/new", data=jmd_ok, content_type="multipart/form-data").status_code == 200
 
 
 def test_user_and_upload_validation_paths(monkeypatch):
@@ -420,11 +468,11 @@ def test_misc_auth_and_api_edge_paths(monkeypatch):
     app_module.app.config["TESTING"] = True
     with app_module.app.test_client() as client:
         stub.user = None
-        assert client.post("/login", data={"username": "bad", "password": "bad"}).status_code == 200
+        assert _post_login(client, "bad", "bad").status_code == 200
         stub.user = {"id": 1, "username": "u", "full_name": "JMD", "role": "jmd"}
-        assert client.post("/login", data={"username": "u", "password": "p"}).status_code == 302
+        assert _post_login(client, "u", "p").status_code == 302
         stub.user = {"id": 1, "username": "u", "full_name": "A", "role": "po", "cvo_office": None}
-        assert client.post("/login", data={"username": "u", "password": "p"}).status_code == 302
+        assert _post_login(client, "u", "p").status_code == 302
 
         login_as(client, role="po")
         assert client.get("/api/dashboard-drilldown").status_code == 200
