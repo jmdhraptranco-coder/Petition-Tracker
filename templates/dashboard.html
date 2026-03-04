@@ -106,15 +106,15 @@
         {% endfor %}
     </div>
     {% if stats.get('electrical_accident_total', 0) > 0 %}
-    <div class="card" style="margin-bottom:16px;">
-        <div class="card-header">
-            <h3>Electrical Accident Snapshot</h3>
-        </div>
-        <div class="stats-grid accident-kpi-grid">
-            <div class="stat-card stat-warning is-drilldown" data-metric="accident:electrical_total" data-title="Electrical Accident Cases">
+        <div class="card" style="margin-bottom:16px;">
+            <div class="card-header">
+                <h3 data-i18n="dash.accident_snapshot">Electrical Accident Snapshot</h3>
+            </div>
+            <div class="stats-grid accident-kpi-grid">
+            <div class="stat-card stat-warning is-drilldown" data-metric="accident:electrical_total" data-title="Electrical Accident Cases" data-i18n-title="dash.accident_cases">
                 <div class="stat-content">
                     <span class="stat-value">{{ stats.get('electrical_accident_total', 0) }}</span>
-                    <span class="stat-label">Electrical Accident Cases</span>
+                    <span class="stat-label" data-i18n="dash.accident_cases">Electrical Accident Cases</span>
                 </div>
             </div>
             <div class="stat-card stat-danger is-drilldown" data-metric="accident:fatal" data-title="Fatal Cases">
@@ -129,22 +129,22 @@
                     <span class="stat-label">Non Fatal</span>
                 </div>
             </div>
-            <div class="stat-card stat-primary is-drilldown" data-metric="accident:departmental" data-title="Departmental">
+            <div class="stat-card stat-primary is-drilldown" data-metric="accident:departmental" data-title="Departmental (Regular + Outsourced)" data-i18n-title="dash.accident.departmental_total">
                 <div class="stat-content">
                     <span class="stat-value">{{ stats.get('electrical_accident_departmental', 0) }}</span>
-                    <span class="stat-label">Departmental</span>
+                    <span class="stat-label" data-i18n="dash.accident.departmental_total">Departmental (Regular + Outsourced)</span>
                 </div>
             </div>
-            <div class="stat-card stat-violet is-drilldown" data-metric="accident:non_departmental_private" data-title="Non Departmental - Private">
+            <div class="stat-card stat-violet is-drilldown" data-metric="accident:non_departmental_private" data-title="Non Departmental - Private Electricians" data-i18n-title="dash.accident.non_dept_private">
                 <div class="stat-content">
                     <span class="stat-value">{{ stats.get('electrical_accident_non_departmental_private', 0) }}</span>
-                    <span class="stat-label">Non Dept (Private)</span>
+                    <span class="stat-label" data-i18n="dash.accident.non_dept_private.short">Non Dept (Private Electricians)</span>
                 </div>
             </div>
-            <div class="stat-card stat-violet is-drilldown" data-metric="accident:non_departmental_contract" data-title="Non Departmental - Contract">
+            <div class="stat-card stat-violet is-drilldown" data-metric="accident:non_departmental_contract" data-title="Non Departmental - Contract Labour" data-i18n-title="dash.accident.non_dept_contract">
                 <div class="stat-content">
                     <span class="stat-value">{{ stats.get('electrical_accident_non_departmental_contract', 0) }}</span>
-                    <span class="stat-label">Non Dept (Contract)</span>
+                    <span class="stat-label" data-i18n="dash.accident.non_dept_contract.short">Non Dept (Contract Labour)</span>
                 </div>
             </div>
             <div class="stat-card stat-success is-drilldown" data-metric="accident:general_public" data-title="General Public Cases">

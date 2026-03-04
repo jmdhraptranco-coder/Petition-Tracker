@@ -9,7 +9,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const rootEl = document.documentElement;
     const viewportMobile = 768;
     const viewportTablet = 1100;
-    const i18nVersion = '20260304-3';
+    const i18nVersion = '20260304-7';
     const originalTextNodes = new WeakMap();
     const originalAttrValues = new WeakMap();
     let activeLanguage = 'en';
@@ -50,6 +50,14 @@ document.addEventListener('DOMContentLoaded', () => {
             return mapped || token;
         });
         return translated;
+    };
+
+    const isCorruptI18nValue = (value) => {
+        if (typeof value !== 'string') return false;
+        if (!value.trim()) return false;
+        if (/\?{3,}/.test(value)) return true;
+        if (value.includes('\uFFFD')) return true;
+        return false;
     };
 
     const applyAutoTranslations = (lang, dict) => {
@@ -183,35 +191,45 @@ document.addEventListener('DOMContentLoaded', () => {
             const key = el.getAttribute('data-i18n');
             if (!key) return;
             if (Object.prototype.hasOwnProperty.call(dict, key)) {
-                el.textContent = dict[key];
+                const next = dict[key];
+                if (isCorruptI18nValue(next)) return;
+                el.textContent = next;
             }
         });
         document.querySelectorAll('[data-i18n-title]').forEach((el) => {
             const key = el.getAttribute('data-i18n-title');
             if (!key) return;
             if (Object.prototype.hasOwnProperty.call(dict, key)) {
-                el.setAttribute('title', dict[key]);
+                const next = dict[key];
+                if (isCorruptI18nValue(next)) return;
+                el.setAttribute('title', next);
             }
         });
         document.querySelectorAll('[data-i18n-aria-label]').forEach((el) => {
             const key = el.getAttribute('data-i18n-aria-label');
             if (!key) return;
             if (Object.prototype.hasOwnProperty.call(dict, key)) {
-                el.setAttribute('aria-label', dict[key]);
+                const next = dict[key];
+                if (isCorruptI18nValue(next)) return;
+                el.setAttribute('aria-label', next);
             }
         });
         document.querySelectorAll('[data-i18n-placeholder]').forEach((el) => {
             const key = el.getAttribute('data-i18n-placeholder');
             if (!key) return;
             if (Object.prototype.hasOwnProperty.call(dict, key)) {
-                el.setAttribute('placeholder', dict[key]);
+                const next = dict[key];
+                if (isCorruptI18nValue(next)) return;
+                el.setAttribute('placeholder', next);
             }
         });
         document.querySelectorAll('[data-i18n-value]').forEach((el) => {
             const key = el.getAttribute('data-i18n-value');
             if (!key) return;
             if (Object.prototype.hasOwnProperty.call(dict, key)) {
-                el.value = dict[key];
+                const next = dict[key];
+                if (isCorruptI18nValue(next)) return;
+                el.value = next;
             }
         });
     };

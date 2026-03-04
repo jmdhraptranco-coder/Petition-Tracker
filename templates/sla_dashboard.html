@@ -108,18 +108,31 @@
     display: grid;
     grid-template-columns: repeat(2, minmax(300px, 1fr));
     gap: 10px;
+    align-items: start;
+}
+.sla-chart-grid > .card {
+    align-self: start;
+}
+.sla-chart-grid > .card:first-child {
+    min-height: 235px;
 }
 .sla-analytics-strip {
     display: grid;
     grid-template-columns: repeat(2, minmax(220px, 1fr));
     gap: 10px;
+    padding: 0 12px 12px;
+    height: 100%;
 }
 .sla-mini {
     border-radius: 14px;
     border: 1px solid rgba(148, 163, 184, 0.32);
     background: linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(235, 244, 255, 0.96));
-    padding: 14px 16px;
+    padding: 12px 14px;
     box-shadow: 0 8px 16px rgba(36, 66, 140, 0.08);
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    min-height: 100%;
 }
 .sla-mini .h {
     font-size: 13px;
@@ -127,13 +140,13 @@
     color: #4d6392;
 }
 .sla-mini .v {
-    margin-top: 6px;
+    margin-top: 4px;
     font-size: 30px;
     font-weight: 800;
     color: #1e3a78;
 }
 .sla-mini .s {
-    margin-top: 4px;
+    margin-top: 2px;
     font-size: 12px;
     color: #5a74a4;
 }

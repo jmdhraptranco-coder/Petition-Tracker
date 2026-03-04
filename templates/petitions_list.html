@@ -51,29 +51,17 @@
         <table class="data-table">
             <thead>
                 <tr>
-                    <th data-i18n="table.sno">S.No</th>
-                    <th data-i18n="table.eoffice">E-Office File No</th>
-                    <th data-i18n="table.petitioner">Petitioner</th>
-                    <th data-i18n="table.place">Place</th>
-                    <th data-i18n="table.subject">Subject</th>
-                    <th data-i18n="table.type">Type</th>
-                    <th data-i18n="table.accident_details">Accident Details</th>
-                    <th data-i18n="table.received_at">Received At</th>
-                    <th data-i18n="table.status">Status</th>
-                    <th data-i18n="table.stage">Stage</th>
-                    <th data-i18n="table.handler">Handler</th>
-                    <th data-i18n="table.date">Date</th>
-                    <th></th>
+                    <th class="col-sno" data-i18n="table.sno">S.No</th>
+                    <th class="col-file" data-i18n="table.eoffice">E-Office File No</th>
+                    <th class="col-petitioner" data-i18n="table.petitioner">Petitioner</th>
+                    <th class="col-subject" data-i18n="table.subject">Subject</th>
+                    <th class="col-status" data-i18n="table.status">Status</th>
+                    <th class="col-handler" data-i18n="table.handler">Handler</th>
+                    <th class="col-date" data-i18n="table.date">Date</th>
+                    <th class="col-view"></th>
                 </tr>
             </thead>
             <tbody>
-                {% set office_labels = {
-                    'po_office': 'PO Office',
-                    'jmd_office': 'PO Office',
-                    'cvo_apspdcl_tirupathi': 'CVO/DSP APSPDCL',
-                    'cvo_apepdcl_vizag': 'CVO/DSP APEPDCL',
-                    'cvo_apcpdcl_vijayawada': 'CVO/DSP APCPDCL'
-                } %}
                 {% for p in petitions %}
                 <tr class="js-petition-row" data-href="{{ url_for('petition_view', petition_id=p.id) }}" tabindex="0" role="link" aria-label="Open petition {{ p.sno }}">
                     <td class="font-mono"><a href="{{ url_for('petition_view', petition_id=p.id) }}" class="petition-row-link">{{ p.sno }}</a></td>
@@ -85,43 +73,15 @@
                         {{ p.petitioner_name }}
                         {% endif %}
                     </td>
-                    <td>{{ p.place or '-' }}</td>
-                    <td class="text-truncate" title="{{ p.subject }}">{{ p.subject[:40] }}{% if p.subject|length > 40 %}...{% endif %}</td>
-                    <td><span class="badge badge-type">{{ petition_types.get(p.petition_type, p.petition_type) }}</span></td>
-                    <td>
-                        {% if p.petition_type == 'electrical_accident' %}
-                            {% set d = accident_detail_map.get(p.id) if accident_detail_map else None %}
-                            {% if d %}
-                                {% set accident_label = 'Fatal' if d.accident_type == 'fatal' else ('Non Fatal' if d.accident_type == 'non_fatal' else '-') %}
-                                {% if d.deceased_category == 'departmental' %}
-                                    {% set category_label = 'Departmental' %}
-                                {% elif d.deceased_category == 'non_departmental' %}
-                                    {% set category_label = 'Non Departmental (' ~ ('Private' if d.non_departmental_type == 'private' else ('Contract' if d.non_departmental_type == 'contract' else '-')) ~ ')' %}
-                                {% elif d.deceased_category == 'general_public' %}
-                                    {% set category_label = 'General Public (' ~ (d.general_public_count or 0) ~ ')' %}
-                                {% elif d.deceased_category == 'animals' %}
-                                    {% set category_label = 'Animals (' ~ (d.animals_count or 0) ~ ')' %}
-                                {% else %}
-                                    {% set category_label = '-' %}
-                                {% endif %}
-                                <span class="badge badge-office" title="{{ accident_label }} | {{ category_label }}">{{ accident_label }} | {{ category_label }}</span>
-                            {% else %}
-                                -
-                            {% endif %}
-                        {% else %}
-                            -
-                        {% endif %}
-                    </td>
-                    <td><span class="badge badge-office">{{ office_labels.get(p.received_at, p.received_at) }}</span></td>
-                    <td><span class="status-badge" style="--status-color: {{ status_colors.get(p.status, '#6b7280') }}">{{ status_labels.get(p.status, p.status) }}</span></td>
-                    <td><span class="badge badge-office badge-stage">Stage {{ status_to_stage.get(p.status, 1) }} - {{ workflow_stage_labels.get(status_to_stage.get(p.status, 1), 'Initiation') }}</span></td>
+                    <td class="text-truncate subject-cell" title="{{ p.subject }}">{{ p.subject[:72] }}{% if p.subject|length > 72 %}...{% endif %}</td>
+                    <td><span class="list-status" style="--status-color: {{ status_colors.get(p.status, '#6b7280') }}">{{ status_labels.get(p.status, p.status) }}</span></td>
                     <td>{{ p.handler_name or '-' }}</td>
                     <td class="font-mono">{{ p.received_date.strftime('%d/%m/%Y') if p.received_date else '-' }}</td>
                     <td><a href="{{ url_for('petition_view', petition_id=p.id) }}" class="btn btn-xs btn-outline" data-i18n="common.view">View</a></td>
                 </tr>
                 {% else %}
                 <tr>
-                    <td colspan="13" class="empty-state">
+                    <td colspan="8" class="empty-state">
                         <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" stroke-width="1.5"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg>
                         <p data-i18n="common.no_petitions_found">No petitions found</p>
                     </td>

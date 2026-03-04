@@ -1105,6 +1105,19 @@ body {
     text-decoration: underline;
 }
 
+.petitioner-profile-link {
+    color: #1d4ed8;
+    font-weight: 600;
+    text-decoration: underline;
+    text-underline-offset: 2px;
+    overflow-wrap: anywhere;
+    word-break: break-word;
+}
+
+.petitioner-profile-link:hover {
+    color: #1e40af;
+}
+
 .data-table .font-mono {
     font-family: var(--font-mono);
     font-size: 0.8rem;
@@ -1158,9 +1171,10 @@ body {
 }
 
 .petitions-title-wrap p {
-    margin-top: 4px;
+    margin-top: 6px;
     font-size: 0.8rem;
     color: #6279a7;
+    line-height: 1.45;
 }
 
 .petitions-toolbar {
@@ -1169,15 +1183,15 @@ body {
     flex-wrap: wrap;
     align-items: flex-end;
     justify-content: flex-end;
-    gap: 8px 12px;
-    padding-top: 10px;
+    gap: 10px 14px;
+    padding-top: 12px;
     border-top: 1px solid #dce7ff;
 }
 
 .petitions-control {
     display: flex;
     flex-direction: column;
-    gap: 4px;
+    gap: 6px;
     min-width: fit-content;
 }
 
@@ -1250,19 +1264,23 @@ body {
     background: #edf4ff;
     color: #5e749f;
     border-bottom-color: #d9e7ff;
-    font-size: 0.74rem;
+    font-size: 0.73rem;
+    line-height: 1.35;
+    padding: 12px 14px;
     white-space: normal;
-    overflow-wrap: anywhere;
-    word-break: break-word;
+    overflow-wrap: break-word;
+    word-break: normal;
 }
 
 .petitions-page-card .data-table td {
     border-bottom-color: #edf3ff;
     color: #2b3d64;
     vertical-align: middle;
+    padding: 14px 14px;
+    line-height: 1.4;
     white-space: normal;
-    overflow-wrap: anywhere;
-    word-break: break-word;
+    overflow-wrap: break-word;
+    word-break: normal;
 }
 
 .petitions-page-card .data-table tbody tr:nth-child(even) {
@@ -1278,6 +1296,33 @@ body {
     white-space: nowrap;
     overflow-wrap: normal;
     word-break: normal;
+    line-height: 1.25;
+}
+
+.petitions-page-card .status-badge {
+    display: inline-grid;
+    grid-template-columns: 8px minmax(0, 1fr);
+    column-gap: 8px;
+    align-items: start;
+    max-width: 170px;
+    white-space: normal;
+    overflow-wrap: break-word;
+    word-break: normal;
+    line-height: 1.35;
+    padding: 6px 12px;
+}
+
+.petitions-page-card .status-badge::before {
+    margin-top: 0.42em;
+}
+
+.petitions-page-card .badge-accident {
+    white-space: normal;
+    overflow-wrap: break-word;
+    word-break: normal;
+    line-height: 1.35;
+    max-width: 260px;
+    padding: 6px 12px;
 }
 
 .petitions-page-card .badge-stage {
@@ -1288,7 +1333,78 @@ body {
 }
 
 .petitions-page-card .text-truncate {
-    max-width: 320px;
+    max-width: none;
+    white-space: normal;
+    overflow: visible;
+    text-overflow: clip;
+}
+
+.petitions-page-card .col-sno { width: 9%; }
+.petitions-page-card .col-file { width: 14%; }
+.petitions-page-card .col-petitioner { width: 15%; }
+.petitions-page-card .col-subject { width: 21%; }
+.petitions-page-card .col-status { width: 14%; }
+.petitions-page-card .col-handler { width: 10%; }
+.petitions-page-card .col-date { width: 8%; }
+.petitions-page-card .col-view { width: 9%; }
+
+.petitions-page-card .subject-cell {
+    line-height: 1.35;
+}
+
+.petitions-page-card .data-table td:first-child,
+.petitions-page-card .data-table th:first-child {
+    padding-left: 18px;
+    padding-right: 18px;
+}
+
+.petitions-page-card .col-view,
+.petitions-page-card .data-table td:last-child {
+    text-align: center;
+}
+
+.petitions-page-card .data-table td:last-child .btn {
+    min-width: 56px;
+    height: 32px;
+    padding: 0 6px;
+}
+
+.petitions-page-card .data-table th:last-child,
+.petitions-page-card .data-table td:last-child {
+    white-space: nowrap;
+    min-width: 74px;
+    padding-left: 8px;
+    padding-right: 8px;
+}
+
+/* Petitions list readability overrides */
+.petitions-page-card .data-table td {
+    overflow: visible;
+}
+
+.petitions-page-card .data-table td .badge {
+    max-width: 100%;
+    white-space: normal;
+    overflow-wrap: break-word;
+    word-break: normal;
+    text-overflow: clip;
+}
+
+.petitions-page-card .list-status {
+    display: inline-block;
+    max-width: 100%;
+    padding: 6px 10px;
+    border-radius: 10px;
+    font-size: 0.78rem;
+    font-weight: 600;
+    line-height: 1.25;
+    color: color-mix(in srgb, var(--status-color) 88%, #0f172a 12%);
+    border: 1px solid color-mix(in srgb, var(--status-color) 30%, #ffffff 70%);
+    background: color-mix(in srgb, var(--status-color) 14%, #ffffff 86%);
+    white-space: normal;
+    overflow-wrap: anywhere;
+    word-break: break-word;
+    text-align: left;
 }
 
 .row-inactive { opacity: 0.45; }
@@ -1302,7 +1418,8 @@ body {
     font-weight: 600;
     letter-spacing: 0.2px;
     white-space: normal;
-    overflow-wrap: anywhere;
+    overflow-wrap: break-word;
+    word-break: normal;
     max-width: 100%;
 }
 
@@ -1342,7 +1459,8 @@ body {
     background: color-mix(in srgb, var(--status-color) 15%, transparent);
     color: var(--status-color);
     white-space: normal;
-    overflow-wrap: anywhere;
+    overflow-wrap: break-word;
+    word-break: normal;
     max-width: 100%;
     line-height: 1.2;
 }
@@ -5474,6 +5592,7 @@ html[data-theme='dark'] .report-card .report-quick-file {
 
     .petitions-table-wrap {
         padding: 0 10px 12px;
+        overflow-x: auto;
     }
 
     .petitions-page-card .data-table {
@@ -5484,6 +5603,12 @@ html[data-theme='dark'] .report-card .report-quick-file {
     .petitions-page-card .status-badge {
         white-space: normal;
         overflow-wrap: break-word;
+    }
+
+    .petitions-page-card .status-badge,
+    .petitions-page-card .badge-accident {
+        max-width: 220px;
+        line-height: 1.32;
     }
 
     .dashboard-hero {
@@ -6396,6 +6521,64 @@ html[data-theme='dark'] .petitions-page-card .data-table td {
     border-bottom-color: #243a62;
 }
 
+html[data-theme='dark'] .petitioner-profile-link {
+    color: #93c5fd;
+    text-decoration-color: rgba(191, 219, 254, 0.8);
+}
+
+html[data-theme='dark'] .petitioner-profile-link:hover {
+    color: #dbeafe;
+}
+
+html[data-theme='dark'] a,
+html[data-theme='dark'] a:visited {
+    color: #bfdbfe;
+}
+
+html[data-theme='dark'] a:hover {
+    color: #eff6ff;
+}
+
+html[data-theme='dark'] .badge {
+    color: #e8eefc;
+}
+
+html[data-theme='dark'] .badge-type {
+    background: rgba(167, 139, 250, 0.28);
+    color: #ede9fe;
+    border: 1px solid rgba(196, 181, 253, 0.5);
+}
+
+html[data-theme='dark'] .badge-office {
+    background: rgba(96, 165, 250, 0.24);
+    color: #dbeafe;
+    border: 1px solid rgba(147, 197, 253, 0.5);
+}
+
+html[data-theme='dark'] .badge-role {
+    background: rgba(245, 158, 11, 0.24);
+    color: #fef3c7;
+    border: 1px solid rgba(252, 211, 77, 0.5);
+}
+
+html[data-theme='dark'] .badge-permission {
+    background: rgba(245, 158, 11, 0.24);
+    color: #fde68a;
+    border: 1px solid rgba(252, 211, 77, 0.48);
+}
+
+html[data-theme='dark'] .status-badge {
+    color: #f1f5ff;
+    border: 1px solid color-mix(in srgb, var(--status-color) 58%, #ffffff 42%);
+    background: color-mix(in srgb, var(--status-color) 28%, transparent);
+}
+
+html[data-theme='dark'] .petitions-page-card .list-status {
+    color: #f5f8ff;
+    border: 1px solid color-mix(in srgb, var(--status-color) 58%, #ffffff 42%);
+    background: color-mix(in srgb, var(--status-color) 26%, transparent);
+}
+
 html[data-theme='dark'] .petitions-page-card .data-table tbody tr:nth-child(even) {
     background: #122646;
 }
@@ -6651,11 +6834,12 @@ html[data-theme='dark'] .dashboard-filter-art {
     font-size: 1.02rem;
     font-weight: 800;
     line-height: 1;
+    color: #0f172a;
 }
 
 .main-sla-mini-kpi .l {
     font-size: 0.68rem;
-    color: var(--text-dim);
+    color: #334155;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -6665,21 +6849,25 @@ html[data-theme='dark'] .dashboard-filter-art {
     background: linear-gradient(180deg, #dbeafe, #e0e7ff);
     border-color: #bfdbfe;
 }
+.main-sla-mini-kpi.is-total .v { color: #1d4ed8; }
 
 .main-sla-mini-kpi.is-open {
     background: linear-gradient(180deg, #fef3c7, #fde68a);
     border-color: #fcd34d;
 }
+.main-sla-mini-kpi.is-open .v { color: #b45309; }
 
 .main-sla-mini-kpi.is-closed {
     background: linear-gradient(180deg, #d1fae5, #bbf7d0);
     border-color: #86efac;
 }
+.main-sla-mini-kpi.is-closed .v { color: #047857; }
 
 .main-sla-mini-kpi.is-beyond {
     background: linear-gradient(180deg, #fee2e2, #fecaca);
     border-color: #fca5a5;
 }
+.main-sla-mini-kpi.is-beyond .v { color: #b91c1c; }
 
 .dashboard-filter-card {
     grid-column: span 12;

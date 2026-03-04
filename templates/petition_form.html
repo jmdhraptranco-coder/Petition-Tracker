@@ -58,7 +58,7 @@
 
             <div class="form-group">
                 <label for="ereceipt_file"><span data-i18n="petition.form.ereceipt_file">{{ f_ereceipt_file.label }}</span> {% if f_ereceipt_file.required %}<span class="required">*</span>{% endif %}</label>
-                <input type="file" id="ereceipt_file" name="ereceipt_file" accept=".pdf" {% if f_ereceipt_file.required %}required{% endif %} style="position:absolute;left:-9999px;" aria-hidden="true" tabindex="-1">
+                <input type="file" id="ereceipt_file" name="ereceipt_file" accept=".pdf" {% if f_ereceipt_file.required %}required{% endif %}>
                 <div class="file-picker">
                     <button type="button" class="btn btn-outline btn-sm" id="ereceipt_file_btn" data-i18n="petition.form.choose_file">Choose File</button>
                     <span id="ereceipt_file_name" data-i18n="petition.form.no_file">No file chosen</span>
@@ -102,10 +102,10 @@
             </div>
 
             <div class="form-group">
-                <label for="petitioner_identity_type">Petitioner Identity</label>
+                <label for="petitioner_identity_type" data-i18n="petition.form.petitioner_identity">Petitioner Identity</label>
                 <select id="petitioner_identity_type" name="petitioner_identity_type">
-                    <option value="identified" {% if (request.form.get('petitioner_identity_type') or 'identified') == 'identified' %}selected{% endif %}>Identified Petition</option>
-                    <option value="anonymous" {% if request.form.get('petitioner_identity_type') == 'anonymous' %}selected{% endif %}>Anonymous Petition</option>
+                    <option value="identified" data-i18n="petition.form.identity.identified" {% if (request.form.get('petitioner_identity_type') or 'identified') == 'identified' %}selected{% endif %}>Identified Petition</option>
+                    <option value="anonymous" data-i18n="petition.form.identity.anonymous" {% if request.form.get('petitioner_identity_type') == 'anonymous' %}selected{% endif %}>Anonymous Petition</option>
                 </select>
             </div>
             
@@ -227,43 +227,45 @@
     const ereceiptFileInput = document.getElementById('ereceipt_file');
     const ereceiptFileBtn = document.getElementById('ereceipt_file_btn');
     const ereceiptFileName = document.getElementById('ereceipt_file_name');
-    if (!receivedAt || !targetGroup || !targetCvo || !permissionGroup || !permissionType || !sourcePetition || !govtInstitutionGroup || !govtInstitutionType) return;
+    if (receivedAt && targetGroup && targetCvo && permissionGroup && permissionType) {
+        const syncWorkflowFields = () => {
+            const isJmdOffice = receivedAt.value === 'jmd_office';
+            targetGroup.style.display = isJmdOffice ? 'none' : '';
+            permissionGroup.style.display = isJmdOffice ? 'none' : '';
+            if (isJmdOffice) {
+                targetCvo.value = '';
+                permissionType.value = 'permission_required';
+            }
+        };
 
-    const syncWorkflowFields = () => {
-        const isJmdOffice = receivedAt.value === 'jmd_office';
-        targetGroup.style.display = isJmdOffice ? 'none' : '';
-        permissionGroup.style.display = isJmdOffice ? 'none' : '';
-        if (isJmdOffice) {
-            targetCvo.value = '';
-            permissionType.value = 'permission_required';
-        }
-    };
+        const syncReceivedFromTarget = () => {
+            const selectedOption = targetCvo.options[targetCvo.selectedIndex];
+            if (!selectedOption) return;
+            const mappedReceivedAt = selectedOption.dataset.receivedAt;
+            if (!mappedReceivedAt) return;
+            receivedAt.value = mappedReceivedAt;
+        };
 
-    const syncReceivedFromTarget = () => {
-        const selectedOption = targetCvo.options[targetCvo.selectedIndex];
-        if (!selectedOption) return;
-        const mappedReceivedAt = selectedOption.dataset.receivedAt;
-        if (!mappedReceivedAt) return;
-        receivedAt.value = mappedReceivedAt;
-    };
-
-    targetCvo.addEventListener('change', () => {
+        targetCvo.addEventListener('change', () => {
+            syncReceivedFromTarget();
+            syncWorkflowFields();
+        });
         syncReceivedFromTarget();
+        receivedAt.addEventListener('change', syncWorkflowFields);
         syncWorkflowFields();
-    });
-    syncReceivedFromTarget();
-    receivedAt.addEventListener('change', syncWorkflowFields);
-    syncWorkflowFields();
+    }
 
-    const syncGovtInstitutionField = () => {
-        const isGovt = sourcePetition.value === 'govt';
-        govtInstitutionGroup.style.display = isGovt ? '' : 'none';
-        govtInstitutionType.required = isGovt && {{ 1 if f_govt_inst.required else 0 }};
-        if (!isGovt) govtInstitutionType.value = '';
-    };
+    if (sourcePetition && govtInstitutionGroup && govtInstitutionType) {
+        const syncGovtInstitutionField = () => {
+            const isGovt = sourcePetition.value === 'govt';
+            govtInstitutionGroup.style.display = isGovt ? '' : 'none';
+            govtInstitutionType.required = isGovt && {{ 1 if f_govt_inst.required else 0 }};
+            if (!isGovt) govtInstitutionType.value = '';
+        };
 
-    sourcePetition.addEventListener('change', syncGovtInstitutionField);
-    syncGovtInstitutionField();
+        sourcePetition.addEventListener('change', syncGovtInstitutionField);
+        syncGovtInstitutionField();
+    }
 
     const syncPetitionerIdentityFields = () => {
         if (!petitionerIdentityType || !petitionerNameGroup || !contactGroup || !placeGroup || !petitionerNameInput || !contactInput || !placeInput) return;
@@ -314,6 +316,11 @@
     }
 
     if (ereceiptFileInput && ereceiptFileBtn && ereceiptFileName) {
+        // Hide native file input only after JS is successfully wired.
+        ereceiptFileInput.style.position = 'absolute';
+        ereceiptFileInput.style.left = '-9999px';
+        ereceiptFileInput.setAttribute('aria-hidden', 'true');
+        ereceiptFileInput.setAttribute('tabindex', '-1');
         ereceiptFileBtn.addEventListener('click', () => ereceiptFileInput.click());
         ereceiptFileInput.addEventListener('change', () => {
             if (ereceiptFileInput.files && ereceiptFileInput.files.length > 0) {

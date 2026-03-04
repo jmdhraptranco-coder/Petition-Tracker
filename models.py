@@ -66,6 +66,10 @@ def ensure_schema_updates():
             ADD COLUMN IF NOT EXISTS govt_institution_type VARCHAR(80)
         """)
         cur.execute("""
+            ALTER TABLE petitions
+            ADD COLUMN IF NOT EXISTS organization VARCHAR(20)
+        """)
+        cur.execute("""
             ALTER TABLE enquiry_reports
             ADD COLUMN IF NOT EXISTS cmd_action_report_file VARCHAR(255)
         """)
@@ -90,6 +94,14 @@ def ensure_schema_updates():
         cur.execute("""
             ALTER TABLE enquiry_reports
             ADD COLUMN IF NOT EXISTS non_departmental_type VARCHAR(20)
+        """)
+        cur.execute("""
+            ALTER TABLE enquiry_reports
+            ADD COLUMN IF NOT EXISTS departmental_type VARCHAR(20)
+        """)
+        cur.execute("""
+            ALTER TABLE enquiry_reports
+            ADD COLUMN IF NOT EXISTS deceased_count INTEGER
         """)
         cur.execute("""
             ALTER TABLE enquiry_reports
@@ -821,8 +833,8 @@ def create_petition(data, created_by):
         cur.execute("""
             INSERT INTO petitions (sno, efile_no, petitioner_name, contact, place, subject, 
                 petition_type, source_of_petition, received_at, target_cvo, requires_permission, received_date,
-                govt_institution_type, permission_status, enquiry_type, created_by, current_handler_id, status, remarks, ereceipt_no, ereceipt_file)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 'received', %s, %s, %s)
+                govt_institution_type, organization, permission_status, enquiry_type, created_by, current_handler_id, status, remarks, ereceipt_no, ereceipt_file)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 'received', %s, %s, %s)
             RETURNING id, sno
         """, (
             sno, data.get('efile_no'), data['petitioner_name'], data.get('contact'),
@@ -831,6 +843,7 @@ def create_petition(data, created_by):
             data.get('requires_permission', False),
             data.get('received_date', date.today()),
             data.get('govt_institution_type'),
+            data.get('organization'),
             data.get('permission_status', 'pending'),
             data.get('enquiry_type', ''),
             created_by, created_by, data.get('remarks'),
@@ -1204,7 +1217,7 @@ def cvo_mark_direct_enquiry(petition_id, cvo_user_id, comments=None, enquiry_typ
     finally:
         conn.close()
 
-def approve_permission(petition_id, from_user_id, target_cvo, efile_no=None, comments=None, enquiry_type=None):
+def approve_permission(petition_id, from_user_id, target_cvo, efile_no=None, comments=None, enquiry_type=None, organization=None):
     """PO approves permission and sends to CVO"""
     conn = get_db()
     try:
@@ -1218,6 +1231,7 @@ def approve_permission(petition_id, from_user_id, target_cvo, efile_no=None, com
         cur.execute("""
             UPDATE petitions SET status = 'permission_approved', permission_status = 'approved',
                 target_cvo = %s,
+                organization = COALESCE(%s, organization),
                 enquiry_type = CASE
                     WHEN %s IN ('detailed', 'preliminary') THEN %s
                     ELSE enquiry_type
@@ -1228,7 +1242,7 @@ def approve_permission(petition_id, from_user_id, target_cvo, efile_no=None, com
                 END,
                 current_handler_id = %s, updated_at = CURRENT_TIMESTAMP
             WHERE id = %s
-        """, (target_cvo, enquiry_type, enquiry_type, efile_no, cvo_id, petition_id))
+        """, (target_cvo, organization, enquiry_type, enquiry_type, efile_no, cvo_id, petition_id))
         
         cur.execute("""
             INSERT INTO petition_tracking (petition_id, from_user_id, to_user_id, from_role, to_role,
@@ -1357,7 +1371,9 @@ def submit_enquiry_report(
     detailed_request_reason=None,
     accident_type=None,
     deceased_category=None,
+    departmental_type=None,
     non_departmental_type=None,
+    deceased_count=None,
     general_public_count=None,
     animals_count=None
 ):
@@ -1377,13 +1393,15 @@ def submit_enquiry_report(
         cur.execute("""
             INSERT INTO enquiry_reports (
                 petition_id, submitted_by, report_text, findings, recommendation, report_file,
-                accident_type, deceased_category, non_departmental_type, general_public_count, animals_count
+                accident_type, deceased_category, departmental_type, non_departmental_type,
+                deceased_count, general_public_count, animals_count
             )
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             RETURNING id
         """, (
             petition_id, inspector_id, report_text, findings, recommendation, report_file,
-            accident_type, deceased_category, non_departmental_type, general_public_count, animals_count
+            accident_type, deceased_category, departmental_type, non_departmental_type,
+            deceased_count, general_public_count, animals_count
         ))
         
         cur.execute("""
@@ -2084,7 +2102,9 @@ def get_latest_enquiry_report_accident_details(petition_ids):
                 er.petition_id,
                 er.accident_type,
                 er.deceased_category,
+                er.departmental_type,
                 er.non_departmental_type,
+                er.deceased_count,
                 er.general_public_count,
                 er.animals_count
             FROM enquiry_reports er
@@ -2245,7 +2265,9 @@ def _get_latest_enquiry_reports_for_petitions(petition_ids):
                 er.petition_id,
                 er.accident_type,
                 er.deceased_category,
+                er.departmental_type,
                 er.non_departmental_type,
+                er.deceased_count,
                 er.general_public_count,
                 er.animals_count,
                 er.submitted_at
@@ -2277,7 +2299,10 @@ def _get_electrical_accident_stats_for_petitions(petitions):
     for row in reports:
         accident_type = (row.get('accident_type') or '').strip()
         deceased_category = (row.get('deceased_category') or '').strip()
+        departmental_type = (row.get('departmental_type') or '').strip()
         non_departmental_type = (row.get('non_departmental_type') or '').strip()
+        deceased_count = int(row.get('deceased_count') or 0)
+        deceased_units = deceased_count if deceased_count > 0 else 1
         general_public_count = int(row.get('general_public_count') or 0)
         animals_count = int(row.get('animals_count') or 0)
 
@@ -2287,18 +2312,21 @@ def _get_electrical_accident_stats_for_petitions(petitions):
             stats['electrical_accident_non_fatal'] += 1
 
         if deceased_category == 'departmental':
-            stats['electrical_accident_departmental'] += 1
+            if departmental_type in ('regular', 'outsourced'):
+                stats['electrical_accident_departmental'] += deceased_units
+            else:
+                stats['electrical_accident_departmental'] += 1
         elif deceased_category == 'non_departmental':
-            if non_departmental_type == 'private':
-                stats['electrical_accident_non_departmental_private'] += 1
-            elif non_departmental_type == 'contract':
-                stats['electrical_accident_non_departmental_contract'] += 1
+            if non_departmental_type in ('private_electricians', 'private'):
+                stats['electrical_accident_non_departmental_private'] += deceased_units
+            elif non_departmental_type in ('contract_labour', 'contract'):
+                stats['electrical_accident_non_departmental_contract'] += deceased_units
         elif deceased_category == 'general_public':
             stats['electrical_accident_general_public_petitions'] += 1
-            stats['electrical_accident_general_public_count'] += max(general_public_count, 0)
+            stats['electrical_accident_general_public_count'] += max(general_public_count or deceased_count, 0)
         elif deceased_category == 'animals':
             stats['electrical_accident_animals_petitions'] += 1
-            stats['electrical_accident_animals_count'] += max(animals_count, 0)
+            stats['electrical_accident_animals_count'] += max(animals_count or deceased_count, 0)
     return stats
 
 
@@ -2363,9 +2391,9 @@ def get_dashboard_drilldown(user_role, user_id, cvo_office, metric):
                 filtered.append(p)
             elif accident_metric == 'departmental' and (report.get('deceased_category') == 'departmental'):
                 filtered.append(p)
-            elif accident_metric == 'non_departmental_private' and (report.get('deceased_category') == 'non_departmental') and (report.get('non_departmental_type') == 'private'):
+            elif accident_metric == 'non_departmental_private' and (report.get('deceased_category') == 'non_departmental') and (report.get('non_departmental_type') in ('private_electricians', 'private')):
                 filtered.append(p)
-            elif accident_metric == 'non_departmental_contract' and (report.get('deceased_category') == 'non_departmental') and (report.get('non_departmental_type') == 'contract'):
+            elif accident_metric == 'non_departmental_contract' and (report.get('deceased_category') == 'non_departmental') and (report.get('non_departmental_type') in ('contract_labour', 'contract')):
                 filtered.append(p)
             elif accident_metric == 'general_public' and (report.get('deceased_category') == 'general_public'):
                 filtered.append(p)

@@ -40,6 +40,7 @@ PROFILE_PHOTO_MAX_BYTES = 2 * 1024 * 1024
 PROFILE_PHOTO_EXTENSIONS = {'jpg', 'jpeg', 'png', 'webp'}
 VALID_RECEIVED_AT = {'jmd_office', 'cvo_apspdcl_tirupathi', 'cvo_apepdcl_vizag', 'cvo_apcpdcl_vijayawada'}
 VALID_TARGET_CVO = {'apspdcl', 'apepdcl', 'apcpdcl', 'headquarters'}
+VALID_ORGANIZATIONS = {'aptransco', 'apgenco'}
 VALID_ENQUIRY_TYPES = {'detailed', 'preliminary'}
 VALID_SOURCE_OF_PETITION = {'media', 'public_individual', 'govt', 'sumoto', 'cmd_office'}
 VALID_GOVT_INSTITUTIONS = {
@@ -1795,25 +1796,32 @@ def _format_electrical_accident_summary(detail_row):
         return '-'
     accident_type = (detail_row.get('accident_type') or '').strip()
     deceased_category = (detail_row.get('deceased_category') or '').strip()
+    departmental_type = (detail_row.get('departmental_type') or '').strip()
     non_departmental_type = (detail_row.get('non_departmental_type') or '').strip()
+    deceased_count = int(detail_row.get('deceased_count') or 0)
     general_public_count = int(detail_row.get('general_public_count') or 0)
     animals_count = int(detail_row.get('animals_count') or 0)
 
     accident_label = 'Fatal' if accident_type == 'fatal' else 'Non Fatal' if accident_type == 'non_fatal' else '-'
     category_label = '-'
     if deceased_category == 'departmental':
-        category_label = 'Departmental'
+        if departmental_type == 'regular':
+            category_label = f'Departmental (Regular, {max(deceased_count, 0)})'
+        elif departmental_type == 'outsourced':
+            category_label = f'Departmental (Outsourced, {max(deceased_count, 0)})'
+        else:
+            category_label = 'Departmental'
     elif deceased_category == 'non_departmental':
-        if non_departmental_type == 'private':
-            category_label = 'Non Departmental (Private)'
-        elif non_departmental_type == 'contract':
-            category_label = 'Non Departmental (Contract)'
+        if non_departmental_type in ('private_electricians', 'private'):
+            category_label = f'Non Departmental (Private Electricians, {max(deceased_count, 0)})'
+        elif non_departmental_type in ('contract_labour', 'contract'):
+            category_label = f'Non Departmental (Contract Labour, {max(deceased_count, 0)})'
         else:
             category_label = 'Non Departmental'
     elif deceased_category == 'general_public':
-        category_label = f'General Public ({max(general_public_count, 0)})'
+        category_label = f'General Public ({max(general_public_count or deceased_count, 0)})'
     elif deceased_category == 'animals':
-        category_label = f'Animals ({max(animals_count, 0)})'
+        category_label = f'Animals ({max(animals_count or deceased_count, 0)})'
 
     return f"{accident_label} | {category_label}"
 
@@ -2514,10 +2522,14 @@ def petition_action(petition_id):
                 flash('Petition not found.', 'danger')
                 return redirect(url_for('petitions_list'))
             target_cvo = (request.form.get('target_cvo') or '').strip()
+            organization = (request.form.get('organization') or '').strip().lower()
             enquiry_type_decision = (request.form.get('enquiry_type_decision') or '').strip()
             efile_no_input = request.form.get('efile_no', '').strip()
             if target_cvo not in VALID_TARGET_CVO:
                 flash('Please select a valid target CVO/DSP.', 'warning')
+                return redirect(url_for('petition_view', petition_id=petition_id))
+            if petition.get('received_at') == 'jmd_office' and organization not in VALID_ORGANIZATIONS:
+                flash('Please select organization (APTRANSCO/APGENCO).', 'warning')
                 return redirect(url_for('petition_view', petition_id=petition_id))
             if enquiry_type_decision not in VALID_ENQUIRY_TYPES:
                 flash('Please select enquiry type decision (Detailed/Preliminary).', 'warning')
@@ -2530,7 +2542,15 @@ def petition_action(petition_id):
             if efile_error:
                 flash(efile_error, 'warning')
                 return redirect(url_for('petition_view', petition_id=petition_id))
-            models.approve_permission(petition_id, user_id, target_cvo, efile_no, comments, enquiry_type_decision)
+            models.approve_permission(
+                petition_id,
+                user_id,
+                target_cvo,
+                efile_no,
+                comments,
+                enquiry_type_decision,
+                organization=organization if organization in VALID_ORGANIZATIONS else None,
+            )
             flash('Permission granted and pushed to respective CVO/DSP.', 'success')
 
         elif action == 'reject_permission':
@@ -2609,13 +2629,17 @@ def petition_action(petition_id):
             detailed_request_reason = (request.form.get('detailed_request_reason') or '').strip()
             accident_type = None
             deceased_category = None
+            departmental_type = None
             non_departmental_type = None
+            deceased_count = None
             general_public_count = None
             animals_count = None
             if (petition.get('petition_type') or '').strip() == 'electrical_accident':
                 accident_type = (request.form.get('accident_type') or '').strip()
                 deceased_category = (request.form.get('deceased_category') or '').strip()
+                departmental_type = (request.form.get('departmental_type') or '').strip()
                 non_departmental_type = (request.form.get('non_departmental_type') or '').strip()
+                deceased_count_raw = (request.form.get('deceased_count') or '').strip()
                 general_public_raw = (request.form.get('general_public_count') or '').strip()
                 animals_raw = (request.form.get('animals_count') or '').strip()
                 if accident_type not in ('fatal', 'non_fatal'):
@@ -2624,15 +2648,30 @@ def petition_action(petition_id):
                 if deceased_category not in ('departmental', 'non_departmental', 'general_public', 'animals'):
                     flash('Please select deceased person/category.', 'warning')
                     return redirect(url_for('petition_view', petition_id=petition_id))
-                if deceased_category == 'non_departmental':
-                    if non_departmental_type not in ('private', 'contract'):
-                        flash('Please select non-departmental type (Private / Contract).', 'warning')
+                try:
+                    deceased_count = int(deceased_count_raw)
+                except (TypeError, ValueError):
+                    deceased_count = 0
+                if deceased_count <= 0:
+                    flash('Please enter valid No. of Deceased (greater than 0).', 'warning')
+                    return redirect(url_for('petition_view', petition_id=petition_id))
+                if deceased_category == 'departmental':
+                    if departmental_type not in ('regular', 'outsourced'):
+                        flash('Please select departmental type (Regular / Outsourced).', 'warning')
                         return redirect(url_for('petition_view', petition_id=petition_id))
+                    non_departmental_type = None
+                if deceased_category == 'non_departmental':
+                    if non_departmental_type not in ('private_electricians', 'contract_labour'):
+                        flash('Please select non-departmental type (Private Electricians / Contract Labour).', 'warning')
+                        return redirect(url_for('petition_view', petition_id=petition_id))
+                    departmental_type = None
                 else:
                     non_departmental_type = None
+                if deceased_category != 'departmental':
+                    departmental_type = None
                 if deceased_category == 'general_public':
                     try:
-                        general_public_count = int(general_public_raw)
+                        general_public_count = int(general_public_raw or deceased_count)
                     except (TypeError, ValueError):
                         general_public_count = 0
                     if general_public_count <= 0:
@@ -2640,7 +2679,7 @@ def petition_action(petition_id):
                         return redirect(url_for('petition_view', petition_id=petition_id))
                 if deceased_category == 'animals':
                     try:
-                        animals_count = int(animals_raw)
+                        animals_count = int(animals_raw or deceased_count)
                     except (TypeError, ValueError):
                         animals_count = 0
                     if animals_count <= 0:
@@ -2680,7 +2719,9 @@ def petition_action(petition_id):
                     detailed_request_reason=detailed_request_reason,
                     accident_type=accident_type,
                     deceased_category=deceased_category,
+                    departmental_type=departmental_type,
                     non_departmental_type=non_departmental_type,
+                    deceased_count=deceased_count,
                     general_public_count=general_public_count,
                     animals_count=animals_count
                 )
@@ -2706,7 +2747,9 @@ def petition_action(petition_id):
                 detailed_request_reason=detailed_request_reason,
                 accident_type=accident_type,
                 deceased_category=deceased_category,
+                departmental_type=departmental_type,
                 non_departmental_type=non_departmental_type,
+                deceased_count=deceased_count,
                 general_public_count=general_public_count,
                 animals_count=animals_count
             )
