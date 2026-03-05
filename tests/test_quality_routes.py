@@ -13,6 +13,7 @@ def test_petition_new_jmd_routes_to_po(client):
         "petition_type": "bribe",
         "source_of_petition": "media",
         "remarks": "x",
+        "ereceipt_no": "ER-2001",
         "ereceipt_file": (io.BytesIO(b"%PDF-1.4 test"), "deo_jmd.pdf"),
     }
     resp = client.post("/petitions/new", data=payload, content_type="multipart/form-data")
@@ -34,6 +35,7 @@ def test_petition_new_non_jmd_routes_to_cvo(client):
         "subject": "Test subject",
         "petition_type": "bribe",
         "source_of_petition": "media",
+        "ereceipt_no": "ER-2002",
         "ereceipt_file": (io.BytesIO(b"%PDF-1.4 test"), "deo_non_jmd.pdf"),
     }
     resp = client.post("/petitions/new", data=payload, content_type="multipart/form-data")

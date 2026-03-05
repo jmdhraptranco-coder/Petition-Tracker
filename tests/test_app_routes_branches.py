@@ -398,6 +398,7 @@ def test_petition_new_validation_matrix(monkeypatch):
                 "received_at": "cvo_apspdcl_tirupathi",
                 "target_cvo": "apspdcl",
                 "permission_request_type": "direct_enquiry",
+                "ereceipt_no": "ER-1001",
                 "ereceipt_file": _pdf("deo.pdf"),
             }
         )

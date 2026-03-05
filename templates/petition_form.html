@@ -59,10 +59,7 @@
             <div class="form-group">
                 <label for="ereceipt_file"><span data-i18n="petition.form.ereceipt_file">{{ f_ereceipt_file.label }}</span> {% if f_ereceipt_file.required %}<span class="required">*</span>{% endif %}</label>
                 <input type="file" id="ereceipt_file" name="ereceipt_file" accept=".pdf" {% if f_ereceipt_file.required %}required{% endif %}>
-                <div class="file-picker">
-                    <button type="button" class="btn btn-outline btn-sm" id="ereceipt_file_btn" data-i18n="petition.form.choose_file">Choose File</button>
-                    <span id="ereceipt_file_name" data-i18n="petition.form.no_file">No file chosen</span>
-                </div>
+                <small id="ereceipt_file_name" class="form-help" data-i18n="petition.form.no_file">No file chosen</small>
             </div>
 
             <div class="form-group" id="target_cvo_group">
@@ -225,8 +222,9 @@
     const contactInput = document.getElementById('contact');
     const placeInput = document.getElementById('place');
     const ereceiptFileInput = document.getElementById('ereceipt_file');
-    const ereceiptFileBtn = document.getElementById('ereceipt_file_btn');
     const ereceiptFileName = document.getElementById('ereceipt_file_name');
+    const ereceiptNoInput = document.getElementById('ereceipt_no');
+    const petitionForm = document.querySelector('form.petition-form');
     if (receivedAt && targetGroup && targetCvo && permissionGroup && permissionType) {
         const syncWorkflowFields = () => {
             const isJmdOffice = receivedAt.value === 'jmd_office';
@@ -315,21 +313,28 @@
         petitionerNameInput.addEventListener('focus', loadPetitionerSuggestions);
     }
 
-    if (ereceiptFileInput && ereceiptFileBtn && ereceiptFileName) {
-        // Hide native file input only after JS is successfully wired.
-        ereceiptFileInput.style.position = 'absolute';
-        ereceiptFileInput.style.left = '-9999px';
-        ereceiptFileInput.setAttribute('aria-hidden', 'true');
-        ereceiptFileInput.setAttribute('tabindex', '-1');
-        ereceiptFileBtn.addEventListener('click', () => ereceiptFileInput.click());
+    if (ereceiptFileInput && ereceiptFileName) {
         ereceiptFileInput.addEventListener('change', () => {
             if (ereceiptFileInput.files && ereceiptFileInput.files.length > 0) {
                 ereceiptFileName.textContent = ereceiptFileInput.files[0].name;
             } else {
-                const fallback = ereceiptFileName.getAttribute('data-i18n');
-                if (fallback === 'petition.form.no_file') {
-                    ereceiptFileName.textContent = 'No file chosen';
-                }
+                ereceiptFileName.textContent = 'No file chosen';
+            }
+        });
+    }
+
+    if (petitionForm && ereceiptFileInput && ereceiptNoInput) {
+        petitionForm.addEventListener('submit', (evt) => {
+            const hasNo = (ereceiptNoInput.value || '').trim().length > 0;
+            const hasFile = !!(ereceiptFileInput.files && ereceiptFileInput.files.length > 0);
+            if (hasNo && !hasFile) {
+                evt.preventDefault();
+                alert('E-Receipt file is required when E-Receipt No is provided.');
+                return;
+            }
+            if (hasFile && !hasNo) {
+                evt.preventDefault();
+                alert('E-Receipt No is required when uploading E-Receipt file.');
             }
         });
     }

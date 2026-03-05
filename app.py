@@ -20,6 +20,7 @@ import time
 import hmac
 import secrets
 from uuid import uuid4
+from werkzeug.exceptions import BadGateway, GatewayTimeout, InternalServerError, RequestEntityTooLarge, ServiceUnavailable
 from werkzeug.utils import secure_filename
 try:
     from openpyxl import load_workbook
@@ -712,6 +713,72 @@ def ensure_upload_dirs():
     os.makedirs(PROFILE_UPLOAD_DIR, exist_ok=True)
 
 
+def _normalize_storage_relpath(path_value):
+    raw = (path_value or '').replace('\\', '/').strip('/')
+    if not raw:
+        return None
+    parts = []
+    for part in raw.split('/'):
+        safe_part = secure_filename(part or '')
+        if not safe_part or safe_part in ('.', '..'):
+            return None
+        parts.append(safe_part)
+    return '/'.join(parts) if parts else None
+
+
+def _storage_abspath(base_dir, relpath):
+    rel = _normalize_storage_relpath(relpath)
+    if not rel:
+        return None
+    base_abs = os.path.abspath(base_dir)
+    candidate = os.path.abspath(os.path.join(base_abs, rel))
+    if not (candidate == base_abs or candidate.startswith(base_abs + os.sep)):
+        return None
+    return candidate
+
+
+def _delete_uploaded_file(base_dir, relpath):
+    file_path = _storage_abspath(base_dir, relpath)
+    if not file_path:
+        return
+    try:
+        if os.path.isfile(file_path):
+            os.remove(file_path)
+    except Exception:
+        pass
+
+
+def _uploaded_file_exists(base_dir, relpath):
+    file_path = _storage_abspath(base_dir, relpath)
+    return bool(file_path and os.path.isfile(file_path))
+
+
+def _save_uploaded_file(file_obj, directory, filename, label, use_date_subdir=True):
+    if not file_obj or not filename:
+        return False, f'{label} upload payload is missing.'
+    try:
+        os.makedirs(directory, exist_ok=True)
+        safe_name = secure_filename(filename or '')
+        if not safe_name:
+            return False, f'{label} filename is invalid.'
+        relpath = safe_name
+        if use_date_subdir:
+            date_dir = datetime.now().strftime('%Y-%m-%d')
+            relpath = f'{date_dir}/{safe_name}'
+        file_path = _storage_abspath(directory, relpath)
+        if not file_path:
+            return False, f'{label} storage path is invalid.'
+        os.makedirs(os.path.dirname(file_path), exist_ok=True)
+        file_obj.save(file_path)
+        if not os.path.isfile(file_path):
+            app.logger.error('Upload path missing after save: %s', file_path)
+            return False, f'{label} could not be stored on server.'
+        return True, relpath
+    except Exception:
+        app.logger.exception('Failed saving uploaded file (%s) into %s', label, directory)
+        return False, f'{label} could not be stored on server.'
+
+
 def validate_profile_photo_upload(file_obj, user_id=None):
     if not file_obj or not file_obj.filename:
         return True, None, None
@@ -757,6 +824,99 @@ def flash_internal_error(user_message='Something went wrong. Please contact admi
     flash(user_message, 'danger')
 
 
+def _request_prefers_json():
+    if request.path.startswith('/api/'):
+        return True
+    best = request.accept_mimetypes.best_match(['application/json', 'text/html'])
+    return bool(best == 'application/json' and request.accept_mimetypes[best] > request.accept_mimetypes['text/html'])
+
+
+def _render_transient_error(status_code, title, message, retry_after_seconds=4, max_retries=4):
+    retry_after_seconds = max(1, int(retry_after_seconds))
+    max_retries = max(1, int(max_retries))
+    if _request_prefers_json():
+        payload = {
+            'error': title,
+            'message': message,
+            'status': status_code,
+            'temporary': True,
+            'retry_after_seconds': retry_after_seconds,
+            'max_retries': max_retries,
+        }
+        response = jsonify(payload)
+        response.status_code = status_code
+        response.headers['Retry-After'] = str(retry_after_seconds)
+        return response
+    response = render_template(
+        'transient_error.html',
+        status_code=status_code,
+        title=title,
+        message=message,
+        retry_after_seconds=retry_after_seconds,
+        max_retries=max_retries,
+    )
+    return response, status_code, {'Retry-After': str(retry_after_seconds)}
+
+
+@app.errorhandler(RequestEntityTooLarge)
+def handle_request_entity_too_large(_error):
+    flash(f'Upload exceeds {config.MAX_UPLOAD_SIZE_MB} MB limit.', 'danger')
+    referer = request.headers.get('Referer')
+    return redirect(referer or url_for('petitions_list'))
+
+
+@app.errorhandler(InternalServerError)
+def handle_internal_server_error(error):
+    original_error = getattr(error, 'original_exception', None)
+    if original_error:
+        app.logger.exception('Unhandled internal server error: %s', original_error)
+    else:
+        app.logger.exception('Unhandled internal server error')
+    return _render_transient_error(
+        status_code=500,
+        title='Temporary server issue',
+        message='The server hit an internal error. Retrying automatically may resolve it.',
+        retry_after_seconds=4,
+        max_retries=4,
+    )
+
+
+@app.errorhandler(BadGateway)
+def handle_bad_gateway(_error):
+    app.logger.warning('Transient upstream error: 502 bad gateway for %s', request.path)
+    return _render_transient_error(
+        status_code=502,
+        title='Upstream temporarily unavailable',
+        message='A dependency failed to respond correctly. Auto-retrying now.',
+        retry_after_seconds=3,
+        max_retries=5,
+    )
+
+
+@app.errorhandler(ServiceUnavailable)
+def handle_service_unavailable(_error):
+    app.logger.warning('Transient service error: 503 service unavailable for %s', request.path)
+    return _render_transient_error(
+        status_code=503,
+        title='Service temporarily unavailable',
+        message='The service is temporarily unavailable. Auto-retrying now.',
+        retry_after_seconds=3,
+        max_retries=5,
+    )
+
+
+@app.errorhandler(GatewayTimeout)
+def handle_gateway_timeout(_error):
+    app.logger.warning('Transient upstream timeout: 504 gateway timeout for %s', request.path)
+    return _render_transient_error(
+        status_code=504,
+        title='Gateway timeout',
+        message='A dependency timed out. Auto-retrying now.',
+        retry_after_seconds=3,
+        max_retries=5,
+    )
+
+
 def log_security_event(event_type, severity='warning', **details):
     payload = {
         'event_type': event_type,
@@ -787,12 +947,7 @@ def log_security_event(event_type, severity='warning', **details):
 def delete_profile_photo_file(filename):
     if not filename:
         return
-    path = os.path.join(PROFILE_UPLOAD_DIR, filename)
-    try:
-        if os.path.isfile(path):
-            os.remove(path)
-    except Exception:
-        pass
+    _delete_uploaded_file(PROFILE_UPLOAD_DIR, filename)
 
 
 def refresh_session_user():
@@ -874,19 +1029,20 @@ def _clear_login_failures():
 
 def _can_access_petition(petition_id):
     user_id = session.get('user_id')
-    user_role = session.get('user_role')
-    cvo_office = session.get('cvo_office')
-    if not user_id or not user_role:
+    if not user_id:
         return False
-    if not hasattr(models, 'get_petitions_for_user'):
-        # Test stubs may not expose full data-access surface.
-        return True
     try:
         pid = int(petition_id)
     except (TypeError, ValueError):
         return False
-    petitions = get_petitions_for_user_cached(user_id, user_role, cvo_office, status_filter=None, enquiry_mode='all')
-    return any(int(p.get('id') or 0) == pid for p in petitions)
+    if not hasattr(models, 'get_petition_by_id'):
+        # Test stubs may not expose full data-access surface.
+        return True
+    try:
+        return bool(models.get_petition_by_id(pid))
+    except Exception:
+        app.logger.exception('Unable to validate petition access for petition_id=%s', pid)
+        return False
 
 
 def _can_access_cvo_scope(cvo_id):
@@ -924,6 +1080,68 @@ def _petition_id_from_filename(filename):
     if not match:
         return None
     return int(match.group(1))
+
+
+def _build_storage_filename(prefix, original_name, petition_id=None):
+    safe_prefix = secure_filename(prefix or '').strip('_')
+    safe_original = secure_filename(original_name or '')
+    if not safe_prefix or not safe_original:
+        return None
+    max_len = 240
+    name_part, ext_part = os.path.splitext(safe_original)
+    ext_part = ext_part.lower()[:10]
+    if not ext_part:
+        ext_part = ''
+    token = uuid4().hex
+    if len(token) > 32:
+        token = token[:32]
+
+    def _finalize(base_value):
+        base_value = secure_filename(base_value or '').strip('_')
+        if not base_value:
+            return None
+        if ext_part and not base_value.endswith(ext_part):
+            keep = max(1, max_len - len(ext_part))
+            base_value = base_value[:keep] + ext_part
+        return base_value[:max_len]
+
+    if petition_id is not None:
+        try:
+            pid = int(petition_id)
+        except (TypeError, ValueError):
+            pid = None
+        if pid and pid > 0:
+            base = f'{safe_prefix}_{pid}_{token}_'
+            remaining = max_len - len(base) - len(ext_part)
+            if remaining < 1:
+                remaining = 1
+            return _finalize(f'{base}{name_part[:remaining]}{ext_part}')
+    base = f'{safe_prefix}_{token}_'
+    remaining = max_len - len(base) - len(ext_part)
+    if remaining < 1:
+        remaining = 1
+    return _finalize(f'{base}{name_part[:remaining]}{ext_part}')
+
+
+def _resolve_petition_id_for_file(filename):
+    petition_id = _petition_id_from_filename(filename)
+    if petition_id:
+        return petition_id
+    if not hasattr(models, 'find_petition_id_by_filename'):
+        return None
+    try:
+        return models.find_petition_id_by_filename(filename)
+    except Exception:
+        app.logger.exception('Unable to resolve petition id for file: %s', filename)
+        return None
+
+
+def _parse_requested_petition_id(raw_value):
+    try:
+        value = int((raw_value or '').strip())
+        return value if value > 0 else None
+    except (TypeError, ValueError, AttributeError):
+        return None
 
 
 def _has_pending_inspector_detailed_request(tracking_rows):
@@ -2378,6 +2596,12 @@ def petition_new():
         if ereceipt_no and len(ereceipt_no) > 100:
             flash(f"{cfg_ereceipt_no.get('label', 'E-Receipt No')} is too long.", 'warning')
             return render_petition_form()
+        if ereceipt_no and (not ereceipt_file or not ereceipt_file.filename):
+            flash('E-Receipt file is required when E-Receipt No is provided. Please choose the PDF again and submit.', 'warning')
+            return render_petition_form()
+        if (ereceipt_file and ereceipt_file.filename) and not ereceipt_no:
+            flash('E-Receipt No is required when uploading E-Receipt file.', 'warning')
+            return render_petition_form()
         if len(remarks) > 5000:
             flash('Remarks are too long.', 'warning')
             return render_petition_form()
@@ -2390,8 +2614,15 @@ def petition_new():
             original_name = upload_result
 
             os.makedirs(ERECEIPT_UPLOAD_DIR, exist_ok=True)
-            ereceipt_filename = f"deo_ereceipt_{datetime.now().strftime('%Y%m%d%H%M%S')}_{original_name}"
-            ereceipt_file.save(os.path.join(ERECEIPT_UPLOAD_DIR, ereceipt_filename))
+            ereceipt_filename = _build_storage_filename('deo_ereceipt', original_name)
+            if not ereceipt_filename:
+                flash('Unable to prepare e-receipt filename.', 'danger')
+                return redirect(url_for('petition_new'))
+            saved_ok, save_result = _save_uploaded_file(ereceipt_file, ERECEIPT_UPLOAD_DIR, ereceipt_filename, 'E-receipt file')
+            if not saved_ok:
+                flash(save_result, 'danger')
+                return redirect(url_for('petition_new'))
+            ereceipt_filename = save_result
 
         data = {
             'efile_no': None,
@@ -2712,6 +2943,41 @@ def petition_view(petition_id):
     
     tracking = models.get_petition_tracking(petition_id)
     report = models.get_enquiry_report(petition_id)
+    ereceipt_file_available = (
+        bool(petition.get('ereceipt_file'))
+        and _uploaded_file_exists(ERECEIPT_UPLOAD_DIR, petition.get('ereceipt_file'))
+    )
+    report_file_availability = {
+        'report_file': False,
+        'cvo_consolidated_report_file': False,
+        'cmd_action_report_file': False,
+    }
+    if report:
+        report_file_availability['report_file'] = bool(report.get('report_file')) and _uploaded_file_exists(
+            ENQUIRY_UPLOAD_DIR, report.get('report_file')
+        )
+        report_file_availability['cvo_consolidated_report_file'] = bool(report.get('cvo_consolidated_report_file')) and _uploaded_file_exists(
+            ENQUIRY_UPLOAD_DIR, report.get('cvo_consolidated_report_file')
+        )
+        report_file_availability['cmd_action_report_file'] = bool(report.get('cmd_action_report_file')) and _uploaded_file_exists(
+            ENQUIRY_UPLOAD_DIR, report.get('cmd_action_report_file')
+        )
+    tracking_file_availability = {}
+    for row in tracking or []:
+        attachment_name = row.get('attachment_file')
+        if attachment_name and attachment_name not in tracking_file_availability:
+            tracking_file_availability[attachment_name] = _uploaded_file_exists(ENQUIRY_UPLOAD_DIR, attachment_name)
+    ci_assignment_memo = None
+    for row in reversed(tracking or []):
+        if (row.get('action') or '').strip() == 'Assigned to Inspector' and row.get('attachment_file'):
+            ci_assignment_memo = {
+                'filename': row.get('attachment_file'),
+                'from_name': row.get('from_name'),
+                'created_at': row.get('created_at'),
+                'comments': row.get('comments'),
+                'is_available': tracking_file_availability.get(row.get('attachment_file'), False),
+            }
+            break
     inspector_conversion_request_pending = (
         petition.get('status') == 'enquiry_report_submitted'
         and (petition.get('enquiry_type') or '').strip().lower() == 'preliminary'
@@ -2746,7 +3012,11 @@ def petition_view(petition_id):
                          inspectors=inspectors, cvo_users=cvo_users, cmd_cgm_users=cmd_cgm_users,
                          inspector_conversion_request_pending=inspector_conversion_request_pending,
                          conversion_permission_stage=conversion_permission_stage,
-                         conversion_reassignment_locked=conversion_reassignment_locked)
+                         conversion_reassignment_locked=conversion_reassignment_locked,
+                         ci_assignment_memo=ci_assignment_memo,
+                         tracking_file_availability=tracking_file_availability,
+                         ereceipt_file_available=ereceipt_file_available,
+                         report_file_availability=report_file_availability)
 
 # ========================================
 # WORKFLOW ACTION ROUTES
@@ -2844,16 +3114,20 @@ def petition_action(petition_id):
                         return redirect(url_for('petition_view', petition_id=petition_id))
                     original_name = upload_result
                     os.makedirs(ENQUIRY_UPLOAD_DIR, exist_ok=True)
-                    permission_filename = f"cvo_permission_{petition_id}_{datetime.now().strftime('%Y%m%d%H%M%S')}_{original_name}"
-                    permission_file.save(os.path.join(ENQUIRY_UPLOAD_DIR, permission_filename))
+                    permission_filename = _build_storage_filename('cvo_permission', original_name, petition_id)
+                    if not permission_filename:
+                        flash('Unable to prepare permission document filename.', 'danger')
+                        return redirect(url_for('petition_view', petition_id=petition_id))
+                    saved_ok, save_result = _save_uploaded_file(permission_file, ENQUIRY_UPLOAD_DIR, permission_filename, 'Permission document')
+                    if not saved_ok:
+                        flash(save_result, 'danger')
+                        return redirect(url_for('petition_view', petition_id=petition_id))
+                    permission_filename = save_result
                 try:
                     models.cvo_send_receipt_to_po(petition_id, user_id, comments, permission_filename)
                 except Exception:
                     if permission_filename:
-                        try:
-                            os.remove(os.path.join(ENQUIRY_UPLOAD_DIR, permission_filename))
-                        except Exception:
-                            pass
+                        _delete_uploaded_file(ENQUIRY_UPLOAD_DIR, permission_filename)
                     raise
                 flash('Permission route selected and receipt sent to PO.', 'success')
             else:
@@ -2874,8 +3148,15 @@ def petition_action(petition_id):
                             return redirect(url_for('petition_view', petition_id=petition_id))
                         original_name = upload_result
                         os.makedirs(ENQUIRY_UPLOAD_DIR, exist_ok=True)
-                        memo_filename = f"assign_memo_{petition_id}_{datetime.now().strftime('%Y%m%d%H%M%S')}_{original_name}"
-                        memo_file.save(os.path.join(ENQUIRY_UPLOAD_DIR, memo_filename))
+                        memo_filename = _build_storage_filename('assign_memo', original_name, petition_id)
+                        if not memo_filename:
+                            flash('Unable to prepare memo filename.', 'danger')
+                            return redirect(url_for('petition_view', petition_id=petition_id))
+                        saved_ok, save_result = _save_uploaded_file(memo_file, ENQUIRY_UPLOAD_DIR, memo_filename, 'Memo/instructions file')
+                        if not saved_ok:
+                            flash(save_result, 'danger')
+                            return redirect(url_for('petition_view', petition_id=petition_id))
+                        memo_filename = save_result
                     try:
                         models.cvo_mark_direct_enquiry(petition_id, user_id, comments, enquiry_type_decision)
                         models.assign_to_inspector(
@@ -2883,10 +3164,7 @@ def petition_action(petition_id):
                         )
                     except Exception:
                         if memo_filename:
-                            try:
-                                os.remove(os.path.join(ENQUIRY_UPLOAD_DIR, memo_filename))
-                            except Exception:
-                                pass
+                            _delete_uploaded_file(ENQUIRY_UPLOAD_DIR, memo_filename)
                         raise
                     flash('Direct enquiry selected and petition assigned to inspector.', 'success')
                 else:
@@ -3026,18 +3304,22 @@ def petition_action(petition_id):
                     return redirect(url_for('petition_view', petition_id=petition_id))
                 original_name = upload_result
                 os.makedirs(ENQUIRY_UPLOAD_DIR, exist_ok=True)
-                memo_filename = f"assign_memo_{petition_id}_{datetime.now().strftime('%Y%m%d%H%M%S')}_{original_name}"
-                memo_file.save(os.path.join(ENQUIRY_UPLOAD_DIR, memo_filename))
+                memo_filename = _build_storage_filename('assign_memo', original_name, petition_id)
+                if not memo_filename:
+                    flash('Unable to prepare memo filename.', 'danger')
+                    return redirect(url_for('petition_view', petition_id=petition_id))
+                saved_ok, save_result = _save_uploaded_file(memo_file, ENQUIRY_UPLOAD_DIR, memo_filename, 'Memo/instructions file')
+                if not saved_ok:
+                    flash(save_result, 'danger')
+                    return redirect(url_for('petition_view', petition_id=petition_id))
+                memo_filename = save_result
             try:
                 models.assign_to_inspector(
                     petition_id, user_id, inspector_id, comments, enquiry_type_decision, memo_filename
                 )
             except Exception:
                 if memo_filename:
-                    try:
-                        os.remove(os.path.join(ENQUIRY_UPLOAD_DIR, memo_filename))
-                    except Exception:
-                        pass
+                    _delete_uploaded_file(ENQUIRY_UPLOAD_DIR, memo_filename)
                 raise
             flash('Petition assigned to inspector.', 'success')
 
@@ -3187,23 +3469,34 @@ def petition_action(petition_id):
                 return redirect(url_for('petition_view', petition_id=petition_id))
             original_name = upload_result
             os.makedirs(ENQUIRY_UPLOAD_DIR, exist_ok=True)
-            report_filename = f"enquiry_{petition_id}_{datetime.now().strftime('%Y%m%d%H%M%S')}_{original_name}"
-            report_file.save(os.path.join(ENQUIRY_UPLOAD_DIR, report_filename))
+            report_filename = _build_storage_filename('enquiry', original_name, petition_id)
+            if not report_filename:
+                flash('Unable to prepare enquiry report filename.', 'danger')
+                return redirect(url_for('petition_view', petition_id=petition_id))
+            saved_ok, save_result = _save_uploaded_file(report_file, ENQUIRY_UPLOAD_DIR, report_filename, 'Enquiry report file')
+            if not saved_ok:
+                flash(save_result, 'danger')
+                return redirect(url_for('petition_view', petition_id=petition_id))
+            report_filename = save_result
             stored_report_text = report_text
             if request_detailed_permission and not stored_report_text:
                 stored_report_text = 'Inspector requested permission to convert preliminary enquiry to detailed enquiry.'
-            models.submit_enquiry_report(
-                petition_id, user_id, stored_report_text, '', recommendation if not request_detailed_permission else '', report_filename,
-                request_detailed_permission=request_detailed_permission,
-                detailed_request_reason=detailed_request_reason,
-                accident_type=accident_type,
-                deceased_category=deceased_category,
-                departmental_type=departmental_type,
-                non_departmental_type=non_departmental_type,
-                deceased_count=deceased_count,
-                general_public_count=general_public_count,
-                animals_count=animals_count
-            )
+            try:
+                models.submit_enquiry_report(
+                    petition_id, user_id, stored_report_text, '', recommendation if not request_detailed_permission else '', report_filename,
+                    request_detailed_permission=request_detailed_permission,
+                    detailed_request_reason=detailed_request_reason,
+                    accident_type=accident_type,
+                    deceased_category=deceased_category,
+                    departmental_type=departmental_type,
+                    non_departmental_type=non_departmental_type,
+                    deceased_count=deceased_count,
+                    general_public_count=general_public_count,
+                    animals_count=animals_count
+                )
+            except Exception:
+                _delete_uploaded_file(ENQUIRY_UPLOAD_DIR, report_filename)
+                raise
             if request_detailed_permission:
                 flash(
                     f'"{cfg_request_detailed.get("label", "Detailed enquiry conversion request")}" sent to CVO/DSP.',
@@ -3227,6 +3520,7 @@ def petition_action(petition_id):
             if cfg_cvo_file.get('required') and (not consolidated_file or not consolidated_file.filename):
                 flash(f"{cfg_cvo_file.get('label', 'Consolidated report file')} is required.", 'warning')
                 return redirect(url_for('petition_view', petition_id=petition_id))
+            consolidated_filename = None
             if consolidated_file and consolidated_file.filename:
                 ok, upload_result = validate_pdf_upload(consolidated_file, 'Consolidated report upload')
                 if not ok:
@@ -3235,10 +3529,23 @@ def petition_action(petition_id):
                 original_name = upload_result
 
                 os.makedirs(ENQUIRY_UPLOAD_DIR, exist_ok=True)
-                consolidated_filename = f"cvo_consolidated_{petition_id}_{datetime.now().strftime('%Y%m%d%H%M%S')}_{original_name}"
-                consolidated_file.save(os.path.join(ENQUIRY_UPLOAD_DIR, consolidated_filename))
-                models.cvo_upload_consolidated_report(petition_id, user_id, consolidated_filename)
-            models.cvo_add_comments(petition_id, user_id, cvo_comments)
+                consolidated_filename = _build_storage_filename('cvo_consolidated', original_name, petition_id)
+                if not consolidated_filename:
+                    flash('Unable to prepare consolidated report filename.', 'danger')
+                    return redirect(url_for('petition_view', petition_id=petition_id))
+                saved_ok, save_result = _save_uploaded_file(consolidated_file, ENQUIRY_UPLOAD_DIR, consolidated_filename, 'Consolidated report file')
+                if not saved_ok:
+                    flash(save_result, 'danger')
+                    return redirect(url_for('petition_view', petition_id=petition_id))
+                consolidated_filename = save_result
+            try:
+                if consolidated_filename:
+                    models.cvo_upload_consolidated_report(petition_id, user_id, consolidated_filename)
+                models.cvo_add_comments(petition_id, user_id, cvo_comments)
+            except Exception:
+                if consolidated_filename:
+                    _delete_uploaded_file(ENQUIRY_UPLOAD_DIR, consolidated_filename)
+                raise
             flash('Forwarded to PO for conclusion.', 'success')
 
         elif action == 'cvo_send_back_reenquiry':
@@ -3289,9 +3596,20 @@ def petition_action(petition_id):
             original_name = upload_result
 
             os.makedirs(ENQUIRY_UPLOAD_DIR, exist_ok=True)
-            consolidated_filename = f"cvo_consolidated_{petition_id}_{datetime.now().strftime('%Y%m%d%H%M%S')}_{original_name}"
-            consolidated_file.save(os.path.join(ENQUIRY_UPLOAD_DIR, consolidated_filename))
-            models.cvo_upload_consolidated_report(petition_id, user_id, consolidated_filename)
+            consolidated_filename = _build_storage_filename('cvo_consolidated', original_name, petition_id)
+            if not consolidated_filename:
+                flash('Unable to prepare consolidated report filename.', 'danger')
+                return redirect(url_for('petition_view', petition_id=petition_id))
+            saved_ok, save_result = _save_uploaded_file(consolidated_file, ENQUIRY_UPLOAD_DIR, consolidated_filename, 'Consolidated report file')
+            if not saved_ok:
+                flash(save_result, 'danger')
+                return redirect(url_for('petition_view', petition_id=petition_id))
+            consolidated_filename = save_result
+            try:
+                models.cvo_upload_consolidated_report(petition_id, user_id, consolidated_filename)
+            except Exception:
+                _delete_uploaded_file(ENQUIRY_UPLOAD_DIR, consolidated_filename)
+                raise
             flash('Consolidated report uploaded successfully.', 'success')
 
         elif action == 'request_detailed_enquiry':
@@ -3315,16 +3633,20 @@ def petition_action(petition_id):
                     return redirect(url_for('petition_view', petition_id=petition_id))
                 original_name = upload_result
                 os.makedirs(ENQUIRY_UPLOAD_DIR, exist_ok=True)
-                prima_facie_filename = f"cvo_prima_facie_{petition_id}_{datetime.now().strftime('%Y%m%d%H%M%S')}_{original_name}"
-                prima_facie_file.save(os.path.join(ENQUIRY_UPLOAD_DIR, prima_facie_filename))
+                prima_facie_filename = _build_storage_filename('cvo_prima_facie', original_name, petition_id)
+                if not prima_facie_filename:
+                    flash('Unable to prepare prima facie filename.', 'danger')
+                    return redirect(url_for('petition_view', petition_id=petition_id))
+                saved_ok, save_result = _save_uploaded_file(prima_facie_file, ENQUIRY_UPLOAD_DIR, prima_facie_filename, 'Prima facie file')
+                if not saved_ok:
+                    flash(save_result, 'danger')
+                    return redirect(url_for('petition_view', petition_id=petition_id))
+                prima_facie_filename = save_result
             try:
                 models.cvo_request_detailed_enquiry(petition_id, user_id, cvo_comments, prima_facie_filename)
             except Exception:
                 if prima_facie_filename:
-                    try:
-                        os.remove(os.path.join(ENQUIRY_UPLOAD_DIR, prima_facie_filename))
-                    except Exception:
-                        pass
+                    _delete_uploaded_file(ENQUIRY_UPLOAD_DIR, prima_facie_filename)
                 raise
             flash('Detailed enquiry requested. Workflow restarted at PO permission stage.', 'success')
             
@@ -3366,10 +3688,22 @@ def petition_action(petition_id):
                     return redirect(url_for('petition_view', petition_id=petition_id))
                 original_name = upload_result
                 os.makedirs(ENQUIRY_UPLOAD_DIR, exist_ok=True)
-                conclusion_filename = f"po_conclusion_{petition_id}_{datetime.now().strftime('%Y%m%d%H%M%S')}_{original_name}"
-                conclusion_file.save(os.path.join(ENQUIRY_UPLOAD_DIR, conclusion_filename))
+                conclusion_filename = _build_storage_filename('po_conclusion', original_name, petition_id)
+                if not conclusion_filename:
+                    flash('Unable to prepare conclusion filename.', 'danger')
+                    return redirect(url_for('petition_view', petition_id=petition_id))
+                saved_ok, save_result = _save_uploaded_file(conclusion_file, ENQUIRY_UPLOAD_DIR, conclusion_filename, 'Conclusion file')
+                if not saved_ok:
+                    flash(save_result, 'danger')
+                    return redirect(url_for('petition_view', petition_id=petition_id))
+                conclusion_filename = save_result
 
-            models.po_give_conclusion(petition_id, user_id, efile_no, final_conclusion, instructions, conclusion_filename)
+            try:
+                models.po_give_conclusion(petition_id, user_id, efile_no, final_conclusion, instructions, conclusion_filename)
+            except Exception:
+                if conclusion_filename:
+                    _delete_uploaded_file(ENQUIRY_UPLOAD_DIR, conclusion_filename)
+                raise
             flash('Final conclusion submitted and petition closed.', 'success')
 
         elif action == 'send_to_cmd':
@@ -3483,10 +3817,22 @@ def petition_action(petition_id):
                     return redirect(url_for('petition_view', petition_id=petition_id))
                 original_name = upload_result
                 os.makedirs(ENQUIRY_UPLOAD_DIR, exist_ok=True)
-                action_report_filename = f"cmd_action_{petition_id}_{datetime.now().strftime('%Y%m%d%H%M%S')}_{original_name}"
-                action_report_file.save(os.path.join(ENQUIRY_UPLOAD_DIR, action_report_filename))
+                action_report_filename = _build_storage_filename('cmd_action', original_name, petition_id)
+                if not action_report_filename:
+                    flash('Unable to prepare action report filename.', 'danger')
+                    return redirect(url_for('petition_view', petition_id=petition_id))
+                saved_ok, save_result = _save_uploaded_file(action_report_file, ENQUIRY_UPLOAD_DIR, action_report_filename, 'Action report file')
+                if not saved_ok:
+                    flash(save_result, 'danger')
+                    return redirect(url_for('petition_view', petition_id=petition_id))
+                action_report_filename = save_result
 
-            models.cmd_submit_action_report(petition_id, user_id, action_taken, action_report_filename)
+            try:
+                models.cmd_submit_action_report(petition_id, user_id, action_taken, action_report_filename)
+            except Exception:
+                if action_report_filename:
+                    _delete_uploaded_file(ENQUIRY_UPLOAD_DIR, action_report_filename)
+                raise
             flash('Action taken recorded and copy sent to PO for closure.', 'success')
 
         elif action == 'po_lodge':
@@ -3570,37 +3916,75 @@ def petition_action(petition_id):
 @app.route('/e-receipts/<path:filename>')
 @login_required
 def ereceipt_file(filename):
-    filename = secure_filename(filename or '')
+    filename = _normalize_storage_relpath(filename)
     if not filename:
         return Response(status=404)
-    petition_id = _petition_id_from_filename(filename)
-    if petition_id and not _can_access_petition(petition_id):
+    requested_petition_id = _parse_requested_petition_id(request.args.get('petition_id'))
+    petition_id = _resolve_petition_id_for_file(filename)
+    if requested_petition_id and petition_id and requested_petition_id != petition_id:
+        log_security_event(
+            'access.file_mismatch',
+            severity='warning',
+            file_type='e_receipt',
+            petition_id=petition_id,
+            requested_petition_id=requested_petition_id,
+        )
+        return Response(status=404)
+    if requested_petition_id and not petition_id:
+        petition_id = requested_petition_id
+    if not petition_id:
+        log_security_event('access.file_unresolved', severity='warning', file_type='e_receipt')
+        return Response(status=404)
+    if not _can_access_petition(petition_id):
         log_security_event('access.file_forbidden', severity='warning', petition_id=petition_id, file_type='e_receipt')
         flash('You do not have access to this file.', 'danger')
         return redirect(url_for('petitions_list'))
+    if not _uploaded_file_exists(ERECEIPT_UPLOAD_DIR, filename):
+        log_security_event('access.file_missing', severity='info', petition_id=petition_id, file_type='e_receipt')
+        flash('No file uploaded.', 'warning')
+        return redirect(url_for('petition_view', petition_id=petition_id))
     return send_from_directory(ERECEIPT_UPLOAD_DIR, filename, as_attachment=False)
 
 @app.route('/enquiry-files/<path:filename>')
 @login_required
 def enquiry_file(filename):
-    filename = secure_filename(filename or '')
+    filename = _normalize_storage_relpath(filename)
     if not filename:
         return Response(status=404)
-    petition_id = _petition_id_from_filename(filename)
-    if petition_id and not _can_access_petition(petition_id):
+    requested_petition_id = _parse_requested_petition_id(request.args.get('petition_id'))
+    petition_id = _resolve_petition_id_for_file(filename)
+    if requested_petition_id and petition_id and requested_petition_id != petition_id:
+        log_security_event(
+            'access.file_mismatch',
+            severity='warning',
+            file_type='enquiry',
+            petition_id=petition_id,
+            requested_petition_id=requested_petition_id,
+        )
+        return Response(status=404)
+    if requested_petition_id and not petition_id:
+        petition_id = requested_petition_id
+    if not petition_id:
+        log_security_event('access.file_unresolved', severity='warning', file_type='enquiry')
+        return Response(status=404)
+    if not _can_access_petition(petition_id):
         log_security_event('access.file_forbidden', severity='warning', petition_id=petition_id, file_type='enquiry')
         flash('You do not have access to this file.', 'danger')
         return redirect(url_for('petitions_list'))
+    if not _uploaded_file_exists(ENQUIRY_UPLOAD_DIR, filename):
+        log_security_event('access.file_missing', severity='info', petition_id=petition_id, file_type='enquiry')
+        flash('No file uploaded.', 'warning')
+        return redirect(url_for('petition_view', petition_id=petition_id))
     return send_from_directory(ENQUIRY_UPLOAD_DIR, filename, as_attachment=False)
 
 
 @app.route('/profile-photos/<path:filename>')
 @login_required
 def profile_photo_file(filename):
-    filename = secure_filename(filename or '')
+    filename = _normalize_storage_relpath(filename)
     if not filename:
         return Response(status=404)
-    owner_match = re.match(r'^user_(\d+)_', filename)
+    owner_match = re.match(r'^user_(\d+)_', os.path.basename(filename))
     if owner_match:
         owner_id = int(owner_match.group(1))
         if session.get('user_role') != 'super_admin' and owner_id != int(session.get('user_id') or 0):
@@ -3670,7 +4054,11 @@ def profile():
 
             if stored_photo_name and photo_upload:
                 ensure_upload_dirs()
-                photo_upload.save(os.path.join(PROFILE_UPLOAD_DIR, stored_photo_name))
+                saved_ok, save_result = _save_uploaded_file(photo_upload, PROFILE_UPLOAD_DIR, stored_photo_name, 'Profile photo')
+                if not saved_ok:
+                    flash(save_result, 'danger')
+                    return redirect(url_for('profile'))
+                stored_photo_name = save_result
                 models.set_user_profile_photo(session['user_id'], stored_photo_name)
                 photo_changed = True
             elif remove_photo and old_photo:
@@ -4275,7 +4663,11 @@ def user_update_contact(user_id):
             )
             if stored_photo_name and photo_upload:
                 ensure_upload_dirs()
-                photo_upload.save(os.path.join(PROFILE_UPLOAD_DIR, stored_photo_name))
+                saved_ok, save_result = _save_uploaded_file(photo_upload, PROFILE_UPLOAD_DIR, stored_photo_name, 'Profile photo')
+                if not saved_ok:
+                    flash(save_result, 'danger')
+                    return redirect(url_for('users_list'))
+                stored_photo_name = save_result
                 models.set_user_profile_photo(user_id, stored_photo_name)
                 photo_changed = True
             elif remove_photo and old_photo:

@@ -1,0 +1,123 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>{{ status_code }} - {{ title }}</title>
+    <style>
+        :root {
+            --bg: #f4f7fb;
+            --card: #ffffff;
+            --text: #1f2937;
+            --muted: #6b7280;
+            --accent: #0d6efd;
+            --border: #dbe3ef;
+        }
+        body {
+            margin: 0;
+            min-height: 100vh;
+            display: grid;
+            place-items: center;
+            padding: 24px;
+            background: radial-gradient(circle at 20% 20%, #e7f1ff 0%, var(--bg) 45%);
+            color: var(--text);
+            font-family: "DM Sans", "Segoe UI", sans-serif;
+        }
+        .panel {
+            width: min(620px, 100%);
+            background: var(--card);
+            border: 1px solid var(--border);
+            border-radius: 16px;
+            box-shadow: 0 12px 40px rgba(15, 23, 42, 0.08);
+            padding: 28px;
+        }
+        h1 {
+            margin: 0;
+            font-size: 1.55rem;
+            font-weight: 700;
+        }
+        .code {
+            margin: 0 0 8px;
+            color: var(--accent);
+            font-weight: 700;
+            letter-spacing: 0.02em;
+        }
+        p {
+            margin: 0;
+            color: var(--muted);
+            line-height: 1.5;
+        }
+        .row {
+            margin-top: 18px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+            flex-wrap: wrap;
+        }
+        .button {
+            display: inline-block;
+            padding: 10px 14px;
+            border-radius: 10px;
+            text-decoration: none;
+            border: 1px solid var(--border);
+            color: var(--text);
+            background: #fff;
+            font-weight: 600;
+        }
+        .button.primary {
+            background: var(--accent);
+            color: #fff;
+            border-color: var(--accent);
+        }
+    </style>
+</head>
+<body>
+    <main class="panel">
+        <p class="code">Error {{ status_code }}</p>
+        <h1>{{ title }}</h1>
+        <p>{{ message }}</p>
+        <div class="row">
+            <p id="retry-text">Retrying in {{ retry_after_seconds }}s...</p>
+            <a class="button" href="{{ url_for('petitions_list') }}">Go to petitions</a>
+            <button type="button" class="button primary" onclick="location.reload()">Retry now</button>
+        </div>
+    </main>
+    <script>
+        (function () {
+            var retryAfter = {{ retry_after_seconds|int }};
+            var maxRetries = {{ max_retries|int }};
+            var key = 'pt_tmp_retry:' + location.pathname + ':' + String({{ status_code|int }});
+            var retryText = document.getElementById('retry-text');
+            var attempts = parseInt(sessionStorage.getItem(key) || '0', 10);
+            if (isNaN(attempts) || attempts < 0) attempts = 0;
+            if (attempts >= maxRetries) {
+                retryText.textContent = 'Auto-retry paused after ' + maxRetries + ' attempts. Use "Retry now".';
+                sessionStorage.removeItem(key);
+                return;
+            }
+            var remaining = retryAfter;
+            retryText.textContent = 'Retrying in ' + remaining + 's...';
+            var ticker = setInterval(function () {
+                remaining -= 1;
+                if (remaining <= 0) {
+                    clearInterval(ticker);
+                    sessionStorage.setItem(key, String(attempts + 1));
+                    location.reload();
+                    return;
+                }
+                retryText.textContent = 'Retrying in ' + remaining + 's...';
+            }, 1000);
+            window.addEventListener('pageshow', function () {
+                if (document.visibilityState === 'visible') {
+                    setTimeout(function () {
+                        if (!document.body.innerText.includes('Error {{ status_code }}')) {
+                            sessionStorage.removeItem(key);
+                        }
+                    }, 0);
+                }
+            });
+        })();
+    </script>
+</body>
+</html>
