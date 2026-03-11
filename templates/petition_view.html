@@ -34,6 +34,9 @@
                 <span class="status-badge status-badge-lg" style="--status-color: {{ status_colors.get(petition.status, '#6b7280') }}">
                     {{ status_labels.get(petition.status, petition.status) }}
                 </span>
+                {% if petition.is_overdue_escalated %}
+                <span class="status-badge status-badge-lg" style="--status-color:#b91c1c">Overdue</span>
+                {% endif %}
                 {% if petition.requires_permission %}
                 <span class="badge badge-permission">Permission: {{ petition.permission_status|title }}</span>
                 {% endif %}
@@ -158,12 +161,12 @@
                 <div class="info-item">
                     <span class="info-label">SLA Target</span>
                     <span class="info-value">
-                        {% if petition.source_of_petition == 'media' %}
-                            45 days
-                        {% elif enquiry_type_norm == 'preliminary' %}
+                        {% if enquiry_type_norm == 'preliminary' %}
                             15 days
+                        {% elif petition.source_of_petition == 'media' or petition.petition_type == 'electrical_accident' %}
+                            45 days
                         {% else %}
-                            60 days
+                            90 days
                         {% endif %}
                     </span>
                 </div>
@@ -350,6 +353,53 @@
         <div class="card-header"><h3>Actions</h3></div>
         <div class="action-panels">
             {% if current_user_role in ('po', 'super_admin') %}
+                {% if po_beyond_sla_permission_allowed %}
+                <div class="action-panel">
+                    <h4>Beyond SLA PO Routing</h4>
+                    <p class="form-help">Available only after the petition crosses 90 days. Upload permission copy and send it to the concerned CVO/DSP. After this, the regular CVO workflow will continue.</p>
+                    <form method="POST" action="{{ url_for('petition_action', petition_id=petition.id) }}" enctype="multipart/form-data">
+                        <input type="hidden" name="action" value="po_beyond_sla_send_to_cvo">
+                        <div class="form-group">
+                            <label>{{ f_po_approve_efile.label }} {% if f_po_approve_efile.required %}<span class="required">*</span>{% endif %}</label>
+                            {% if petition.efile_no %}
+                            <input type="text" name="efile_no" value="{{ petition.efile_no }}" readonly>
+                            {% else %}
+                            <input type="{{ f_po_approve_efile.type if f_po_approve_efile.type != 'textarea' else 'text' }}" name="efile_no" {% if f_po_approve_efile.required %}required{% endif %} placeholder="Enter E-Office file number">
+                            {% endif %}
+                        </div>
+                        <div class="form-group">
+                            <label>Send to CVO/DSP <span class="required">*</span></label>
+                            <select name="target_cvo" required>
+                                <option value="">-- Select CVO --</option>
+                                <option value="apspdcl" {% if petition.target_cvo == 'apspdcl' %}selected{% endif %}>APSPDCL (Tirupathi)</option>
+                                <option value="apepdcl" {% if petition.target_cvo == 'apepdcl' %}selected{% endif %}>APEPDCL (Vizag)</option>
+                                <option value="apcpdcl" {% if petition.target_cvo == 'apcpdcl' %}selected{% endif %}>APCPDCL (Vijayawada)</option>
+                                <option value="headquarters" {% if petition.target_cvo == 'headquarters' %}selected{% endif %}>Headquarters (DSP)</option>
+                            </select>
+                        </div>
+                        {% if petition.received_at == 'jmd_office' %}
+                        <div class="form-group">
+                            <label>Organization <span class="required">*</span></label>
+                            <select name="organization" required>
+                                <option value="">-- Select Organization --</option>
+                                <option value="aptransco" {% if petition.organization == 'aptransco' %}selected{% endif %}>APTRANSCO</option>
+                                <option value="apgenco" {% if petition.organization == 'apgenco' %}selected{% endif %}>APGENCO</option>
+                            </select>
+                        </div>
+                        {% endif %}
+                        <div class="form-group">
+                            <label>Permission Copy (PDF) <span class="required">*</span></label>
+                            <input type="file" name="permission_file" accept=".pdf" required>
+                        </div>
+                        <div class="form-group">
+                            <label>PO Remarks</label>
+                            <textarea name="comments" rows="3" placeholder="Remarks while routing beyond-SLA petition to concerned CVO/DSP"></textarea>
+                        </div>
+                        <button type="submit" class="btn btn-danger">Upload Permission Copy & Send to CVO</button>
+                    </form>
+                </div>
+                {% endif %}
+
                 {% if not petition.requires_permission and not petition.efile_no and petition.status in ('received', 'forwarded_to_cvo', 'assigned_to_inspector', 'enquiry_in_progress') %}
                 <div class="action-panel">
                     <h4>Set E-Office File Number (Direct Enquiry - One Time)</h4>

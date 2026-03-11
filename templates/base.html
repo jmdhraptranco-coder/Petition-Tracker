@@ -56,6 +56,10 @@
                     <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3h18v18H3z"/><path d="M8 8h8"/><path d="M8 12h8"/><path d="M8 16h5"/></svg>
                     <span data-i18n="nav.direct_petitions">Direct Petitions</span>
                 </a>
+                <a href="{{ url_for('petitions_list', status='beyond_sla', mode='all') }}" class="nav-item {% if request.endpoint == 'petitions_list' and request.args.get('status') == 'beyond_sla' %}active{% endif %}">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 9v4"/><path d="M12 17h.01"/><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.72 3h16.92a2 2 0 0 0 1.72-3L13.71 3.86a2 2 0 0 0-3.42 0z"/></svg>
+                    <span>Beyond SLA</span>
+                </a>
                 <a href="{{ url_for('petitions_import') }}" class="nav-item {% if request.endpoint in ('petitions_import',) %}active{% endif %}">
                     <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 16V4"/><path d="m7 11 5 5 5-5"/><path d="M4 20h16"/></svg>
                     <span data-i18n="nav.bulk_petition_upload">Bulk Petition Upload</span>

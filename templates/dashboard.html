@@ -167,7 +167,7 @@
         <div class="main-sla-mini">
             <div class="main-sla-mini-title">
                 <h3 data-i18n="dash.sla_dashboard">SLA Dashboard</h3>
-                <p data-i18n="dash.sla_subtitle">Target: Preliminary 15 days, Detailed 60 days, Electronic and Print Media 45 days (any petition hard capped at 90 days)</p>
+                <p data-i18n="dash.sla_subtitle">Target: Preliminary 15 days. Detailed media/electrical accident 45 days, report after 60 days. Detailed other petitions 90 days, report after 90 days. PO queue auto-escalates after 90 days.</p>
             </div>
             <div class="main-sla-mini-kpis">
                 <div class="main-sla-mini-kpi is-total is-drilldown" data-metric="sla_total" data-title="SLA Total Cases">
@@ -302,7 +302,12 @@
                         </td>
                         <td class="text-truncate" title="{{ p.subject }}">{{ p.subject[:50] }}{% if p.subject|length > 50 %}...{% endif %}</td>
                         <td><span class="badge badge-type">{{ petition_types.get(p.petition_type, p.petition_type) }}</span></td>
-                        <td><span class="status-badge" style="--status-color: {{ status_colors.get(p.status, '#6b7280') }}">{{ status_labels.get(p.status, p.status) }}</span></td>
+                        <td>
+                            <span class="status-badge" style="--status-color: {{ status_colors.get(p.status, '#6b7280') }}">{{ status_labels.get(p.status, p.status) }}</span>
+                            {% if p.is_overdue_escalated %}
+                            <span class="status-badge" style="--status-color:#b91c1c; margin-left:6px;">Overdue</span>
+                            {% endif %}
+                        </td>
                         <td>{{ p.received_date.strftime('%d/%m/%Y') if p.received_date else '-' }}</td>
                         <td><a href="{{ url_for('petition_view', petition_id=p.id) }}" class="btn btn-xs btn-outline" data-i18n="common.view">View</a></td>
                     </tr>

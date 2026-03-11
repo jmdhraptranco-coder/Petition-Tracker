@@ -2609,11 +2609,32 @@ def petitions_list():
     enquiry_mode = request.args.get('mode', 'all')
     user_role = session['user_role']
     user_id = session['user_id']
+    if status_filter == 'beyond_sla':
+        enquiry_mode = 'all'
     
     if user_role == 'super_admin':
         petitions = models.get_all_petitions(status_filter, enquiry_mode)
     else:
         petitions = models.get_petitions_for_user(user_id, user_role, session.get('cvo_office'), status_filter, enquiry_mode)
+
+    sla_eval_map = {}
+    if petitions:
+        try:
+            sla_eval_map = {
+                int(row.get('id')): row
+                for row in models.get_sla_evaluation_rows(petitions)
+                if row.get('id')
+            }
+        except Exception:
+            sla_eval_map = {}
+    if status_filter == 'beyond_sla' and sla_eval_map:
+        petitions = sorted(
+            petitions,
+            key=lambda p: (
+                -(int((sla_eval_map.get(int(p.get('id') or 0)) or {}).get('elapsed_days') or 0)),
+                -int(p.get('id') or 0),
+            )
+        )
 
     accident_detail_map = {}
     petition_ids = [int(p.get('id')) for p in petitions if p.get('id')]
@@ -2628,7 +2649,9 @@ def petitions_list():
         petitions=petitions,
         status_filter=status_filter,
         enquiry_mode=enquiry_mode,
-        accident_detail_map=accident_detail_map
+        accident_detail_map=accident_detail_map,
+        sla_eval_map=sla_eval_map,
+        show_beyond_sla_tab=(user_role in ('po', 'super_admin'))
     )
 
 @app.route('/petitions/new', methods=['GET', 'POST'])
@@ -3186,6 +3209,19 @@ def petition_view(petition_id):
         and _has_conversion_request_history(tracking)
         and bool(petition.get('assigned_inspector_id'))
     )
+    petition_sla_eval = None
+    try:
+        petition_sla_rows = models.get_sla_evaluation_rows([petition])
+        if petition_sla_rows:
+            petition_sla_eval = petition_sla_rows[0]
+    except Exception:
+        petition_sla_eval = None
+    po_beyond_sla_permission_allowed = (
+        session['user_role'] in ('po', 'super_admin')
+        and bool(petition_sla_eval and petition_sla_eval.get('is_beyond_sla_for_po'))
+        and not petition_sla_eval.get('closed_at')
+        and petition.get('status') not in ('permission_approved', 'lodged', 'closed')
+    )
     
     # Get inspectors mapped to the relevant CVO/DSP officer
     inspectors = []
@@ -3210,6 +3246,8 @@ def petition_view(petition_id):
                          inspector_conversion_request_pending=inspector_conversion_request_pending,
                          conversion_permission_stage=conversion_permission_stage,
                          conversion_reassignment_locked=conversion_reassignment_locked,
+                         petition_sla_eval=petition_sla_eval,
+                         po_beyond_sla_permission_allowed=po_beyond_sla_permission_allowed,
                          ci_assignment_memo=ci_assignment_memo,
                          tracking_file_availability=tracking_file_availability,
                          ereceipt_file_available=ereceipt_file_available,
@@ -3442,6 +3480,78 @@ def petition_action(petition_id):
                 organization=organization if organization in VALID_ORGANIZATIONS else None,
             )
             flash('Permission granted and pushed to respective CVO/DSP.', 'success')
+
+        elif action == 'po_beyond_sla_send_to_cvo':
+            if user_role not in ('super_admin', 'po'):
+                flash('Only PO can process beyond-SLA petitions.', 'danger')
+                return redirect(url_for('petition_view', petition_id=petition_id))
+            petition = models.get_petition_by_id(petition_id)
+            if not petition:
+                flash('Petition not found.', 'danger')
+                return redirect(url_for('petitions_list'))
+            sla_rows = models.get_sla_evaluation_rows([petition])
+            sla_row = sla_rows[0] if sla_rows else None
+            if not sla_row or not sla_row.get('is_beyond_sla_for_po') or sla_row.get('closed_at'):
+                flash('Beyond-SLA routing is available only after the petition crosses 90 days.', 'warning')
+                return redirect(url_for('petition_view', petition_id=petition_id))
+            if petition.get('status') in ('permission_approved', 'lodged', 'closed'):
+                flash('This petition is no longer eligible for beyond-SLA PO routing.', 'warning')
+                return redirect(url_for('petition_view', petition_id=petition_id))
+            target_cvo = (request.form.get('target_cvo') or petition.get('target_cvo') or '').strip()
+            if target_cvo not in VALID_TARGET_CVO:
+                flash('Please select a valid target CVO/DSP.', 'warning')
+                return redirect(url_for('petition_view', petition_id=petition_id))
+            organization = (request.form.get('organization') or '').strip().lower()
+            if petition.get('received_at') == 'jmd_office' and organization not in VALID_ORGANIZATIONS:
+                flash('Please select organization (APTRANSCO/APGENCO).', 'warning')
+                return redirect(url_for('petition_view', petition_id=petition_id))
+            permission_copy = request.files.get('permission_file')
+            if not permission_copy or not permission_copy.filename:
+                flash('Permission copy PDF is required for beyond-SLA PO routing.', 'warning')
+                return redirect(url_for('petition_view', petition_id=petition_id))
+            ok, upload_result = validate_pdf_upload(permission_copy, 'Permission copy')
+            if not ok:
+                flash(upload_result, 'danger')
+                return redirect(url_for('petition_view', petition_id=petition_id))
+            original_name = upload_result
+            os.makedirs(ENQUIRY_UPLOAD_DIR, exist_ok=True)
+            permission_filename = _build_storage_filename('po_beyond_sla_permission', original_name, petition_id)
+            if not permission_filename:
+                flash('Unable to prepare permission copy filename.', 'danger')
+                return redirect(url_for('petition_view', petition_id=petition_id))
+            saved_ok, save_result = _save_uploaded_file(permission_copy, ENQUIRY_UPLOAD_DIR, permission_filename, 'Permission copy')
+            if not saved_ok:
+                flash(save_result, 'danger')
+                return redirect(url_for('petition_view', petition_id=petition_id))
+            permission_filename = save_result
+            efile_no_input = request.form.get('efile_no', '').strip()
+            efile_no, efile_error = resolve_efile_no_for_action(
+                petition,
+                efile_no_input,
+                required_message=f"{cfg_po_approve_efile.get('label', 'E-Office File No')} is required for beyond-SLA PO routing." if cfg_po_approve_efile.get('required') else None
+            )
+            if efile_error:
+                _delete_uploaded_file(ENQUIRY_UPLOAD_DIR, permission_filename)
+                flash(efile_error, 'warning')
+                return redirect(url_for('petition_view', petition_id=petition_id))
+            try:
+                models.approve_permission(
+                    petition_id,
+                    user_id,
+                    target_cvo,
+                    efile_no,
+                    comments,
+                    petition.get('enquiry_type'),
+                    organization=organization if organization in VALID_ORGANIZATIONS else None,
+                    attachment_file=permission_filename,
+                    tracking_action='Beyond SLA Permission Copy Uploaded - Sent to CVO',
+                    mark_overdue_escalated=True,
+                )
+            except Exception:
+                if permission_filename:
+                    _delete_uploaded_file(ENQUIRY_UPLOAD_DIR, permission_filename)
+                raise
+            flash('Beyond-SLA petition routed to concerned CVO with permission copy.', 'success')
 
         elif action == 'reject_permission':
             if user_role not in ('super_admin', 'po'):

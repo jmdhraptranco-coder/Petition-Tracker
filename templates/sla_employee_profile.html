@@ -331,7 +331,12 @@
                         {% endif %}
                     </td>
                     <td title="{{ p.subject }}"><a class="petition-link" href="{{ url_for('petition_view', petition_id=p.id) }}">{{ (p.subject or '-')[:80] }}{% if (p.subject or '')|length > 80 %}...{% endif %}</a></td>
-                    <td>{{ status_labels.get(p.status, p.status) }}</td>
+                    <td>
+                        {{ status_labels.get(p.status, p.status) }}
+                        {% if p.is_overdue_escalated %}
+                        <span class="status-badge" style="--status-color:#b91c1c; margin-left:6px;">Overdue</span>
+                        {% endif %}
+                    </td>
                     <td>{{ p.sla_days or '-' }}</td>
                     <td>{{ p.elapsed_days or '-' }}</td>
                     <td>

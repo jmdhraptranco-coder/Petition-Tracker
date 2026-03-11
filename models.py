@@ -74,6 +74,10 @@ def ensure_schema_updates():
             ADD COLUMN IF NOT EXISTS conclusion_file VARCHAR(255)
         """)
         cur.execute("""
+            ALTER TABLE petitions
+            ADD COLUMN IF NOT EXISTS is_overdue_escalated BOOLEAN NOT NULL DEFAULT FALSE
+        """)
+        cur.execute("""
             ALTER TABLE enquiry_reports
             ADD COLUMN IF NOT EXISTS cmd_action_report_file VARCHAR(255)
         """)
@@ -956,6 +960,8 @@ def get_petitions_for_user(user_id, user_role, cvo_office=None, status_filter=No
     conn = get_db()
     try:
         cur = dict_cursor(conn)
+        is_beyond_sla_filter = status_filter == 'beyond_sla'
+        is_overdue_tagged_filter = status_filter == 'overdue_tagged'
         base_query = """
             SELECT p.*, 
                 u1.full_name as created_by_name,
@@ -973,7 +979,7 @@ def get_petitions_for_user(user_id, user_role, cvo_office=None, status_filter=No
             pass  # See all
         elif user_role == 'data_entry':
             pass  # Data entry sees all petitions for assignment tracking
-        elif user_role == 'po':
+        elif user_role == 'po' and not is_beyond_sla_filter:
             conditions.append("(p.status IN ('forwarded_to_po', 'forwarded_to_jmd', 'sent_for_permission', 'action_taken', 'lodged', 'sent_back_for_reenquiry') OR p.current_handler_id = %s OR p.requires_permission = FALSE)")
             params.append(user_id)
         elif user_role in ('cmd_apspdcl', 'cmd_apepdcl', 'cmd_apcpdcl', 'cgm_hr_transco'):
@@ -1004,7 +1010,9 @@ def get_petitions_for_user(user_id, user_role, cvo_office=None, status_filter=No
         elif enquiry_mode == 'permission':
             conditions.append("p.requires_permission = TRUE")
 
-        if status_filter and status_filter != 'all':
+        if is_overdue_tagged_filter:
+            conditions.append("COALESCE(p.is_overdue_escalated, FALSE) = TRUE")
+        elif status_filter and status_filter not in ('all', 'beyond_sla'):
             conditions.append("p.status = %s")
             params.append(status_filter)
         
@@ -1014,7 +1022,13 @@ def get_petitions_for_user(user_id, user_role, cvo_office=None, status_filter=No
         base_query += " ORDER BY p.created_at DESC"
         
         cur.execute(base_query, params)
-        return [dict(row) for row in cur.fetchall()]
+        rows = [dict(row) for row in cur.fetchall()]
+        if is_beyond_sla_filter:
+            if user_role not in ('po', 'super_admin'):
+                return []
+            allowed_ids = set(get_po_beyond_sla_petition_ids(rows))
+            return [row for row in rows if int(row.get('id') or 0) in allowed_ids]
+        return rows
     finally:
         conn.close()
 
@@ -1022,6 +1036,8 @@ def get_all_petitions(status_filter=None, enquiry_mode='all'):
     conn = get_db()
     try:
         cur = dict_cursor(conn)
+        is_beyond_sla_filter = status_filter == 'beyond_sla'
+        is_overdue_tagged_filter = status_filter == 'overdue_tagged'
         query = """
             SELECT p.*, 
                 u1.full_name as created_by_name,
@@ -1039,7 +1055,9 @@ def get_all_petitions(status_filter=None, enquiry_mode='all'):
         elif enquiry_mode == 'permission':
             conditions.append("p.requires_permission = TRUE")
 
-        if status_filter and status_filter != 'all':
+        if is_overdue_tagged_filter:
+            conditions.append("COALESCE(p.is_overdue_escalated, FALSE) = TRUE")
+        elif status_filter and status_filter not in ('all', 'beyond_sla'):
             conditions.append("p.status = %s")
             params.append(status_filter)
 
@@ -1049,7 +1067,11 @@ def get_all_petitions(status_filter=None, enquiry_mode='all'):
         else:
             query += " ORDER BY p.created_at DESC"
             cur.execute(query)
-        return [dict(row) for row in cur.fetchall()]
+        rows = [dict(row) for row in cur.fetchall()]
+        if is_beyond_sla_filter:
+            allowed_ids = set(get_po_beyond_sla_petition_ids(rows))
+            return [row for row in rows if int(row.get('id') or 0) in allowed_ids]
+        return rows
     finally:
         conn.close()
 
@@ -1283,7 +1305,18 @@ def cvo_mark_direct_enquiry(petition_id, cvo_user_id, comments=None, enquiry_typ
     finally:
         conn.close()
 
-def approve_permission(petition_id, from_user_id, target_cvo, efile_no=None, comments=None, enquiry_type=None, organization=None):
+def approve_permission(
+    petition_id,
+    from_user_id,
+    target_cvo,
+    efile_no=None,
+    comments=None,
+    enquiry_type=None,
+    organization=None,
+    attachment_file=None,
+    tracking_action='Permission Approved - Sent to CVO',
+    mark_overdue_escalated=False,
+):
     """PO approves permission and sends to CVO"""
     conn = get_db()
     try:
@@ -1293,9 +1326,14 @@ def approve_permission(petition_id, from_user_id, target_cvo, efile_no=None, com
         cur.execute("SELECT id FROM users WHERE role = %s AND is_active = TRUE LIMIT 1", (cvo_role,))
         cvo_user = cur.fetchone()
         cvo_id = cvo_user['id'] if cvo_user else None
+        cur.execute("SELECT status FROM petitions WHERE id = %s", (petition_id,))
+        petition = cur.fetchone()
+        status_before = petition['status'] if petition else None
         
         cur.execute("""
             UPDATE petitions SET status = 'permission_approved', permission_status = 'approved',
+                requires_permission = TRUE,
+                is_overdue_escalated = CASE WHEN %s THEN TRUE ELSE COALESCE(is_overdue_escalated, FALSE) END,
                 target_cvo = %s,
                 organization = COALESCE(%s, organization),
                 enquiry_type = CASE
@@ -1308,13 +1346,13 @@ def approve_permission(petition_id, from_user_id, target_cvo, efile_no=None, com
                 END,
                 current_handler_id = %s, updated_at = CURRENT_TIMESTAMP
             WHERE id = %s
-        """, (target_cvo, organization, enquiry_type, enquiry_type, efile_no, cvo_id, petition_id))
+        """, (mark_overdue_escalated, target_cvo, organization, enquiry_type, enquiry_type, efile_no, cvo_id, petition_id))
         
         cur.execute("""
             INSERT INTO petition_tracking (petition_id, from_user_id, to_user_id, from_role, to_role,
-                action, comments, status_before, status_after)
-            VALUES (%s, %s, %s, 'po', %s, 'Permission Approved - Sent to CVO', %s, 'sent_for_permission', 'permission_approved')
-        """, (petition_id, from_user_id, cvo_id, cvo_role, comments))
+                action, comments, status_before, status_after, attachment_file)
+            VALUES (%s, %s, %s, 'po', %s, %s, %s, %s, 'permission_approved', %s)
+        """, (petition_id, from_user_id, cvo_id, cvo_role, tracking_action, comments, status_before, attachment_file))
         
         conn.commit()
     except Exception as e:
@@ -2574,15 +2612,50 @@ def _get_sla_stats_for_petitions(petitions):
     }
 
 
-def _resolve_sla_days_for_petition(petition, converted_to_detailed=False):
+def _resolve_sla_policy_for_petition(petition, converted_to_detailed=False):
+    petition_type = (petition.get('petition_type') or '').strip()
     source = (petition.get('source_of_petition') or '').strip()
-    enquiry_type = (petition.get('enquiry_type') or 'detailed').strip()
-    if source == 'media':
-        # Electronic and print media petitions have dedicated SLA.
-        return 45
+    enquiry_type = (petition.get('enquiry_type') or 'detailed').strip().lower()
+
     if enquiry_type == 'preliminary':
-        return 15
-    return 60
+        return {
+            'sla_days': 15,
+            'escalation_days': None,
+            'auto_escalate_to_po_days': 90,
+            'rule_code': 'PRELIMINARY_15',
+        }
+
+    if petition_type == 'electrical_accident' or source == 'media':
+        return {
+            'sla_days': 45,
+            'escalation_days': 60,
+            'auto_escalate_to_po_days': 90,
+            'rule_code': 'DETAILED_SPECIAL_45_ESC60',
+        }
+
+    return {
+        'sla_days': 90,
+        'escalation_days': 90,
+        'auto_escalate_to_po_days': 90,
+        'rule_code': 'DETAILED_GENERAL_90',
+    }
+
+
+def _resolve_sla_days_for_petition(petition, converted_to_detailed=False):
+    return _resolve_sla_policy_for_petition(petition, converted_to_detailed).get('sla_days') or 0
+
+
+def _is_po_beyond_sla_row(row):
+    if not row or row.get('closed_at'):
+        return False
+    auto_escalate_days = row.get('auto_escalate_to_po_days')
+    elapsed_days = row.get('elapsed_days')
+    if auto_escalate_days is None or elapsed_days is None:
+        return False
+    try:
+        return int(elapsed_days) > int(auto_escalate_days)
+    except Exception:
+        return False
 
 
 def get_sla_evaluation_rows(petitions):
@@ -2631,7 +2704,10 @@ def get_sla_evaluation_rows(petitions):
             continue
 
         converted_to_detailed = bool(track.get('converted_to_detailed'))
-        sla_days = _resolve_sla_days_for_petition(petition, converted_to_detailed)
+        sla_policy = _resolve_sla_policy_for_petition(petition, converted_to_detailed)
+        sla_days = sla_policy.get('sla_days') or 0
+        escalation_days = sla_policy.get('escalation_days')
+        auto_escalate_to_po_days = sla_policy.get('auto_escalate_to_po_days')
         end_time = closed_at or now
         elapsed_days = max(0, (end_time - assigned_at).days)
 
@@ -2648,12 +2724,21 @@ def get_sla_evaluation_rows(petitions):
             'closed_at': closed_at,
             'converted_to_detailed': converted_to_detailed,
             'sla_days': sla_days,
+            'escalation_days': escalation_days,
+            'auto_escalate_to_po_days': auto_escalate_to_po_days,
             'elapsed_days': elapsed_days,
             'sla_state': sla_state,
             'sla_bucket': sla_bucket,
+            'sla_rule_code': sla_policy.get('rule_code'),
         })
+        row['is_beyond_sla_for_po'] = _is_po_beyond_sla_row(row)
         out.append(row)
     return out
+
+
+def get_po_beyond_sla_petition_ids(petitions):
+    rows = get_sla_evaluation_rows(petitions)
+    return [int(r['id']) for r in rows if r.get('id') and _is_po_beyond_sla_row(r)]
 
 
 def _get_sla_filtered_petitions(petitions, metric):

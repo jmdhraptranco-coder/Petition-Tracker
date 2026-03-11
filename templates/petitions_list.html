@@ -16,12 +16,20 @@
                     <a href="{{ url_for('petitions_list', status=status_filter, mode='all') }}" class="btn btn-xs {% if enquiry_mode == 'all' %}btn-primary{% else %}btn-outline{% endif %}" data-i18n="common.all">All</a>
                     <a href="{{ url_for('petitions_list', status=status_filter, mode='direct') }}" class="btn btn-xs {% if enquiry_mode == 'direct' %}btn-primary{% else %}btn-outline{% endif %}" data-i18n="common.direct">Direct</a>
                     <a href="{{ url_for('petitions_list', status=status_filter, mode='permission') }}" class="btn btn-xs {% if enquiry_mode == 'permission' %}btn-primary{% else %}btn-outline{% endif %}" data-i18n="common.permission_based">Permission Based</a>
+                    {% if show_beyond_sla_tab %}
+                    <a href="{{ url_for('petitions_list', status='beyond_sla', mode='all') }}" class="btn btn-xs {% if status_filter == 'beyond_sla' %}btn-primary{% else %}btn-outline{% endif %}">Beyond SLA</a>
+                    {% endif %}
+                    <a href="{{ url_for('petitions_list', status='overdue_tagged', mode='all') }}" class="btn btn-xs {% if status_filter == 'overdue_tagged' %}btn-primary{% else %}btn-outline{% endif %}">Overdue Tagged</a>
                 </div>
             </div>
             <div class="petitions-control petitions-filter-group">
                 <label data-i18n="common.filter">Filter:</label>
                 <select onchange="window.location.href='{{ url_for('petitions_list') }}?mode={{ enquiry_mode }}&status='+this.value" class="filter-select">
                     <option value="all" {% if status_filter == 'all' %}selected{% endif %} data-i18n="common.all_status">All Status</option>
+                    {% if show_beyond_sla_tab %}
+                    <option value="beyond_sla" {% if status_filter == 'beyond_sla' %}selected{% endif %}>Beyond SLA</option>
+                    {% endif %}
+                    <option value="overdue_tagged" {% if status_filter == 'overdue_tagged' %}selected{% endif %}>Overdue Tagged</option>
                     <option value="received" {% if status_filter == 'received' %}selected{% endif %}>Received</option>
                     <option value="forwarded_to_cvo" {% if status_filter == 'forwarded_to_cvo' %}selected{% endif %}>Forwarded to CVO/DSP</option>
                     <option value="sent_for_permission" {% if status_filter == 'sent_for_permission' %}selected{% endif %}>Sent for Permission</option>
@@ -47,6 +55,22 @@
             {% endif %}
         </div>
     </div>
+    {% if status_filter == 'beyond_sla' %}
+    <div class="card" style="margin: 0 16px 12px;">
+        <div class="card-header" style="padding-bottom: 8px;">
+            <h3>Beyond SLA Queue</h3>
+            <p>PO escalation view for open petitions pending more than 90 days from SLA assignment date.</p>
+        </div>
+    </div>
+    {% endif %}
+    {% if status_filter == 'overdue_tagged' %}
+    <div class="card" style="margin: 0 16px 12px;">
+        <div class="card-header" style="padding-bottom: 8px;">
+            <h3>Overdue Tagged Petitions</h3>
+            <p>Petitions already escalated as overdue by PO and still carrying the overdue tag inside the normal workflow.</p>
+        </div>
+    </div>
+    {% endif %}
     <div class="table-wrapper petitions-table-wrap">
         <table class="data-table">
             <thead>
@@ -74,7 +98,20 @@
                         {% endif %}
                     </td>
                     <td class="text-truncate subject-cell" title="{{ p.subject }}">{{ p.subject[:72] }}{% if p.subject|length > 72 %}...{% endif %}</td>
-                    <td><span class="list-status" style="--status-color: {{ status_colors.get(p.status, '#6b7280') }}">{{ status_labels.get(p.status, p.status) }}</span></td>
+                    <td>
+                        <span class="list-status" style="--status-color: {{ status_colors.get(p.status, '#6b7280') }}">{{ status_labels.get(p.status, p.status) }}</span>
+                        {% if p.is_overdue_escalated %}
+                        <div style="margin-top:6px;">
+                            <span class="status-badge" style="--status-color:#b91c1c;">Overdue</span>
+                        </div>
+                        {% endif %}
+                        {% set sla_row = sla_eval_map.get(p.id) %}
+                        {% if status_filter == 'beyond_sla' and sla_row %}
+                        <div style="margin-top:6px; font-size:11px; color:#b91c1c;">
+                            Beyond SLA: {{ sla_row.elapsed_days }}d / {{ sla_row.auto_escalate_to_po_days or sla_row.sla_days }}d
+                        </div>
+                        {% endif %}
+                    </td>
                     <td>{{ p.handler_name or '-' }}</td>
                     <td class="font-mono">{{ p.received_date.strftime('%d/%m/%Y') if p.received_date else '-' }}</td>
                     <td><a href="{{ url_for('petition_view', petition_id=p.id) }}" class="btn btn-xs btn-outline" data-i18n="common.view">View</a></td>
