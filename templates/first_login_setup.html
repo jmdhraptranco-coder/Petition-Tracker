@@ -1,0 +1,415 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Set Your Password — Nigaa</title>
+  <link rel="icon" type="image/svg+xml" href="{{ url_for('static', filename='img/nigaa-logo.svg') }}"/>
+  <link rel="preconnect" href="https://fonts.googleapis.com"/>
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Oswald:wght@600;700&display=swap" rel="stylesheet"/>
+  <style>
+    :root {
+      --bg:        #0d0f16;
+      --bg-card:   #13161f;
+      --border:    rgba(255,255,255,0.08);
+      --accent:    #f59e0b;
+      --accent-h:  #d97706;
+      --text:      #e8eaf0;
+      --text-dim:  #8b90a0;
+      --danger:    #ef4444;
+      --success:   #22c55e;
+      --info:      #3b82f6;
+      --radius:    12px;
+    }
+    *, *::before, *::after { margin:0; padding:0; box-sizing:border-box; }
+    html { font-size:15px; }
+    body {
+      font-family:'DM Sans', sans-serif;
+      background:var(--bg);
+      color:var(--text);
+      min-height:100vh;
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      padding:24px 16px;
+      position:relative;
+      overflow-x:hidden;
+    }
+
+    /* Ambient glow blobs */
+    .bg-blob {
+      position:fixed; border-radius:50%; filter:blur(80px);
+      pointer-events:none; z-index:0;
+    }
+    .blob-gold  { width:520px; height:520px; background:rgba(245,158,11,0.06); top:-120px; left:-160px; }
+    .blob-blue  { width:400px; height:400px; background:rgba(59,130,246,0.05); bottom:-80px; right:-100px; }
+
+    .card {
+      position:relative; z-index:1;
+      background:var(--bg-card);
+      border:1px solid var(--border);
+      border-radius:var(--radius);
+      padding:40px 36px;
+      width:100%; max-width:480px;
+      box-shadow:0 20px 56px rgba(0,0,0,0.4), 0 4px 16px rgba(0,0,0,0.2);
+    }
+
+    /* Top shimmer line */
+    .card::before {
+      content:'';
+      position:absolute; top:0; left:10%; right:10%; height:1px;
+      background:linear-gradient(90deg,transparent,rgba(245,158,11,0.4),transparent);
+      border-radius:999px;
+    }
+
+    .logo-row {
+      display:flex; align-items:center; gap:12px; margin-bottom:28px;
+    }
+    .logo-mark {
+      width:44px; height:44px; border-radius:10px; overflow:hidden;
+      border:1px solid rgba(245,158,11,0.25);
+      box-shadow:0 0 0 3px rgba(245,158,11,0.08);
+    }
+    .logo-mark img { width:100%; height:100%; object-fit:contain; }
+    .logo-text h1 {
+      font-family:'Oswald',sans-serif; font-size:1.15rem;
+      color:var(--accent); letter-spacing:0.04em;
+    }
+    .logo-text p { font-size:0.78rem; color:var(--text-dim); }
+
+    .step-badge {
+      display:inline-flex; align-items:center; gap:6px;
+      padding:4px 12px; border-radius:999px;
+      background:rgba(245,158,11,0.12); border:1px solid rgba(245,158,11,0.22);
+      color:var(--accent); font-size:0.72rem; font-weight:700;
+      letter-spacing:0.06em; text-transform:uppercase;
+      margin-bottom:16px;
+    }
+    .step-badge svg { width:12px; height:12px; }
+
+    .card-title { font-size:1.35rem; font-weight:700; margin-bottom:6px; }
+    .card-sub   { font-size:0.85rem; color:var(--text-dim); margin-bottom:28px; line-height:1.5; }
+    .card-sub strong { color:var(--accent); }
+
+    /* Flash messages */
+    .flash { display:flex; align-items:flex-start; gap:10px;
+             padding:12px 14px; border-radius:10px;
+             font-size:0.84rem; margin-bottom:20px;
+             border:1px solid transparent; line-height:1.4; }
+    .flash-danger  { background:rgba(239,68,68,0.10); border-color:rgba(239,68,68,0.25); color:#fca5a5; }
+    .flash-success { background:rgba(34,197,94,0.10); border-color:rgba(34,197,94,0.25); color:#86efac; }
+    .flash-warning { background:rgba(245,158,11,0.10); border-color:rgba(245,158,11,0.25); color:#fcd34d; }
+    .flash svg { flex-shrink:0; width:16px; height:16px; margin-top:1px; }
+
+    .form-group { margin-bottom:18px; }
+    .form-group label {
+      display:block; font-size:0.73rem; font-weight:700;
+      letter-spacing:0.06em; text-transform:uppercase;
+      color:var(--text-dim); margin-bottom:7px;
+    }
+    .input-wrap { position:relative; }
+    .input-wrap input {
+      width:100%; padding:11px 42px 11px 14px;
+      background:rgba(255,255,255,0.04); border:1px solid rgba(255,255,255,0.10);
+      border-radius:10px; color:var(--text); font-size:0.95rem; font-family:inherit;
+      transition:border-color .2s, box-shadow .2s;
+    }
+    .input-wrap input:focus {
+      outline:none; border-color:var(--accent);
+      box-shadow:0 0 0 3px rgba(245,158,11,0.13);
+    }
+    .input-wrap input.error { border-color:var(--danger) !important; }
+    .toggle-eye {
+      position:absolute; right:12px; top:50%; transform:translateY(-50%);
+      background:none; border:none; cursor:pointer; color:var(--text-dim);
+      padding:0; display:flex; align-items:center;
+    }
+    .toggle-eye:hover { color:var(--text); }
+    .toggle-eye svg { width:18px; height:18px; }
+
+    /* Password strength bar */
+    .strength-wrap { margin-top:8px; }
+    .strength-bar {
+      height:4px; border-radius:999px;
+      background:rgba(255,255,255,0.08); overflow:hidden;
+    }
+    .strength-fill {
+      height:100%; border-radius:999px; width:0%;
+      transition:width .3s, background .3s;
+    }
+    .strength-label {
+      font-size:0.72rem; color:var(--text-dim);
+      margin-top:5px; display:flex; justify-content:space-between;
+    }
+
+    /* Requirements checklist */
+    .requirements { margin-top:10px; display:grid; gap:5px; }
+    .req-item {
+      display:flex; align-items:center; gap:7px;
+      font-size:0.77rem; color:var(--text-dim);
+      transition:color .2s;
+    }
+    .req-item.met { color:var(--success); }
+    .req-dot {
+      width:7px; height:7px; border-radius:50%;
+      background:var(--text-dim); flex-shrink:0;
+      transition:background .2s;
+    }
+    .req-item.met .req-dot { background:var(--success); }
+
+    .form-hint { font-size:0.78rem; color:var(--text-dim); margin-top:6px; }
+
+    .btn-submit {
+      width:100%; padding:13px;
+      background:linear-gradient(135deg,var(--accent),var(--accent-h));
+      border:none; border-radius:10px; color:#000;
+      font-size:0.95rem; font-weight:700; font-family:inherit;
+      cursor:pointer; letter-spacing:0.02em;
+      box-shadow:0 2px 8px rgba(245,158,11,0.3);
+      transition:box-shadow .2s, transform .15s;
+      margin-top:8px;
+    }
+    .btn-submit:hover {
+      box-shadow:0 6px 20px rgba(245,158,11,0.45);
+      transform:translateY(-1px);
+    }
+    .btn-submit:active { transform:translateY(0); }
+
+    .back-link {
+      display:block; text-align:center; margin-top:18px;
+      font-size:0.82rem; color:var(--text-dim); text-decoration:none;
+    }
+    .back-link:hover { color:var(--text); }
+
+    .info-box {
+      display:flex; gap:10px; padding:12px 14px;
+      background:rgba(59,130,246,0.08); border:1px solid rgba(59,130,246,0.22);
+      border-radius:10px; font-size:0.82rem; color:#93c5fd;
+      margin-bottom:24px; line-height:1.5;
+    }
+    .info-box svg { flex-shrink:0; width:16px; height:16px; margin-top:1px; }
+  </style>
+</head>
+<body>
+  <div class="bg-blob blob-gold"></div>
+  <div class="bg-blob blob-blue"></div>
+
+  <div class="card">
+    <!-- Logo -->
+    <div class="logo-row">
+      <div class="logo-mark">
+        <img src="{{ url_for('static', filename='img/aptransco-theme-logo.svg') }}"
+             alt="Nigaa" onerror="this.style.display='none'"/>
+      </div>
+      <div class="logo-text">
+        <h1>Nigaa</h1>
+        <p>Petition Management System</p>
+      </div>
+    </div>
+
+    <!-- Step indicator -->
+    <div class="step-badge">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+        <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+      </svg>
+      First Login — Account Setup
+    </div>
+
+    <div class="card-title">Set Your Password</div>
+    <div class="card-sub">
+      You are logged in as <strong>{{ username }}</strong>. Your account was created with a
+      temporary password. You must set a personal password and add your mobile number before
+      continuing.
+    </div>
+
+    <!-- Flash messages -->
+    {% with messages = get_flashed_messages(with_categories=true) %}
+      {% for category, msg in messages %}
+        <div class="flash flash-{{ category }}">
+          {% if category == 'danger' %}
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+          {% elif category == 'success' %}
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"/></svg>
+          {% else %}
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+          {% endif %}
+          {{ msg }}
+        </div>
+      {% endfor %}
+    {% endwith %}
+
+    <div class="info-box">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <circle cx="12" cy="12" r="10"/>
+        <line x1="12" y1="16" x2="12" y2="12"/>
+        <line x1="12" y1="8" x2="12.01" y2="8"/>
+      </svg>
+      {% if is_super_admin %}
+      Super Admin accounts do not require OTP. Just set a strong personal password to continue.
+      {% else %}
+      Your mobile number will be used for OTP-based login and password recovery. Please ensure
+      it is accurate and active.
+      {% endif %}
+    </div>
+
+    <form method="POST" action="{{ url_for('first_login_setup') }}" id="setupForm">
+      <input type="hidden" name="csrf_token" value="{{ session.get('_csrf_token', '') }}"/>
+
+      <!-- New Password -->
+      <div class="form-group">
+        <label for="new_password">New Password</label>
+        <div class="input-wrap">
+          <input type="password" id="new_password" name="new_password"
+                 autocomplete="new-password" required placeholder="Enter new password"/>
+          <button type="button" class="toggle-eye" onclick="togglePwd('new_password','eye1')">
+            <svg id="eye1" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
+              <circle cx="12" cy="12" r="3"/>
+            </svg>
+          </button>
+        </div>
+        <!-- Strength meter -->
+        <div class="strength-wrap">
+          <div class="strength-bar"><div class="strength-fill" id="strengthFill"></div></div>
+          <div class="strength-label">
+            <span id="strengthText">Enter a password</span>
+          </div>
+        </div>
+        <div class="requirements" id="reqs">
+          <div class="req-item" id="req-len"><span class="req-dot"></span>At least 8 characters</div>
+          <div class="req-item" id="req-upper"><span class="req-dot"></span>One uppercase letter (A–Z)</div>
+          <div class="req-item" id="req-lower"><span class="req-dot"></span>One lowercase letter (a–z)</div>
+          <div class="req-item" id="req-num"><span class="req-dot"></span>One number (0–9)</div>
+          <div class="req-item" id="req-special"><span class="req-dot"></span>One special character</div>
+          <div class="req-item" id="req-notdefault"><span class="req-dot"></span>Not the default password</div>
+        </div>
+      </div>
+
+      <!-- Confirm Password -->
+      <div class="form-group">
+        <label for="confirm_password">Confirm New Password</label>
+        <div class="input-wrap">
+          <input type="password" id="confirm_password" name="confirm_password"
+                 autocomplete="new-password" required placeholder="Repeat new password"/>
+          <button type="button" class="toggle-eye" onclick="togglePwd('confirm_password','eye2')">
+            <svg id="eye2" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
+              <circle cx="12" cy="12" r="3"/>
+            </svg>
+          </button>
+        </div>
+        <div class="form-hint" id="matchHint"></div>
+      </div>
+
+      <!-- Mobile Number (not required for Super Admin — no OTP) -->
+      {% if not is_super_admin %}
+      <div class="form-group">
+        <label for="phone">Mobile Number</label>
+        <div class="input-wrap">
+          <input type="tel" id="phone" name="phone"
+                 autocomplete="tel" required
+                 maxlength="10" pattern="[6-9][0-9]{9}"
+                 placeholder="10-digit mobile number"/>
+        </div>
+        <div class="form-hint">Used for OTP verification on future logins and password recovery.</div>
+      </div>
+      {% endif %}
+
+      <button type="submit" class="btn-submit" id="submitBtn">
+        Set Password &amp; Continue
+      </button>
+    </form>
+
+    <a href="{{ url_for('login') }}" class="back-link">← Back to Login</a>
+  </div>
+
+  <script>
+    const DEFAULT_PWD = 'Nigaa@123';
+
+    function togglePwd(fieldId, eyeId) {
+      const f = document.getElementById(fieldId);
+      const e = document.getElementById(eyeId);
+      if (f.type === 'password') {
+        f.type = 'text';
+        e.innerHTML = '<path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/>';
+      } else {
+        f.type = 'password';
+        e.innerHTML = '<path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/>';
+      }
+    }
+
+    const pwdInput  = document.getElementById('new_password');
+    const confInput = document.getElementById('confirm_password');
+    const fill      = document.getElementById('strengthFill');
+    const sText     = document.getElementById('strengthText');
+    const matchHint = document.getElementById('matchHint');
+
+    function checkReq(id, met) {
+      document.getElementById(id).classList.toggle('met', met);
+    }
+
+    function evalStrength(p) {
+      const checks = [
+        p.length >= 8,
+        /[A-Z]/.test(p),
+        /[a-z]/.test(p),
+        /[0-9]/.test(p),
+        /[^A-Za-z0-9]/.test(p),
+        p !== DEFAULT_PWD && p.length > 0,
+      ];
+      return checks.filter(Boolean).length;
+    }
+
+    pwdInput.addEventListener('input', function () {
+      const p = this.value;
+      checkReq('req-len',       p.length >= 8);
+      checkReq('req-upper',     /[A-Z]/.test(p));
+      checkReq('req-lower',     /[a-z]/.test(p));
+      checkReq('req-num',       /[0-9]/.test(p));
+      checkReq('req-special',   /[^A-Za-z0-9]/.test(p));
+      checkReq('req-notdefault', p !== DEFAULT_PWD && p.length > 0);
+
+      const score = evalStrength(p);
+      const pct   = p.length === 0 ? 0 : Math.round((score / 6) * 100);
+      fill.style.width = pct + '%';
+
+      const levels = [
+        { up: 17,  color: '#ef4444', label: 'Very weak'   },
+        { up: 34,  color: '#f97316', label: 'Weak'        },
+        { up: 50,  color: '#f59e0b', label: 'Fair'        },
+        { up: 67,  color: '#84cc16', label: 'Good'        },
+        { up: 84,  color: '#22c55e', label: 'Strong'      },
+        { up: 101, color: '#10b981', label: 'Very strong' },
+      ];
+      const lvl = levels.find(l => pct <= l.up) || levels[levels.length - 1];
+      fill.style.background = lvl.color;
+      sText.textContent = p.length === 0 ? 'Enter a password' : lvl.label;
+
+      checkMatchHint();
+    });
+
+    confInput.addEventListener('input', checkMatchHint);
+
+    function checkMatchHint() {
+      const p = pwdInput.value, c = confInput.value;
+      if (!c) { matchHint.textContent = ''; matchHint.style.color = ''; return; }
+      if (p === c) {
+        matchHint.textContent = '✓ Passwords match';
+        matchHint.style.color = 'var(--success)';
+      } else {
+        matchHint.textContent = '✗ Passwords do not match';
+        matchHint.style.color = 'var(--danger)';
+      }
+    }
+
+    /* Phone: only allow digits (not rendered for super_admin) */
+    const phoneEl = document.getElementById('phone');
+    if (phoneEl) {
+      phoneEl.addEventListener('input', function () {
+        this.value = this.value.replace(/\D/g, '').slice(0, 10);
+      });
+    }
+  </script>
+</body>
+</html>

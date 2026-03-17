@@ -138,9 +138,7 @@
 
         buildQuickActions();
 
-        if (!sessionStorage.getItem('nigaaWelcomeShown')) {
-            setTimeout(showWelcome, 1800);
-        }
+        setTimeout(showWelcome, 1800);
     }
 
     /* ═══════════════════════════════════════════════
@@ -149,8 +147,9 @@
     function showWelcome() {
         if (!welcomeBubble) return;
         welcomeShown = true;
+        welcomeBubble.style.display = '';
+        welcomeBubble.classList.remove('dismissing');
         welcomeBubble.classList.add('visible');
-        sessionStorage.setItem('nigaaWelcomeShown', '1');
         setTimeout(() => dismissWelcome(), 9000);
     }
 
@@ -173,6 +172,7 @@
         panelOverlay?.classList.add('active');
         fab.classList.add('active');
         fab.setAttribute('aria-expanded', 'true');
+        if (window.innerWidth <= 768) document.body.style.overflow = 'hidden';
         inputEl.focus();
 
         if (messagesEl.children.length === 0) {
@@ -193,6 +193,7 @@
         panelOverlay?.classList.remove('active');
         fab.classList.remove('active');
         fab.setAttribute('aria-expanded', 'false');
+        document.body.style.overflow = '';
     }
 
     /* ═══════════════════════════════════════════════

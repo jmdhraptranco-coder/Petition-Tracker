@@ -232,6 +232,15 @@ document.addEventListener('DOMContentLoaded', () => {
                 el.value = next;
             }
         });
+        document.querySelectorAll('[data-status]').forEach((el) => {
+            const statusKey = el.getAttribute('data-status');
+            if (!statusKey) return;
+            const i18nKey = 'status.' + statusKey;
+            if (Object.prototype.hasOwnProperty.call(dict, i18nKey)) {
+                const next = dict[i18nKey];
+                if (!isCorruptI18nValue(next)) el.textContent = next;
+            }
+        });
     };
 
     window.appI18n = {
