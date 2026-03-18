@@ -1,86 +1,180 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" data-theme="dark">
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>{{ status_code }} - {{ title }}</title>
+    <link rel="icon" type="image/svg+xml" href="{{ url_for('static', filename='img/nigaa-logo.svg') }}">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Dela+Gothic+One&family=DM+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&family=Oswald:wght@400;600;700&display=swap" rel="stylesheet">
     <style>
         :root {
-            --bg: #f4f7fb;
-            --card: #ffffff;
-            --text: #1f2937;
-            --muted: #6b7280;
-            --accent: #0d6efd;
-            --border: #dbe3ef;
+            --bg:       #0f1117;
+            --bg-card:  #181b23;
+            --border:   #2a2e3a;
+            --accent:   #f59e0b;
+            --accent-h: #d97706;
+            --text:     #e8eaf0;
+            --text-dim: #8b90a0;
+            --danger:   #ef4444;
+            --success:  #22c55e;
+            --warning:  #f59e0b;
+            --radius:   12px;
         }
+        *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+        html { font-size: 14px; scroll-behavior: smooth; }
         body {
-            margin: 0;
+            font-family: 'DM Sans', -apple-system, BlinkMacSystemFont, sans-serif;
+            background: var(--bg);
+            color: var(--text);
             min-height: 100vh;
             display: grid;
             place-items: center;
             padding: 24px;
-            background: radial-gradient(circle at 20% 20%, #e7f1ff 0%, var(--bg) 45%);
-            color: var(--text);
-            font-family: "DM Sans", "Segoe UI", sans-serif;
+            position: relative;
+            overflow-x: hidden;
+            -webkit-font-smoothing: antialiased;
         }
+
+        body::before {
+            content: '';
+            position: fixed; inset: 0;
+            background:
+                radial-gradient(ellipse 55% 45% at 18% 12%, rgba(245, 166, 35, 0.055) 0%, transparent 70%),
+                radial-gradient(ellipse 38% 55% at 88% 86%, rgba(27, 50, 96, 0.22) 0%, transparent 70%);
+            pointer-events: none;
+            z-index: 0;
+        }
+
+        body::after {
+            content: '';
+            position: fixed; inset: 0;
+            background: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.022'/%3E%3C/svg%3E");
+            pointer-events: none;
+            z-index: 1;
+        }
+
         .panel {
-            width: min(620px, 100%);
-            background: var(--card);
+            position: relative;
+            z-index: 2;
+            width: min(540px, 100%);
+            background: var(--bg-card);
             border: 1px solid var(--border);
             border-radius: 16px;
-            box-shadow: 0 12px 40px rgba(15, 23, 42, 0.08);
-            padding: 28px;
+            box-shadow: 0 20px 56px rgba(0, 0, 0, 0.45), 0 4px 16px rgba(0, 0, 0, 0.25);
+            padding: 36px 32px;
+            animation: fadeSlideUp 0.44s cubic-bezier(0.22, 1, 0.36, 1) both;
         }
+
+        .panel::before {
+            content: '';
+            position: absolute; top: 0; left: 8%; right: 8%; height: 1px;
+            background: linear-gradient(90deg, transparent, rgba(245, 158, 11, 0.45), transparent);
+            border-radius: 999px;
+        }
+
+        .error-code {
+            font-family: 'Oswald', 'DM Sans', sans-serif;
+            font-size: 3.5rem;
+            font-weight: 700;
+            color: var(--warning);
+            letter-spacing: 0.04em;
+            line-height: 1;
+            margin-bottom: 10px;
+            text-shadow: 0 0 28px rgba(245, 158, 11, 0.28);
+        }
+
         h1 {
-            margin: 0;
-            font-size: 1.55rem;
-            font-weight: 700;
-        }
-        .code {
-            margin: 0 0 8px;
-            color: var(--accent);
-            font-weight: 700;
+            font-family: 'Oswald', 'DM Sans', sans-serif;
+            font-size: 1.35rem;
+            font-weight: 600;
             letter-spacing: 0.02em;
+            margin-bottom: 8px;
         }
+
         p {
-            margin: 0;
-            color: var(--muted);
-            line-height: 1.5;
+            color: var(--text-dim);
+            font-size: 0.92rem;
+            line-height: 1.6;
         }
-        .row {
-            margin-top: 18px;
+
+        .retry-row {
+            margin-top: 24px;
             display: flex;
             align-items: center;
             justify-content: space-between;
             gap: 12px;
             flex-wrap: wrap;
         }
+
+        #retry-text {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.82rem;
+            color: var(--text-dim);
+        }
+
+        .actions {
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+        }
+
         .button {
             display: inline-block;
-            padding: 10px 14px;
-            border-radius: 10px;
             text-decoration: none;
             border: 1px solid var(--border);
-            color: var(--text);
-            background: #fff;
+            border-radius: 10px;
+            padding: 10px 18px;
+            font-family: inherit;
+            font-size: 0.88rem;
             font-weight: 600;
+            color: var(--text-dim);
+            background: rgba(255, 255, 255, 0.04);
+            cursor: pointer;
+            transition: border-color 0.2s ease, color 0.2s ease, background 0.2s ease, transform 0.2s ease, box-shadow 0.2s ease;
         }
+
+        .button:hover {
+            border-color: rgba(255, 255, 255, 0.18);
+            color: var(--text);
+            background: rgba(255, 255, 255, 0.08);
+            transform: translateY(-1px);
+        }
+
         .button.primary {
-            background: var(--accent);
-            color: #fff;
+            background: linear-gradient(135deg, var(--accent) 0%, var(--accent-h) 100%);
             border-color: var(--accent);
+            color: #000;
+            box-shadow: 0 2px 10px rgba(245, 158, 11, 0.30);
+        }
+
+        .button.primary:hover {
+            box-shadow: 0 6px 22px rgba(245, 158, 11, 0.42);
+            transform: translateY(-2px);
+        }
+
+        @keyframes fadeSlideUp {
+            from { opacity: 0; transform: translateY(22px); }
+            to   { opacity: 1; transform: translateY(0); }
+        }
+
+        @media (prefers-reduced-motion: reduce) {
+            *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
         }
     </style>
 </head>
 <body>
     <main class="panel">
-        <p class="code">Error {{ status_code }}</p>
+        <div class="error-code">{{ status_code }}</div>
         <h1>{{ title }}</h1>
         <p>{{ message }}</p>
-        <div class="row">
+        <div class="retry-row">
             <p id="retry-text">Retrying in {{ retry_after_seconds }}s...</p>
-            <a class="button" href="{{ url_for('petitions_list') }}">Go to petitions</a>
-            <button type="button" class="button primary" onclick="location.reload()">Retry now</button>
+            <div class="actions">
+                <a class="button" href="{{ url_for('petitions_list') }}">Go to petitions</a>
+                <button type="button" class="button primary" onclick="location.reload()">Retry now</button>
+            </div>
         </div>
     </main>
     <script>

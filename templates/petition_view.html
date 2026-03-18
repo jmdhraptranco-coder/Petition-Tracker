@@ -51,35 +51,32 @@
     <div class="card">
         <div class="card-header"><h3>Petition Status</h3></div>
         <div class="workflow-process">
-            <div class="workflow-track">
-                <div class="workflow-track-line"></div>
+            <div class="workflow-stepper">
+                {% set icons = [
+                    '<path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/>',
+                    '<circle cx="12" cy="12" r="9"/><polyline points="12 7 12 12 15 15"/>',
+                    '<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/>',
+                    '<circle cx="12" cy="12" r="9"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>',
+                    '<polyline points="20 6 9 17 4 12"/>',
+                    '<circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>'
+                ] %}
                 {% for i in [1, 2, 3, 4, 5, 6] %}
-                <div class="workflow-track-node {% if i <= current_stage %}active{% endif %} {% if i == current_stage %}current{% endif %}">
-                    {{ "%02d"|format(i) }}
-                </div>
-                {% endfor %}
-            </div>
-
-            <div class="workflow-step-cards">
-                {% for i in [1, 2, 3, 4, 5, 6] %}
-                <div class="workflow-step-card {% if i <= current_stage %}active{% endif %} {% if i == current_stage %}current{% endif %}">
-                    <div class="workflow-step-card-icon">
-                        {% if i == 1 %}
-                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12l9-9 9 9"/><path d="M9 21V9h6v12"/></svg>
-                        {% elif i == 2 %}
-                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/></svg>
-                        {% elif i == 3 %}
-                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg>
-                        {% elif i == 4 %}
-                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 7v5"/><path d="M12 16h.01"/></svg>
-                        {% elif i == 5 %}
-                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 7h16"/><path d="M7 7V5a2 2 0 0 1 2-2h6a2 2 0 0 1 2 2v2"/><path d="M5 7l1 12a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2l1-12"/></svg>
+                {% set done = i < current_stage %}
+                {% set cur  = i == current_stage %}
+                {% set idx  = i - 1 %}
+                <div class="wf-step {% if done %}done{% elif cur %}current{% endif %}">
+                    {% if i < 6 %}<div class="wf-connector {% if i < current_stage %}filled{% endif %}"></div>{% endif %}
+                    <div class="wf-icon-wrap">
+                        {% if done %}
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+                        {% elif cur %}
+                        <svg class="wf-cur-icon" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">{{ icons[idx] }}</svg>
                         {% else %}
-                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><path d="M22 4L12 14.01 9 11.01"/></svg>
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">{{ icons[idx] }}</svg>
                         {% endif %}
                     </div>
-                    <div class="workflow-step-card-meta">STEP {{ i }}</div>
-                    <div class="workflow-step-card-title">{{ workflow_stage_labels.get(i) }}</div>
+                    <div class="wf-label">STEP {{ i }}</div>
+                    <div class="wf-title">{{ workflow_stage_labels.get(i) }}</div>
                 </div>
                 {% endfor %}
             </div>

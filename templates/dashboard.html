@@ -440,6 +440,15 @@ let dashboardCharts = [];
 let dashboardResizeTimer = null;
 const moreFiltersEl = document.querySelector('.dashboard-more-filters');
 
+// Move modal to <body> so position:fixed works relative to viewport
+// regardless of any transforms on ancestor containers
+(function() {
+    const modal = document.getElementById('dashboardDrilldownModal');
+    if (modal && modal.parentElement !== document.body) {
+        document.body.appendChild(modal);
+    }
+})();
+
 function escapeHtml(value) {
     return String(value || '')
         .replace(/&/g, '&amp;')

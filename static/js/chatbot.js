@@ -105,9 +105,9 @@
     const QUICK_ACTIONS = [
         { label: '⏳ Pending',    msg: 'pending' },
         { label: '🔔 Updates',   msg: 'updates' },
-        { label: '📊 Stats',     msg: 'stats' },
-        { label: '🔍 Search',    msg: 'search ' },
-        { label: '📋 Guide',     msg: 'guide' },
+        { label: '💡 What Next', msg: 'what next' },
+        { label: '📅 Today',     msg: 'today' },
+        { label: '📈 Report',    msg: 'report' },
         { label: '❓ Help',      msg: 'help' },
     ];
 
@@ -177,12 +177,15 @@
 
         if (messagesEl.children.length === 0) {
             addBotMessage(
-                "Hi! I'm **Nigaa** 👋, your petition assistant.\n\n" +
-                "Use the quick actions below or type anything:\n" +
-                "• _\"pending\"_ — show petitions needing action\n" +
-                "• _\"updates\"_ — recent activity feed\n" +
-                "• _\"guide\"_ — workflow steps for your role\n" +
-                "• _\"stats\"_ — petition statistics"
+                "Hi! I'm **Nigaa** 👋 — your AI petition assistant.\n\n" +
+                "Here's what I can help you with:\n" +
+                "• _\"what next\"_ — get personalized next action suggestions\n" +
+                "• _\"today\"_ — your daily summary\n" +
+                "• _\"pending\"_ — petitions needing your action\n" +
+                "• _\"report\"_ — open analysis report & download\n" +
+                "• _\"urgent\"_ — SLA breach / overdue cases\n" +
+                "• _\"stats\"_ — petition statistics\n" +
+                "• _\"guide\"_ — step-by-step workflow"
             );
         }
     }
@@ -256,20 +259,65 @@
             case 'pending':      addPendingCard(data.petitions, data.role); break;
             case 'updates':      addUpdatesCard(data.petitions, data.role); break;
             case 'action_guide': addActionGuideCard(data.role); break;
+            case 'role_info':    addRoleInfoCard(data.role_data, data.user_name); break;
+            case 'download':     addDownloadCard(data); break;
+            case 'summary':      addSummaryCard(data); break;
+            case 'urgent':       addUrgentCard(data); break;
+            case 'suggest':      addSuggestionCard(data); break;
             default:             addBotMessage(data.text || 'Got it!');
+        }
+        if (data.suggestions && data.suggestions.length) {
+            addSuggestionsChips(data.suggestions);
         }
     }
 
-    /* ─── Text bubble ────────────────────────────── */
-    function addBotMessage(text) {
+    /* ─── Text bubble with typewriter effect ────── */
+    function addBotMessage(text, instant = false) {
         const el = createBubble('bot');
-        el.innerHTML = markdownLite(text);
         appendMsg(el);
+        if (instant || window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+            el.innerHTML = markdownLite(text);
+        } else {
+            typewriterRender(el, text);
+        }
     }
     function addUserMessage(text) {
         const el = createBubble('user');
         el.textContent = text;
         appendMsg(el);
+    }
+
+    /* ─── Typewriter: word-by-word, adaptive speed ─ */
+    function typewriterRender(el, text) {
+        const words = text.split(/(\s+)/);   // keep whitespace tokens
+        const totalWords = words.filter(w => w.trim()).length;
+        // Adaptive: cap total animation at ~1.2 s
+        const delay = Math.min(55, Math.max(18, Math.round(1200 / Math.max(totalWords, 1))));
+        let i = 0;
+        let built = '';
+
+        // cursor span
+        const cursor = document.createElement('span');
+        cursor.className = 'nigaa-cursor';
+        cursor.textContent = '▋';
+        el.innerHTML = '';
+        el.appendChild(cursor);
+
+        function step() {
+            if (i >= words.length) {
+                el.innerHTML = markdownLite(text);   // final render with full markdown
+                scrollToBottom();
+                return;
+            }
+            built += words[i];
+            i++;
+            el.innerHTML = markdownLite(built) + '<span class="nigaa-cursor">▋</span>';
+            scrollToBottom();
+            // Skip whitespace-only tokens instantly
+            const token = words[i - 1];
+            setTimeout(step, token.trim() ? delay : 0);
+        }
+        step();
     }
 
     function createBubble(role) {
@@ -295,10 +343,15 @@
         card.innerHTML = `
           <div class="nigaa-card-title">🤖 What I can do</div>
           <ul class="nigaa-help-list">
+            <li><kbd>what next</kbd> — Personalized next action suggestions</li>
+            <li><kbd>today</kbd> — Your daily summary &amp; overview</li>
             <li><kbd>pending</kbd> — Petitions needing your action</li>
             <li><kbd>updates</kbd> — Recent activity &amp; status changes</li>
+            <li><kbd>urgent</kbd> — SLA breach &amp; overdue cases</li>
             <li><kbd>guide</kbd> — Step-by-step workflow for your role</li>
             <li><kbd>stats</kbd> — View petition statistics</li>
+            <li><kbd>report</kbd> — Open analysis report &amp; download</li>
+            <li><kbd>my role</kbd> — Your responsibilities</li>
             <li><kbd>search [name]</kbd> — Search by petitioner name</li>
             <li><kbd>eoffice [no]</kbd> — Search by E-Office file number</li>
             <li><kbd>ereceipt [no]</kbd> — Search by E-Receipt number</li>
@@ -405,14 +458,14 @@
         if (!petitions || petitions.length === 0) {
             const bubble = document.createElement('div');
             bubble.className = 'nigaa-bubble nigaa-empty-bubble';
-            bubble.innerHTML = 'ℹ️ No recent updates found in your scope.';
+            bubble.innerHTML = 'ℹ️ No updates so far today in your scope.';
             container.appendChild(bubble);
         } else {
             const header = document.createElement('div');
             header.className = 'nigaa-section-header nigaa-section-updates';
             header.innerHTML = `
               <span class="nigaa-section-icon">🔔</span>
-              <span><strong>Recent Activity</strong></span>
+              <span><strong>Today's Updates</strong></span>
               <span class="nigaa-section-badge nigaa-badge-info">${petitions.length}</span>
             `;
             container.appendChild(header);
@@ -495,6 +548,169 @@
 
         wrap.appendChild(card);
         appendMsg(wrap);
+    }
+
+    /* ─── Role info card ─────────────────────────── */
+    function addRoleInfoCard(roleData, userName) {
+        const wrap = makeBotWrap();
+        const card = document.createElement('div');
+        card.className = 'nigaa-card nigaa-role-card';
+        card.style.setProperty('--role-color', roleData.color || '#f59e0b');
+
+        card.innerHTML = `
+          <div class="nigaa-role-header">
+            <span class="nigaa-role-badge">${escHtml(roleData.badge || '👤')}</span>
+            <div>
+              <div class="nigaa-role-title">${escHtml(roleData.title)}</div>
+              <div class="nigaa-role-name">${escHtml(userName || '')}</div>
+            </div>
+          </div>
+          <div class="nigaa-role-summary">${escHtml(roleData.summary || '')}</div>
+          <div class="nigaa-role-resp-label">Your Responsibilities</div>
+          <ul class="nigaa-role-resp-list">
+            ${(roleData.responsibilities || []).map(r => `<li>${escHtml(r)}</li>`).join('')}
+          </ul>
+          ${roleData.key_link ? `<a href="${escHtml(roleData.key_link)}" class="nigaa-view-all-link">Go to my work →</a>` : ''}
+        `;
+        wrap.appendChild(card);
+        appendMsg(wrap);
+    }
+
+    /* ─── Download / Analysis Report card ───────── */
+    function addDownloadCard(data) {
+        const wrap = makeBotWrap();
+        const card = document.createElement('div');
+        card.className = 'nigaa-card nigaa-download-card';
+        card.innerHTML = `
+          <div class="nigaa-card-title">📈 Analysis Report</div>
+          <div class="nigaa-download-desc">${escHtml(data.text || 'Access comprehensive petition analytics, charts, and export options.')}</div>
+          <div class="nigaa-download-features">
+            <span>📊 Charts &amp; Trends</span>
+            <span>🗂️ Status Breakdown</span>
+            <span>👥 CVO Performance</span>
+            <span>⬇️ Excel / PDF Export</span>
+          </div>
+          <div class="nigaa-download-actions">
+            <a href="/analysis-report" class="nigaa-download-btn" target="_blank">📈 Open Analysis Report</a>
+          </div>
+          <div class="nigaa-download-note">💡 Use the export buttons inside the report to download as PDF or Excel.</div>
+        `;
+        wrap.appendChild(card);
+        appendMsg(wrap);
+    }
+
+    /* ─── Daily Summary card ─────────────────────── */
+    function addSummaryCard(data) {
+        const wrap = makeBotWrap();
+        const card = document.createElement('div');
+        card.className = 'nigaa-card nigaa-summary-card';
+        const stats = data.stats || {};
+        const pendingCount = data.pending_count || 0;
+        const updatesCount = data.updates_count || 0;
+        card.innerHTML = `
+          <div class="nigaa-card-title">📅 Daily Summary</div>
+          <div class="nigaa-summary-grid">
+            <div class="nigaa-summary-item">
+              <span class="nigaa-summary-num">${stats.total || 0}</span>
+              <span class="nigaa-summary-lbl">Total</span>
+            </div>
+            <div class="nigaa-summary-item nigaa-summary-warn">
+              <span class="nigaa-summary-num">${pendingCount}</span>
+              <span class="nigaa-summary-lbl">Pending</span>
+            </div>
+            <div class="nigaa-summary-item nigaa-summary-info">
+              <span class="nigaa-summary-num">${updatesCount}</span>
+              <span class="nigaa-summary-lbl">Today's Updates</span>
+            </div>
+            <div class="nigaa-summary-item nigaa-summary-success">
+              <span class="nigaa-summary-num">${stats.closed || 0}</span>
+              <span class="nigaa-summary-lbl">Closed</span>
+            </div>
+          </div>
+          <div class="nigaa-summary-message">${escHtml(data.message || '')}</div>
+          <div class="nigaa-summary-links">
+            <a href="/petitions" class="nigaa-view-all-link">View all petitions →</a>
+            <a href="/analysis-report" class="nigaa-view-all-link">Full report →</a>
+          </div>
+        `;
+        wrap.appendChild(card);
+        appendMsg(wrap);
+    }
+
+    /* ─── Urgent / Overdue card ──────────────────── */
+    function addUrgentCard(data) {
+        const wrap = makeBotWrap();
+        const card = document.createElement('div');
+        card.className = 'nigaa-card nigaa-urgent-card';
+        card.innerHTML = `
+          <div class="nigaa-card-title">🚨 Urgent / SLA Breach</div>
+          <div class="nigaa-urgent-msg">${escHtml(data.message || 'Review petitions beyond SLA threshold.')}</div>
+          <div class="nigaa-urgent-actions">
+            <a href="${escHtml(data.url || '/petitions?status=beyond_sla')}" class="nigaa-urgent-btn" target="_blank">⚠️ View Overdue Petitions</a>
+            <a href="${escHtml(data.sla_url || '/sla_dashboard')}" class="nigaa-urgent-btn nigaa-urgent-btn-sec" target="_blank">📊 SLA Dashboard</a>
+          </div>
+        `;
+        wrap.appendChild(card);
+        appendMsg(wrap);
+    }
+
+    /* ─── What Next / Smart Suggestions card ─────── */
+    function addSuggestionCard(data) {
+        const wrap = makeBotWrap();
+        const card = document.createElement('div');
+        card.className = 'nigaa-card nigaa-suggest-card';
+        const titleEl = document.createElement('div');
+        titleEl.className = 'nigaa-card-title';
+        titleEl.textContent = '💡 Recommended Next Actions';
+        card.appendChild(titleEl);
+        const sub = document.createElement('div');
+        sub.className = 'nigaa-suggest-subtitle';
+        sub.textContent = `Here's what you should focus on, ${escHtml(data.user_name || '')}:`;
+        card.appendChild(sub);
+        (data.actions || []).forEach(action => {
+            const item = document.createElement('div');
+            item.className = `nigaa-suggest-action nigaa-suggest-${action.priority || 'low'}`;
+            const priorityColors = { high: '#ef4444', medium: '#f59e0b', low: '#22c55e' };
+            const pColor = priorityColors[action.priority] || '#6b7280';
+            item.innerHTML = `
+              <div class="nigaa-suggest-icon">${action.icon || '📌'}</div>
+              <div class="nigaa-suggest-body">
+                <div class="nigaa-suggest-title">
+                  ${escHtml(action.title)}
+                  <span class="nigaa-suggest-badge" style="background:${pColor}20;color:${pColor};border-color:${pColor}40">${(action.priority || 'low').toUpperCase()}</span>
+                </div>
+                <div class="nigaa-suggest-desc">${escHtml(action.desc)}</div>
+                ${action.link ? `<a href="${escHtml(action.link)}" class="nigaa-suggest-link">${escHtml(action.link_label || 'View →')}</a>` : ''}
+              </div>
+            `;
+            card.appendChild(item);
+        });
+        wrap.appendChild(card);
+        appendMsg(wrap);
+    }
+
+    /* ─── Contextual suggestion chips ───────────── */
+    function addSuggestionsChips(suggestions) {
+        if (!suggestions || !suggestions.length) return;
+        const container = document.createElement('div');
+        container.className = 'nigaa-contextual-chips';
+        const label = document.createElement('span');
+        label.className = 'nigaa-chips-label';
+        label.textContent = 'Try:';
+        container.appendChild(label);
+        suggestions.forEach(({ label: lbl, msg }) => {
+            const btn = document.createElement('button');
+            btn.className = 'nigaa-chip nigaa-context-chip';
+            btn.textContent = lbl;
+            btn.addEventListener('click', () => {
+                inputEl.value = msg;
+                handleSend();
+            });
+            container.appendChild(btn);
+        });
+        messagesEl.appendChild(container);
+        scrollToBottom();
+        requestAnimationFrame(() => container.classList.add('visible'));
     }
 
     /* ─── Shared petition card builder ──────────── */

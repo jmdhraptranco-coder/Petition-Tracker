@@ -1112,7 +1112,7 @@ def get_pending_petitions_for_chatbot(user_id, user_role, cvo_office, limit=8):
         cur = dict_cursor(conn)
 
         if user_role == 'super_admin':
-            access_filter = "TRUE"
+            access_filter = "p.status NOT IN ('closed','lodged','action_taken')"
             access_params = []
         elif user_role == 'po':
             access_filter = "p.status IN ('forwarded_to_po','forwarded_to_jmd','sent_for_permission')"
@@ -1179,7 +1179,9 @@ def get_recent_updates_for_chatbot(user_id, user_role, cvo_office, limit=8):
                    p.target_cvo, p.place,
                    p.updated_at
             FROM petitions p
-            WHERE {access_filter} AND p.updated_at IS NOT NULL
+            WHERE {access_filter}
+              AND p.updated_at IS NOT NULL
+              AND p.updated_at::date = CURRENT_DATE
             ORDER BY p.updated_at DESC NULLS LAST
             LIMIT %s
         """, access_params + [limit])

@@ -15,16 +15,27 @@
         })();
     </script>
     <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}?v=20260341">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Dela+Gothic+One&family=DM+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&family=Oswald:wght@400;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}?v=20260322">
 </head>
 <body>
+    <div id="nav-progress-bar"></div>
     {% if session.get('user_id') %}
+    <!-- Floating particles — matches landing page .particle floatUp -->
+    <div class="app-particles" id="appParticles" aria-hidden="true"></div>
     <div class="app-layout">
         <!-- Sidebar -->
         <aside class="sidebar" id="sidebar">
             <div class="sidebar-header">
-                <div class="logo-mark">
-                    <img src="{{ url_for('static', filename=brand_logo_file) }}" alt="{{ brand_name }} Logo" class="brand-logo" onerror="this.onerror=null;this.style.display='none';">
+                <!-- Scan rings wrapper — matches landing .scan-ring scanExpand -->
+                <div class="logo-mark-wrap">
+                    <span class="logo-scan-ring" aria-hidden="true"></span>
+                    <span class="logo-scan-ring" aria-hidden="true"></span>
+                    <span class="logo-scan-ring" aria-hidden="true"></span>
+                    <div class="logo-mark">
+                        <img src="{{ url_for('static', filename=brand_logo_file) }}" alt="{{ brand_name }} Logo" class="brand-logo" onerror="this.onerror=null;this.style.display='none';">
+                    </div>
                 </div>
                 <div class="logo-text">
                     <span class="logo-title">{{ brand_name }}</span>
@@ -54,6 +65,12 @@
                     <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 1 1 5.82 1c0 2-3 2-3 4"/><path d="M12 17h.01"/></svg>
                     <span data-i18n="nav.help">Help</span>
                 </a>
+                {% if current_user_role in ('super_admin', 'po', 'cvo_apspdcl', 'cvo_apepdcl', 'cvo_apcpdcl', 'dsp') %}
+                <a href="{{ url_for('analysis_report') }}" class="nav-item {% if request.endpoint == 'analysis_report' %}active{% endif %}">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="M16 13H8"/><path d="M16 17H8"/><path d="M10 9H8"/><polyline points="8 18 10 16 13 19 16 15"/></svg>
+                    <span>Analysis Report</span>
+                </a>
+                {% endif %}
                 {% if current_user_role == 'po' %}
                 <a href="{{ url_for('petitions_list', mode='direct') }}" class="nav-item {% if request.endpoint == 'petitions_list' and request.args.get('mode') == 'direct' %}active{% endif %}">
                     <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3h18v18H3z"/><path d="M8 8h8"/><path d="M8 12h8"/><path d="M8 16h5"/></svg>
@@ -464,6 +481,30 @@
         })();
     </script>
     {% block scripts %}{% endblock %}
+    {% if session.get('user_id') %}
+    <script>
+    /* Floating gold particles — mirrors landing page .particle floatUp */
+    (function () {
+        var c = document.getElementById('appParticles');
+        if (!c) return;
+        var count = 22;
+        for (var i = 0; i < count; i++) {
+            var p = document.createElement('div');
+            p.className = 'app-particle';
+            var size = (2 + Math.random() * 2.5).toFixed(1);
+            p.style.cssText = [
+                'left:'              + (Math.random() * 100).toFixed(1) + '%',
+                'width:'             + size + 'px',
+                'height:'            + size + 'px',
+                'animation-delay:'   + (Math.random() * 7).toFixed(2)  + 's',
+                'animation-duration:'+ (5 + Math.random() * 5).toFixed(1) + 's',
+                'opacity:0'
+            ].join(';');
+            c.appendChild(p);
+        }
+    })();
+    </script>
+    {% endif %}
 </body>
 </html>
 

@@ -565,6 +565,8 @@ document.addEventListener('DOMContentLoaded', () => {
     initReportCompactAccordion();
     initPetitionRowNavigation();
     initPetitionerProfiles();
+    initPageTransitions();
+    initRippleEffect();
 });
 
 function initStatCardAnimations() {
@@ -901,5 +903,45 @@ function initPetitionerProfiles() {
     });
 
     window.closePetitionerProfileModal = closeModal;
+}
+
+function initPageTransitions() {
+    const bar = document.getElementById('nav-progress-bar');
+    if (!bar) return;
+
+    document.addEventListener('click', (e) => {
+        const anchor = e.target.closest('a[href]');
+        if (!anchor) return;
+        const href = anchor.getAttribute('href');
+        if (!href || href.startsWith('#') || href.startsWith('javascript') ||
+            anchor.getAttribute('target') === '_blank' ||
+            anchor.hasAttribute('download') ||
+            e.ctrlKey || e.metaKey || e.shiftKey) return;
+        if (href.startsWith('/api/') || href.startsWith('/static/')) return;
+
+        bar.classList.remove('done');
+        bar.classList.add('loading');
+    });
+
+    window.addEventListener('pageshow', () => {
+        bar.classList.remove('loading');
+        bar.classList.add('done');
+        setTimeout(() => bar.classList.remove('done'), 500);
+    });
+}
+
+function initRippleEffect() {
+    document.addEventListener('click', (e) => {
+        const btn = e.target.closest('.btn');
+        if (!btn) return;
+
+        const ripple = document.createElement('span');
+        ripple.className = 'ripple';
+        const rect = btn.getBoundingClientRect();
+        const size = Math.max(rect.width, rect.height);
+        ripple.style.cssText = `width:${size}px;height:${size}px;left:${e.clientX - rect.left - size / 2}px;top:${e.clientY - rect.top - size / 2}px`;
+        btn.appendChild(ripple);
+        ripple.addEventListener('animationend', () => ripple.remove(), { once: true });
+    });
 }
 

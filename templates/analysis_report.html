@@ -1,0 +1,864 @@
+{% extends "base.html" %}
+{% block title %}Analysis Report – Petition Tracker{% endblock %}
+{% block page_title %}Analysis Report{% endblock %}
+
+{% block content %}
+<!-- ========= FILTER BAR ========= -->
+<div class="ar-filter-bar card" id="arFilterBar">
+    <form method="get" action="{{ url_for('analysis_report') }}" class="ar-filter-form">
+        <div class="ar-filter-row">
+            <div class="ar-filter-group">
+                <label class="ar-filter-label">From Date</label>
+                <input type="date" name="from_date" value="{{ dashboard_filter.from_date }}" class="ar-input">
+            </div>
+            <div class="ar-filter-group">
+                <label class="ar-filter-label">To Date</label>
+                <input type="date" name="to_date" value="{{ dashboard_filter.to_date }}" class="ar-input">
+            </div>
+            <div class="ar-filter-group">
+                <label class="ar-filter-label">Petition Type</label>
+                <select name="petition_type" class="ar-input">
+                    <option value="all" {% if dashboard_filter.petition_type == 'all' %}selected{% endif %}>All Types</option>
+                    <option value="bribe" {% if dashboard_filter.petition_type == 'bribe' %}selected{% endif %}>Bribe</option>
+                    <option value="corruption" {% if dashboard_filter.petition_type == 'corruption' %}selected{% endif %}>Corruption</option>
+                    <option value="harassment" {% if dashboard_filter.petition_type == 'harassment' %}selected{% endif %}>Harassment</option>
+                    <option value="electrical_accident" {% if dashboard_filter.petition_type == 'electrical_accident' %}selected{% endif %}>Electrical Accident</option>
+                    <option value="misconduct" {% if dashboard_filter.petition_type == 'misconduct' %}selected{% endif %}>Misconduct</option>
+                    <option value="works_related" {% if dashboard_filter.petition_type == 'works_related' %}selected{% endif %}>Works Related</option>
+                    <option value="irregularities_in_tenders" {% if dashboard_filter.petition_type == 'irregularities_in_tenders' %}selected{% endif %}>Irregularities in Tenders</option>
+                    <option value="illegal_assets" {% if dashboard_filter.petition_type == 'illegal_assets' %}selected{% endif %}>Illegal Assets</option>
+                    <option value="other" {% if dashboard_filter.petition_type == 'other' %}selected{% endif %}>Other</option>
+                </select>
+            </div>
+            <div class="ar-filter-group">
+                <label class="ar-filter-label">Source</label>
+                <select name="source_of_petition" class="ar-input">
+                    <option value="all" {% if dashboard_filter.source_of_petition == 'all' %}selected{% endif %}>All Sources</option>
+                    <option value="media" {% if dashboard_filter.source_of_petition == 'media' %}selected{% endif %}>Electronic &amp; Print Media</option>
+                    <option value="public_individual" {% if dashboard_filter.source_of_petition == 'public_individual' %}selected{% endif %}>Public (Individual)</option>
+                    <option value="govt" {% if dashboard_filter.source_of_petition == 'govt' %}selected{% endif %}>Government</option>
+                    <option value="sumoto" {% if dashboard_filter.source_of_petition == 'sumoto' %}selected{% endif %}>Sumoto</option>
+                    <option value="cmd_office" {% if dashboard_filter.source_of_petition == 'cmd_office' %}selected{% endif %}>O/o CMD</option>
+                </select>
+            </div>
+            <div class="ar-filter-group">
+                <label class="ar-filter-label">Office</label>
+                <select name="target_cvo" class="ar-input">
+                    <option value="all" {% if dashboard_filter.target_cvo == 'all' %}selected{% endif %}>All Offices</option>
+                    <option value="apspdcl" {% if dashboard_filter.target_cvo == 'apspdcl' %}selected{% endif %}>APSPDCL</option>
+                    <option value="apepdcl" {% if dashboard_filter.target_cvo == 'apepdcl' %}selected{% endif %}>APEPDCL</option>
+                    <option value="apcpdcl" {% if dashboard_filter.target_cvo == 'apcpdcl' %}selected{% endif %}>APCPDCL</option>
+                    <option value="headquarters" {% if dashboard_filter.target_cvo == 'headquarters' %}selected{% endif %}>Headquarters</option>
+                </select>
+            </div>
+            {% if officer_options %}
+            <div class="ar-filter-group">
+                <label class="ar-filter-label">Officer</label>
+                <select name="officer_id" class="ar-input">
+                    <option value="all" {% if dashboard_filter.officer_id == 'all' %}selected{% endif %}>All Officers</option>
+                    {% for o in officer_options %}
+                    <option value="{{ o.id }}" {% if dashboard_filter.officer_id == o.id|string %}selected{% endif %}>{{ o.name }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            {% endif %}
+            <div class="ar-filter-actions">
+                <button type="submit" class="btn btn-primary btn-sm">Generate Report</button>
+                <a href="{{ url_for('analysis_report') }}" class="btn btn-outline btn-sm">Reset</a>
+            </div>
+        </div>
+    </form>
+</div>
+
+<!-- ========= REPORT DOCUMENT ========= -->
+<div class="ar-doc" id="arDoc">
+
+    <!-- REPORT HEADER -->
+    <div class="ar-doc-header">
+        <div class="ar-doc-header-left">
+            <div class="ar-doc-logo">
+                <img src="{{ url_for('static', filename='img/nigaa-logo.svg') }}" alt="NIGAA Logo" class="ar-logo-img" onerror="this.style.display='none'">
+            </div>
+            <div class="ar-doc-title-wrap">
+                <h1 class="ar-doc-title">Petition Analysis Report</h1>
+                <p class="ar-doc-subtitle">Vigilance &amp; Enforcement Wing — Petition Tracker</p>
+            </div>
+        </div>
+        <div class="ar-doc-meta">
+            <div class="ar-meta-row"><span class="ar-meta-key">Report Period</span><span class="ar-meta-val">{{ period_label }}</span></div>
+            <div class="ar-meta-row"><span class="ar-meta-key">Generated</span><span class="ar-meta-val">{{ generated_at }}</span></div>
+            <div class="ar-meta-row"><span class="ar-meta-key">Generated By</span><span class="ar-meta-val" data-no-auto-i18n>{{ current_user_name }} ({{ role_labels.get(current_user_role, current_user_role) }})</span></div>
+            {% if active_filter_labels %}
+            <div class="ar-meta-row"><span class="ar-meta-key">Filters</span><span class="ar-meta-val">{{ active_filter_labels | join(' · ') }}</span></div>
+            {% endif %}
+        </div>
+        <div class="ar-doc-actions no-print">
+            <button onclick="arPrintReport()" class="btn btn-primary btn-sm ar-print-btn">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg>
+                Download PDF
+            </button>
+        </div>
+    </div>
+
+    {% if report.total == 0 %}
+    <div class="ar-empty">
+        <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" opacity=".4"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+        <p>No petitions found for the selected filters. Adjust the date range or filters and generate again.</p>
+    </div>
+    {% else %}
+
+    <!-- CRITICAL ALERTS -->
+    {% if report.overdue_count > 0 or (report.sla_tracked > 0 and report.sla_compliance < 50) %}
+    <div class="ar-alerts no-print">
+        {% if report.overdue_count > 0 %}
+        <div class="ar-alert ar-alert-critical">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.72 3h16.92a2 2 0 0 0 1.72-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+            <span><strong>{{ report.overdue_count }} overdue petition{{ 's' if report.overdue_count != 1 else '' }}</strong> {{ 'have' if report.overdue_count != 1 else 'has' }} been escalated and require immediate action.</span>
+        </div>
+        {% endif %}
+        {% if report.sla_tracked > 0 and report.sla_compliance < 50 %}
+        <div class="ar-alert ar-alert-warn">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+            <span>SLA compliance is critically low at <strong>{{ report.sla_compliance }}%</strong> — {{ report.sla_beyond }} of {{ report.sla_tracked }} tracked petitions are beyond SLA deadlines.</span>
+        </div>
+        {% endif %}
+    </div>
+    {% endif %}
+
+    <!-- ═══════════════════════════════════════════
+         CHAPTER 1 — EXECUTIVE OVERVIEW
+    ═══════════════════════════════════════════ -->
+    <div class="ar-chapter">
+        <div class="ar-chapter-header ar-chapter-blue">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
+            Executive Overview
+        </div>
+
+        <!-- KPI GRID -->
+        <div class="ar-section ar-section-padded">
+            <div class="ar-kpi-grid">
+                <div class="ar-kpi">
+                    <div class="ar-kpi-icon" style="background:rgba(99,102,241,0.15)"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#818cf8" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg></div>
+                    <div class="ar-kpi-val">{{ report.total }}</div>
+                    <div class="ar-kpi-label">Total Petitions</div>
+                </div>
+                <div class="ar-kpi ar-kpi-active">
+                    <div class="ar-kpi-icon" style="background:rgba(99,102,241,0.15)"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#6366f1" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg></div>
+                    <div class="ar-kpi-val">{{ report.active }}</div>
+                    <div class="ar-kpi-label">Active Cases</div>
+                </div>
+                <div class="ar-kpi ar-kpi-closed">
+                    <div class="ar-kpi-icon" style="background:rgba(52,211,153,0.15)"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#34d399" stroke-width="2"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg></div>
+                    <div class="ar-kpi-val">{{ report.terminal }}</div>
+                    <div class="ar-kpi-label">Closed / Lodged</div>
+                </div>
+                <div class="ar-kpi {% if report.resolution_rate >= 70 %}ar-kpi-good{% elif report.resolution_rate >= 40 %}ar-kpi-warn{% else %}ar-kpi-bad{% endif %}">
+                    <div class="ar-kpi-icon" style="background:rgba(52,211,153,0.12)"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg></div>
+                    <div class="ar-kpi-val">{{ report.resolution_rate }}%</div>
+                    <div class="ar-kpi-label">Resolution Rate</div>
+                    <div class="ar-kpi-bar"><div class="ar-kpi-bar-fill" style="width:{{ [report.resolution_rate, 100] | min }}%"></div></div>
+                </div>
+                <div class="ar-kpi {% if report.sla_compliance >= 80 %}ar-kpi-good{% elif report.sla_compliance >= 50 %}ar-kpi-warn{% else %}ar-kpi-bad{% endif %}">
+                    <div class="ar-kpi-icon" style="background:rgba(34,211,238,0.12)"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg></div>
+                    <div class="ar-kpi-val">{{ report.sla_compliance }}%</div>
+                    <div class="ar-kpi-label">SLA Compliance</div>
+                    <div class="ar-kpi-bar"><div class="ar-kpi-bar-fill" style="width:{{ [report.sla_compliance, 100] | min }}%"></div></div>
+                </div>
+                <div class="ar-kpi {% if report.sla_beyond == 0 %}ar-kpi-good{% elif report.sla_beyond <= 5 %}ar-kpi-warn{% else %}ar-kpi-bad{% endif %}">
+                    <div class="ar-kpi-icon" style="background:rgba(251,113,133,0.12)"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg></div>
+                    <div class="ar-kpi-val">{{ report.sla_beyond }}</div>
+                    <div class="ar-kpi-label">Beyond SLA</div>
+                </div>
+                <div class="ar-kpi {% if report.overdue_count == 0 %}ar-kpi-good{% else %}ar-kpi-bad{% endif %}">
+                    <div class="ar-kpi-icon" style="background:rgba(251,113,133,0.12)"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.72 3h16.92a2 2 0 0 0 1.72-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg></div>
+                    <div class="ar-kpi-val">{{ report.overdue_count }}</div>
+                    <div class="ar-kpi-label">Overdue</div>
+                </div>
+                <div class="ar-kpi">
+                    <div class="ar-kpi-icon" style="background:rgba(52,211,153,0.12)"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#34d399" stroke-width="2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg></div>
+                    <div class="ar-kpi-val">{{ report.sla_within }}</div>
+                    <div class="ar-kpi-label">Within SLA</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- ENQUIRY ANALYTICS -->
+        <div class="ar-section ar-section-padded">
+            <div class="ar-section-sub-label">Enquiry Mode &amp; Type Breakdown</div>
+            <div class="ar-eq-grid">
+                <div class="ar-eq-card">
+                    <div class="ar-eq-icon ar-eq-direct">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+                    </div>
+                    <div class="ar-eq-val">{{ report.direct_count }}</div>
+                    <div class="ar-eq-label">Direct Enquiries</div>
+                </div>
+                <div class="ar-eq-card">
+                    <div class="ar-eq-icon ar-eq-permission">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+                    </div>
+                    <div class="ar-eq-val">{{ report.permission_count }}</div>
+                    <div class="ar-eq-label">Requires Permission</div>
+                </div>
+                <div class="ar-eq-card">
+                    <div class="ar-eq-icon ar-eq-prelim">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+                    </div>
+                    <div class="ar-eq-val">{{ report.enquiry_types.preliminary }}</div>
+                    <div class="ar-eq-label">Preliminary <span class="ar-eq-sublabel">15-day SLA</span></div>
+                </div>
+                <div class="ar-eq-card">
+                    <div class="ar-eq-icon ar-eq-detailed">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
+                    </div>
+                    <div class="ar-eq-val">{{ report.enquiry_types.detailed }}</div>
+                    <div class="ar-eq-label">Detailed <span class="ar-eq-sublabel">45–90 day SLA</span></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- KEY INSIGHTS -->
+        {% if report.talking_points %}
+        <div class="ar-section ar-section-padded">
+            <div class="ar-talking-points">
+                <div class="ar-tp-heading">
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
+                    Key Insights for This Period
+                </div>
+                <ul class="ar-tp-list">
+                    {% for point in report.talking_points %}
+                    <li class="ar-tp-item">
+                        {% if point.severity == 'good' %}
+                        <span class="ar-tp-icon ar-tp-icon-good"><svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><polyline points="20 6 9 17 4 12"/></svg></span>
+                        {% elif point.severity == 'warn' %}
+                        <span class="ar-tp-icon ar-tp-icon-warn"><svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg></span>
+                        {% elif point.severity == 'bad' %}
+                        <span class="ar-tp-icon ar-tp-icon-bad"><svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></span>
+                        {% else %}
+                        <span class="ar-tp-icon ar-tp-icon-neutral"><svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><polyline points="9 18 15 12 9 6"/></svg></span>
+                        {% endif %}
+                        {{ point.text | safe }}
+                    </li>
+                    {% endfor %}
+                </ul>
+            </div>
+        </div>
+        {% endif %}
+    </div>
+
+    <!-- ═══════════════════════════════════════════
+         CHAPTER 2 — WORKLOAD ANALYSIS
+    ═══════════════════════════════════════════ -->
+    <div class="ar-chapter">
+        <div class="ar-chapter-header ar-chapter-indigo">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
+            Workload Analysis
+        </div>
+
+        <!-- DEPARTMENT TABLE + CHART -->
+        {% if report.dept_stats %}
+        <div class="ar-section ar-section-padded">
+            <div class="ar-section-title">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
+                Department-wise Performance
+            </div>
+            <table class="ar-table">
+                <thead>
+                    <tr>
+                        <th>Department</th>
+                        <th class="ar-th-num">Total</th>
+                        <th class="ar-th-num">Active</th>
+                        <th class="ar-th-num">Closed</th>
+                        <th class="ar-th-num">Lodged</th>
+                        <th class="ar-th-num">Resolution %</th>
+                        <th class="ar-th-num">SLA Within</th>
+                        <th class="ar-th-num">SLA Beyond</th>
+                        <th class="ar-th-num">SLA %</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for d in report.dept_stats %}
+                    <tr>
+                        <td class="ar-td-strong">{{ d.label }}</td>
+                        <td class="ar-td-num">{{ d.total }}</td>
+                        <td class="ar-td-num">{{ d.active }}</td>
+                        <td class="ar-td-num">{{ d.closed }}</td>
+                        <td class="ar-td-num">{{ d.lodged }}</td>
+                        <td class="ar-td-num {% if d.resolution_rate >= 70 %}ar-good{% elif d.resolution_rate >= 40 %}ar-warn{% else %}ar-bad{% endif %}">
+                            <div class="ar-inline-bar-wrap">
+                                <span>{{ d.resolution_rate }}%</span>
+                                <div class="ar-inline-bar"><div class="ar-inline-bar-fill {% if d.resolution_rate >= 70 %}ar-fill-good{% elif d.resolution_rate >= 40 %}ar-fill-warn{% else %}ar-fill-bad{% endif %}" style="width:{{ d.resolution_rate }}%"></div></div>
+                            </div>
+                        </td>
+                        <td class="ar-td-num ar-good">{{ d.sla_within }}</td>
+                        <td class="ar-td-num {% if d.sla_beyond == 0 %}ar-good{% elif d.sla_beyond <= 3 %}ar-warn{% else %}ar-bad{% endif %}">{{ d.sla_beyond }}</td>
+                        <td class="ar-td-num {% if d.sla_compliance is not none %}{% if d.sla_compliance >= 80 %}ar-good{% elif d.sla_compliance >= 50 %}ar-warn{% else %}ar-bad{% endif %}{% endif %}">
+                            {% if d.sla_compliance is not none %}{{ d.sla_compliance }}%{% else %}—{% endif %}
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+            {% if report.dept_insights %}
+            <div class="ar-insight-panel" style="margin-top:12px;">
+                {% for pt in report.dept_insights %}
+                <div class="ar-insight-row ar-insight-{{ pt.severity }}">
+                    <span class="ar-insight-icon">
+                        {% if pt.severity == 'good' %}<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><polyline points="20 6 9 17 4 12"/></svg>
+                        {% elif pt.severity == 'bad' %}<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                        {% elif pt.severity == 'warn' %}<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+                        {% else %}<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><polyline points="9 18 15 12 9 6"/></svg>{% endif %}
+                    </span>
+                    <span>{{ pt.text | safe }}</span>
+                </div>
+                {% endfor %}
+            </div>
+            {% endif %}
+        </div>
+        {% endif %}
+
+        <!-- TYPE + SOURCE SIDE BY SIDE -->
+        {% if report.type_breakdown %}
+        <div class="ar-section ar-section-padded ar-two-col-equal">
+            <div>
+                <div class="ar-section-title">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+                    Petition Type Breakdown
+                </div>
+                <table class="ar-table">
+                    <thead><tr>
+                        <th>#</th><th>Type</th>
+                        <th class="ar-th-num">Count</th>
+                        <th class="ar-th-num">%</th>
+                        <th class="ar-th-bar"></th>
+                    </tr></thead>
+                    <tbody>
+                        {% for t in report.type_breakdown %}
+                        <tr>
+                            <td class="ar-td-sno">{{ loop.index }}</td>
+                            <td>{{ t.label }}</td>
+                            <td class="ar-td-num ar-td-strong">{{ t.count }}</td>
+                            <td class="ar-td-num">{{ t.pct }}%</td>
+                            <td class="ar-td-bar"><div class="ar-bar" style="width:{{ t.pct }}%"></div></td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            <div>
+                <div class="ar-section-title">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+                    Source of Petitions
+                </div>
+                <table class="ar-table">
+                    <thead><tr>
+                        <th>#</th><th>Source</th>
+                        <th class="ar-th-num">Count</th>
+                        <th class="ar-th-num">%</th>
+                        <th class="ar-th-bar"></th>
+                    </tr></thead>
+                    <tbody>
+                        {% for s in report.source_breakdown %}
+                        <tr>
+                            <td class="ar-td-sno">{{ loop.index }}</td>
+                            <td>{{ s.label }}</td>
+                            <td class="ar-td-num ar-td-strong">{{ s.count }}</td>
+                            <td class="ar-td-num">{{ s.pct }}%</td>
+                            <td class="ar-td-bar"><div class="ar-bar" style="width:{{ s.pct }}%"></div></td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+        <!-- type + source insights -->
+        {% if report.type_insights or report.source_insights %}
+        <div class="ar-section ar-section-padded ar-two-col-equal" style="padding-top:0;">
+            {% if report.type_insights %}
+            <div>
+                <div class="ar-insight-col-title">Type Insights</div>
+                <div class="ar-insight-panel">
+                    {% for pt in report.type_insights %}
+                    <div class="ar-insight-row ar-insight-{{ pt.severity }}">
+                        <span class="ar-insight-icon">{% if pt.severity == 'good' %}<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><polyline points="20 6 9 17 4 12"/></svg>{% elif pt.severity == 'bad' %}<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>{% elif pt.severity == 'warn' %}<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>{% else %}<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><polyline points="9 18 15 12 9 6"/></svg>{% endif %}</span>
+                        <span>{{ pt.text | safe }}</span>
+                    </div>
+                    {% endfor %}
+                </div>
+            </div>
+            {% endif %}
+            {% if report.source_insights %}
+            <div>
+                <div class="ar-insight-col-title">Source Insights</div>
+                <div class="ar-insight-panel">
+                    {% for pt in report.source_insights %}
+                    <div class="ar-insight-row ar-insight-{{ pt.severity }}">
+                        <span class="ar-insight-icon">{% if pt.severity == 'good' %}<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><polyline points="20 6 9 17 4 12"/></svg>{% elif pt.severity == 'bad' %}<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>{% elif pt.severity == 'warn' %}<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>{% else %}<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><polyline points="9 18 15 12 9 6"/></svg>{% endif %}</span>
+                        <span>{{ pt.text | safe }}</span>
+                    </div>
+                    {% endfor %}
+                </div>
+            </div>
+            {% endif %}
+        </div>
+        {% endif %}
+        {% endif %}
+
+        <!-- STATUS PIPELINE -->
+        {% if report.status_breakdown %}
+        <div class="ar-section ar-section-padded">
+            <div class="ar-section-title">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+                Status Pipeline Breakdown
+            </div>
+            <table class="ar-table">
+                <thead><tr>
+                    <th>#</th><th>Status</th>
+                    <th class="ar-th-num">Count</th>
+                    <th class="ar-th-num">% of Total</th>
+                    <th class="ar-th-bar"></th>
+                </tr></thead>
+                <tbody>
+                    {% for s in report.status_breakdown %}
+                    <tr>
+                        <td class="ar-td-sno">{{ loop.index }}</td>
+                        <td><span class="ar-status-dot ar-status-dot--{{ s.status }}"></span>{{ s.label }}</td>
+                        <td class="ar-td-num ar-td-strong">{{ s.count }}</td>
+                        <td class="ar-td-num">{{ s.pct }}%</td>
+                        <td class="ar-td-bar"><div class="ar-bar" style="width:{{ s.pct }}%"></div></td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+            {% if report.status_insights %}
+            <div class="ar-insight-panel" style="margin-top:12px;">
+                {% for pt in report.status_insights %}
+                <div class="ar-insight-row ar-insight-{{ pt.severity }}">
+                    <span class="ar-insight-icon">{% if pt.severity == 'good' %}<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><polyline points="20 6 9 17 4 12"/></svg>{% elif pt.severity == 'bad' %}<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>{% elif pt.severity == 'warn' %}<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>{% else %}<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><polyline points="9 18 15 12 9 6"/></svg>{% endif %}</span>
+                    <span>{{ pt.text | safe }}</span>
+                </div>
+                {% endfor %}
+            </div>
+            {% endif %}
+        </div>
+        {% endif %}
+    </div>
+
+    <!-- ═══════════════════════════════════════════
+         CHAPTER 3 — OFFICER REVIEW BOARD
+    ═══════════════════════════════════════════ -->
+    {% if report.officer_stats or report.best_performers or report.top_defaulters %}
+    <div class="ar-chapter">
+        <div class="ar-chapter-header ar-chapter-violet">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+            Officer Review Board
+            <span class="ar-chapter-byline">Reviewed by {{ current_user_name }}</span>
+        </div>
+
+        <!-- Officer insights summary strip -->
+        {% if report.officer_insights %}
+        <div class="ar-section ar-section-padded">
+            <div class="ar-insight-panel">
+                {% for pt in report.officer_insights %}
+                <div class="ar-insight-row ar-insight-{{ pt.severity }}">
+                    <span class="ar-insight-icon">{% if pt.severity == 'good' %}<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><polyline points="20 6 9 17 4 12"/></svg>{% elif pt.severity == 'bad' %}<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>{% elif pt.severity == 'warn' %}<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>{% else %}<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><polyline points="9 18 15 12 9 6"/></svg>{% endif %}</span>
+                    <span>{{ pt.text | safe }}</span>
+                </div>
+                {% endfor %}
+            </div>
+        </div>
+        {% endif %}
+
+        <!-- Best Performers + Chart -->
+        {% if report.best_performers %}
+        <div class="ar-section ar-section-padded">
+            <div class="ar-section-title ar-good-title">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
+                Top Performers
+            </div>
+            <table class="ar-table ar-table-performers">
+                <thead><tr>
+                    <th>Rank</th>
+                    <th>Officer</th>
+                    <th class="ar-th-num">Assigned</th>
+                    <th class="ar-th-num">Resolved</th>
+                    <th class="ar-th-num">Active</th>
+                    <th class="ar-th-num">SLA&#x2713;</th>
+                    <th class="ar-th-num">SLA%</th>
+                    <th class="ar-th-num">Grade</th>
+                </tr></thead>
+                <tbody>
+                    {% for o in report.best_performers %}
+                    {% set res_rate = o.resolution_rate %}
+                    {% set grade = 'A' if res_rate >= 80 else ('B' if res_rate >= 60 else ('C' if res_rate >= 40 else 'D')) %}
+                    {% set grade_cls = 'ar-grade-a' if grade == 'A' else ('ar-grade-b' if grade == 'B' else ('ar-grade-c' if grade == 'C' else 'ar-grade-d')) %}
+                    <tr class="ar-row-performer">
+                        <td class="ar-td-rank">
+                            {% if loop.index == 1 %}<span class="ar-rank-medal ar-rank-gold">1</span>
+                            {% elif loop.index == 2 %}<span class="ar-rank-medal ar-rank-silver">2</span>
+                            {% elif loop.index == 3 %}<span class="ar-rank-medal ar-rank-bronze">3</span>
+                            {% else %}<span class="ar-rank-plain">{{ loop.index }}</span>{% endif %}
+                        </td>
+                        <td class="ar-td-strong" data-no-auto-i18n>{{ o.name }}</td>
+                        <td class="ar-td-num">{{ o.total }}</td>
+                        <td class="ar-td-num ar-good">{{ o.closed + o.lodged }}</td>
+                        <td class="ar-td-num">{{ o.active }}</td>
+                        <td class="ar-td-num ar-good">{{ o.sla_within }}</td>
+                        <td class="ar-td-num {% if o.sla_compliance is not none %}{% if o.sla_compliance >= 80 %}ar-good{% elif o.sla_compliance >= 50 %}ar-warn{% else %}ar-bad{% endif %}{% endif %}">
+                            {% if o.sla_compliance is not none %}{{ o.sla_compliance }}%{% else %}—{% endif %}
+                        </td>
+                        <td class="ar-td-num"><span class="ar-grade {{ grade_cls }}">{{ grade }}</span></td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% endif %}
+
+        <!-- Top Defaulters -->
+        {% if report.top_defaulters %}
+        <div class="ar-section ar-section-padded">
+            <div class="ar-section-title ar-bad-title">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.72 3h16.92a2 2 0 0 0 1.72-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+                Attention Required — Defaulters
+            </div>
+            <table class="ar-table ar-table-defaulters">
+                <thead><tr>
+                    <th>#</th>
+                    <th>Officer</th>
+                    <th class="ar-th-num">Assigned</th>
+                    <th class="ar-th-num">Active</th>
+                    <th class="ar-th-num">Beyond SLA</th>
+                    <th class="ar-th-num">Overdue</th>
+                    <th class="ar-th-num">SLA%</th>
+                    <th class="ar-th-num">Grade</th>
+                </tr></thead>
+                <tbody>
+                    {% for o in report.top_defaulters %}
+                    {% set res_rate = o.resolution_rate %}
+                    {% set grade = 'A' if res_rate >= 80 else ('B' if res_rate >= 60 else ('C' if res_rate >= 40 else 'D')) %}
+                    {% set grade_cls = 'ar-grade-a' if grade == 'A' else ('ar-grade-b' if grade == 'B' else ('ar-grade-c' if grade == 'C' else 'ar-grade-d')) %}
+                    <tr class="ar-row-defaulter">
+                        <td class="ar-td-sno">{{ loop.index }}</td>
+                        <td class="ar-td-strong" data-no-auto-i18n>{{ o.name }}</td>
+                        <td class="ar-td-num">{{ o.total }}</td>
+                        <td class="ar-td-num ar-warn">{{ o.active }}</td>
+                        <td class="ar-td-num {% if o.sla_beyond == 0 %}ar-good{% elif o.sla_beyond <= 2 %}ar-warn{% else %}ar-bad{% endif %}">{{ o.sla_beyond }}</td>
+                        <td class="ar-td-num {% if o.overdue == 0 %}{% else %}ar-bad{% endif %}">{{ o.overdue }}</td>
+                        <td class="ar-td-num {% if o.sla_compliance is not none %}{% if o.sla_compliance >= 80 %}ar-good{% elif o.sla_compliance >= 50 %}ar-warn{% else %}ar-bad{% endif %}{% endif %}">
+                            {% if o.sla_compliance is not none %}{{ o.sla_compliance }}%{% else %}—{% endif %}
+                        </td>
+                        <td class="ar-td-num"><span class="ar-grade {{ grade_cls }}">{{ grade }}</span></td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% endif %}
+
+        <!-- Full Officer Summary -->
+        {% if report.officer_stats %}
+        <div class="ar-section ar-section-padded">
+            <div class="ar-section-title">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+                Full Officer Performance Register
+            </div>
+            <table class="ar-table ar-table-officer ar-sortable" id="arOfficerTable">
+                <thead><tr>
+                    <th data-col="0">#<span class="ar-sort-icon"></span></th>
+                    <th data-col="1">Officer Name<span class="ar-sort-icon"></span></th>
+                    <th class="ar-th-num" data-col="2">Total<span class="ar-sort-icon"></span></th>
+                    <th class="ar-th-num" data-col="3">Active<span class="ar-sort-icon"></span></th>
+                    <th class="ar-th-num" data-col="4">Closed<span class="ar-sort-icon"></span></th>
+                    <th class="ar-th-num" data-col="5">Lodged<span class="ar-sort-icon"></span></th>
+                    <th class="ar-th-num" data-col="6">Resolution %<span class="ar-sort-icon"></span></th>
+                    <th class="ar-th-num" data-col="7">SLA&#x2713;<span class="ar-sort-icon"></span></th>
+                    <th class="ar-th-num" data-col="8">SLA&#x2717;<span class="ar-sort-icon"></span></th>
+                    <th class="ar-th-num" data-col="9">Overdue<span class="ar-sort-icon"></span></th>
+                    <th class="ar-th-num" data-col="10">SLA%<span class="ar-sort-icon"></span></th>
+                    <th class="ar-th-num" data-col="11">Grade<span class="ar-sort-icon"></span></th>
+                </tr></thead>
+                <tbody>
+                    {% for o in report.officer_stats %}
+                    {% set res_rate = o.resolution_rate %}
+                    {% set grade = 'A' if res_rate >= 80 else ('B' if res_rate >= 60 else ('C' if res_rate >= 40 else 'D')) %}
+                    {% set grade_cls = 'ar-grade-a' if grade == 'A' else ('ar-grade-b' if grade == 'B' else ('ar-grade-c' if grade == 'C' else 'ar-grade-d')) %}
+                    <tr>
+                        <td class="ar-td-sno">{{ loop.index }}</td>
+                        <td class="ar-td-strong" data-no-auto-i18n>{{ o.name }}</td>
+                        <td class="ar-td-num">{{ o.total }}</td>
+                        <td class="ar-td-num">{{ o.active }}</td>
+                        <td class="ar-td-num ar-good">{{ o.closed }}</td>
+                        <td class="ar-td-num">{{ o.lodged }}</td>
+                        <td class="ar-td-num {% if o.resolution_rate >= 70 %}ar-good{% elif o.resolution_rate >= 40 %}ar-warn{% else %}ar-bad{% endif %}" data-val="{{ o.resolution_rate }}">
+                            <div class="ar-inline-bar-wrap">
+                                <span>{{ o.resolution_rate }}%</span>
+                                <div class="ar-inline-bar"><div class="ar-inline-bar-fill {% if o.resolution_rate >= 70 %}ar-fill-good{% elif o.resolution_rate >= 40 %}ar-fill-warn{% else %}ar-fill-bad{% endif %}" style="width:{{ o.resolution_rate }}%"></div></div>
+                            </div>
+                        </td>
+                        <td class="ar-td-num ar-good">{{ o.sla_within }}</td>
+                        <td class="ar-td-num {% if o.sla_beyond == 0 %}ar-good{% elif o.sla_beyond <= 2 %}ar-warn{% else %}ar-bad{% endif %}">{{ o.sla_beyond }}</td>
+                        <td class="ar-td-num {% if o.overdue == 0 %}{% else %}ar-bad{% endif %}">{{ o.overdue }}</td>
+                        <td class="ar-td-num {% if o.sla_compliance is not none %}{% if o.sla_compliance >= 80 %}ar-good{% elif o.sla_compliance >= 50 %}ar-warn{% else %}ar-bad{% endif %}{% endif %}">
+                            {% if o.sla_compliance is not none %}{{ o.sla_compliance }}%{% else %}—{% endif %}
+                        </td>
+                        <td class="ar-td-num"><span class="ar-grade {{ grade_cls }}" data-grade="{{ grade }}">{{ grade }}</span></td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% endif %}
+    </div>
+    {% endif %}
+
+    <!-- ═══════════════════════════════════════════
+         CHAPTER 4 — SLA ASSESSMENT
+    ═══════════════════════════════════════════ -->
+    <div class="ar-chapter">
+        <div class="ar-chapter-header ar-chapter-teal">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+            SLA Assessment
+        </div>
+        <div class="ar-section ar-section-padded">
+            <div class="ar-sla-grid">
+                <div class="ar-sla-card ar-good">
+                    <div class="ar-sla-val">{{ report.sla_within }}</div>
+                    <div class="ar-sla-label">Within SLA</div>
+                    <div class="ar-sla-sub">Resolved within deadline</div>
+                </div>
+                <div class="ar-sla-card {% if report.sla_beyond == 0 %}ar-good{% elif report.sla_beyond <= 5 %}ar-warn{% else %}ar-bad{% endif %}">
+                    <div class="ar-sla-val">{{ report.sla_beyond }}</div>
+                    <div class="ar-sla-label">Beyond SLA</div>
+                    <div class="ar-sla-sub">Exceeded SLA deadline</div>
+                </div>
+                <div class="ar-sla-card">
+                    <div class="ar-sla-val">{{ report.sla_tracked }}</div>
+                    <div class="ar-sla-label">SLA Tracked</div>
+                    <div class="ar-sla-sub">Petitions with SLA data</div>
+                </div>
+                <div class="ar-sla-card {% if report.sla_compliance >= 80 %}ar-good{% elif report.sla_compliance >= 50 %}ar-warn{% else %}ar-bad{% endif %}">
+                    <div class="ar-sla-val">{{ report.sla_compliance }}%</div>
+                    <div class="ar-sla-label">Compliance Rate</div>
+                    <div class="ar-sla-sub">SLA within / tracked</div>
+                </div>
+                <div class="ar-sla-card">
+                    <div class="ar-sla-val">{{ report.enquiry_types.preliminary }}</div>
+                    <div class="ar-sla-label">Preliminary (15 days)</div>
+                    <div class="ar-sla-sub">Short-form enquiries</div>
+                </div>
+                <div class="ar-sla-card">
+                    <div class="ar-sla-val">{{ report.enquiry_types.detailed }}</div>
+                    <div class="ar-sla-label">Detailed (45–90 days)</div>
+                    <div class="ar-sla-sub">Full field enquiries</div>
+                </div>
+            </div>
+            {% if report.sla_tracked > 0 %}
+            <div class="ar-sla-bar-wrap">
+                <div class="ar-sla-bar">
+                    <div class="ar-sla-bar-within" style="width:{{ (report.sla_within / report.sla_tracked * 100) | round(1) }}%">
+                        Within {{ (report.sla_within / report.sla_tracked * 100) | round(1) }}%
+                    </div>
+                    <div class="ar-sla-bar-beyond" style="width:{{ (report.sla_beyond / report.sla_tracked * 100) | round(1) }}%">
+                        Beyond {{ (report.sla_beyond / report.sla_tracked * 100) | round(1) }}%
+                    </div>
+                </div>
+                <div class="ar-sla-bar-legend">
+                    <span class="ar-sla-legend-dot ar-good-dot"></span> Within SLA ({{ report.sla_within }})
+                    <span class="ar-sla-legend-dot ar-bad-dot" style="margin-left:12px"></span> Beyond SLA ({{ report.sla_beyond }})
+                </div>
+            </div>
+            {% endif %}
+            {% if report.sla_insights %}
+            <div class="ar-insight-panel" style="margin-top:12px;">
+                {% for pt in report.sla_insights %}
+                <div class="ar-insight-row ar-insight-{{ pt.severity }}">
+                    <span class="ar-insight-icon">{% if pt.severity == 'good' %}<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><polyline points="20 6 9 17 4 12"/></svg>{% elif pt.severity == 'bad' %}<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>{% elif pt.severity == 'warn' %}<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>{% else %}<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><polyline points="9 18 15 12 9 6"/></svg>{% endif %}</span>
+                    <span>{{ pt.text | safe }}</span>
+                </div>
+                {% endfor %}
+            </div>
+            {% endif %}
+        </div>
+    </div>
+
+    <!-- REPORT FOOTER -->
+    <div class="ar-doc-footer">
+        <span>Petition Tracker — Vigilance &amp; Enforcement Wing</span>
+        <span>Generated on {{ generated_at }} by {{ current_user_name }}</span>
+        <span>Period: {{ period_label }}</span>
+    </div>
+
+    {% endif %}{# end if report.total == 0 #}
+</div>{# end ar-doc #}
+
+<!-- Chart.js -->
+<script>
+
+/* ── Sortable tables ── */
+(function() {
+    document.querySelectorAll('.ar-sortable').forEach(function(tbl) {
+        var ths = tbl.querySelectorAll('thead th');
+        ths.forEach(function(th, colIdx) {
+            th.addEventListener('click', function() {
+                var asc = !th.classList.contains('ar-sort-asc');
+                ths.forEach(function(h) { h.classList.remove('ar-sort-asc', 'ar-sort-desc'); });
+                th.classList.add(asc ? 'ar-sort-asc' : 'ar-sort-desc');
+                var tbody = tbl.querySelector('tbody');
+                var rows = Array.from(tbody.querySelectorAll('tr'));
+                rows.sort(function(a, b) {
+                    var aCell = a.cells[colIdx], bCell = b.cells[colIdx];
+                    var aVal = (aCell.dataset.val !== undefined ? aCell.dataset.val : (aCell.dataset.grade || aCell.innerText)).trim().replace('%','').replace('—','-1');
+                    var bVal = (bCell.dataset.val !== undefined ? bCell.dataset.val : (bCell.dataset.grade || bCell.innerText)).trim().replace('%','').replace('—','-1');
+                    var aNum = parseFloat(aVal), bNum = parseFloat(bVal);
+                    if (!isNaN(aNum) && !isNaN(bNum)) return asc ? aNum - bNum : bNum - aNum;
+                    return asc ? aVal.localeCompare(bVal) : bVal.localeCompare(aVal);
+                });
+                rows.forEach(function(r) { tbody.appendChild(r); });
+            });
+        });
+    });
+})();
+
+/* ── PDF Print ── */
+function arPrintReport() {
+    var doc = document.getElementById('arDoc');
+    if (!doc) { window.print(); return; }
+    var canvasMap = {};
+    doc.querySelectorAll('canvas').forEach(function(c) {
+        if (c.id) { try { canvasMap[c.id] = c.toDataURL('image/png'); } catch(e) {} }
+    });
+    var html = doc.innerHTML;
+    Object.keys(canvasMap).forEach(function(id) {
+        var re = new RegExp('<canvas[^>]*id="' + id + '"[^>]*><\\/canvas>', 'g');
+        html = html.replace(re, '<img src="' + canvasMap[id] + '" style="width:100%;height:100%;object-fit:contain;display:block;" alt="chart">');
+    });
+    var pw = window.open('', '_blank', 'width=1000,height=800');
+    var S = [];
+    S.push('@page{size:A4 portrait;margin:12mm 14mm 16mm 14mm;}');
+    S.push('*{box-sizing:border-box;margin:0;padding:0;-webkit-print-color-adjust:exact;print-color-adjust:exact;}');
+    S.push('body{font-family:"Segoe UI",Arial,sans-serif;font-size:9pt;color:#1e293b;background:#fff;line-height:1.45;}');
+    S.push('.ar-doc{display:flex;flex-direction:column;gap:0;}');
+    S.push('.ar-doc-actions,.no-print{display:none!important;}');
+    S.push('.ar-doc-header{display:flex;flex-wrap:wrap;gap:10pt;align-items:flex-start;padding-bottom:10pt;border-bottom:2pt solid #1e3a5f;margin-bottom:4pt;}');
+    S.push('.ar-doc-header-left{display:flex;align-items:center;gap:10pt;flex:1;}');
+    S.push('.ar-doc-logo{width:46pt;height:46pt;flex-shrink:0;border-radius:50%;box-shadow:0 0 0 2pt rgba(217,179,91,0.5);}');
+    S.push('.ar-logo-img{width:100%;height:100%;object-fit:contain;border-radius:50%;}');
+    S.push('.ar-doc-title{font-size:14pt;font-weight:800;color:#0f172a;line-height:1.2;}');
+    S.push('.ar-doc-subtitle{font-size:8pt;color:#475569;margin-top:2pt;}');
+    S.push('.ar-doc-meta{display:flex;flex-direction:column;gap:3pt;font-size:7.5pt;background:#f5f7fa;border:0.75pt solid #dde3ec;border-radius:5pt;padding:7pt 10pt;}');
+    S.push('.ar-meta-row{display:flex;gap:6pt;}');
+    S.push('.ar-meta-key{font-weight:600;color:#374151;min-width:80pt;}');
+    S.push('.ar-meta-val{color:#475569;}');
+    S.push('.ar-chapter{margin-bottom:12pt;break-inside:avoid;}');
+    S.push('.ar-chapter-header{display:flex;align-items:center;gap:7pt;padding:6pt 12pt;font-size:8pt;font-weight:800;text-transform:uppercase;letter-spacing:.08em;color:#fff;border-radius:5pt;margin-bottom:6pt;}');
+    S.push('.ar-chapter-header svg{display:none;}');
+    S.push('.ar-chapter-blue{background:linear-gradient(90deg,#1e3a5f,#2563eb);}');
+    S.push('.ar-chapter-indigo{background:linear-gradient(90deg,#312e81,#4f46e5);}');
+    S.push('.ar-chapter-violet{background:linear-gradient(90deg,#4c1d95,#7c3aed);}');
+    S.push('.ar-chapter-teal{background:linear-gradient(90deg,#134e4a,#0d9488);}');
+    S.push('.ar-chapter-byline{margin-left:auto;font-size:6.5pt;font-weight:400;opacity:.85;text-transform:none;letter-spacing:0;}');
+    S.push('.ar-section-padded{padding:0 0 8pt;}');
+    S.push('.ar-section-title{display:flex;align-items:center;gap:0;font-size:7.5pt;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:#1e3a5f;padding:5pt 0 5pt 9pt;margin-bottom:6pt;border-left:2.5pt solid #2563eb;}');
+    S.push('.ar-section-title svg{display:none;}');
+    S.push('.ar-good-title{color:#065f46!important;border-left-color:#059669!important;}');
+    S.push('.ar-bad-title{color:#7f1d1d!important;border-left-color:#dc2626!important;}');
+    S.push('.ar-kpi-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:5pt;margin-bottom:6pt;}');
+    S.push('.ar-kpi{border:0.75pt solid #e2e8f0;border-top:2.5pt solid #2563eb;border-radius:4pt;padding:7pt 8pt;text-align:center;background:#fff;}');
+    S.push('.ar-kpi-icon{display:none;}');
+    S.push('.ar-kpi-val{font-size:17pt;font-weight:800;color:#1e293b;line-height:1;letter-spacing:-1pt;}');
+    S.push('.ar-kpi-label{font-size:5.5pt;font-weight:600;text-transform:uppercase;letter-spacing:.06em;color:#64748b;margin-top:3pt;}');
+    S.push('.ar-kpi-active{border-top-color:#6366f1;}.ar-kpi-active .ar-kpi-val{color:#4338ca;}');
+    S.push('.ar-kpi-closed{border-top-color:#059669;}.ar-kpi-closed .ar-kpi-val{color:#065f46;}');
+    S.push('.ar-kpi-good{border-top-color:#059669;}.ar-kpi-good .ar-kpi-val{color:#065f46;}');
+    S.push('.ar-kpi-warn{border-top-color:#d97706;}.ar-kpi-warn .ar-kpi-val{color:#92400e;}');
+    S.push('.ar-kpi-bad{border-top-color:#dc2626;}.ar-kpi-bad .ar-kpi-val{color:#7f1d1d;}');
+    S.push('.ar-kpi-bar{height:3pt;background:#e2e8f0;border-radius:2pt;margin-top:4pt;overflow:hidden;}');
+    S.push('.ar-kpi-good .ar-kpi-bar-fill{background:#059669;height:3pt;border-radius:2pt;}.ar-kpi-warn .ar-kpi-bar-fill{background:#d97706;height:3pt;border-radius:2pt;}.ar-kpi-bad .ar-kpi-bar-fill{background:#dc2626;height:3pt;border-radius:2pt;}');
+    S.push('.ar-two-col-charts{display:none;}');
+    S.push('.ar-section-sub-label{font-size:6pt;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:#94a3b8;padding-bottom:4pt;border-bottom:0.5pt solid #e2e8f0;margin-bottom:4pt;}');
+    S.push('.ar-eq-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:5pt;}');
+    S.push('.ar-eq-card{border:0.75pt solid #e2e8f0;border-radius:5pt;padding:6pt 8pt;background:#fafbfc;}');
+    S.push('.ar-eq-icon{display:none;}');
+    S.push('.ar-eq-val{font-size:13pt;font-weight:800;color:#1e293b;line-height:1;}');
+    S.push('.ar-eq-label{font-size:6pt;font-weight:600;text-transform:uppercase;letter-spacing:.04em;color:#475569;margin-top:3pt;}');
+    S.push('.ar-eq-sublabel{display:none;}');
+    S.push('.ar-talking-points{background:#fefce8;border:0.75pt solid #fde047;border-left:3pt solid #ca8a04;border-radius:0 4pt 4pt 0;padding:8pt 11pt;}');
+    S.push('.ar-tp-heading{font-size:6.5pt;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:#78350f;margin-bottom:5pt;display:flex;align-items:center;gap:4pt;}');
+    S.push('.ar-tp-heading svg{display:none;}');
+    S.push('.ar-tp-list{padding-left:0;list-style:none;}');
+    S.push('.ar-tp-item{font-size:8pt;color:#374151;margin-bottom:4pt;line-height:1.5;display:flex;align-items:flex-start;gap:5pt;}');
+    S.push('.ar-tp-icon{display:inline-flex;align-items:center;justify-content:center;width:11pt;height:11pt;border-radius:50%;flex-shrink:0;margin-top:1pt;}');
+    S.push('.ar-tp-icon-good{background:#d1fae5;}.ar-tp-icon-good svg{stroke:#065f46;}.ar-tp-icon-warn{background:#fef3c7;}.ar-tp-icon-warn svg{stroke:#92400e;}.ar-tp-icon-bad{background:#fee2e2;}.ar-tp-icon-bad svg{stroke:#9f1239;}.ar-tp-icon-neutral{background:#e0e7ff;}.ar-tp-icon-neutral svg{stroke:#3730a3;}');
+    S.push('.ar-table-chart-layout{display:block;}');
+    S.push('.ar-table-side{width:100%;}');
+    S.push('.ar-chart-side{display:none;}');
+    S.push('.ar-two-col-equal{display:grid;grid-template-columns:1fr 1fr;gap:10pt;}');
+    S.push('.ar-table{width:100%;border-collapse:collapse;font-size:7pt;}');
+    S.push('.ar-table thead tr{background:#1e3a5f;}');
+    S.push('.ar-table th{color:#fff;padding:4.5pt 6pt;font-size:6pt;font-weight:600;text-transform:uppercase;letter-spacing:.05em;white-space:nowrap;border:none;}');
+    S.push('.ar-table tbody tr:nth-child(even){background:#f8fafc;}');
+    S.push('.ar-table tbody tr:nth-child(odd){background:#fff;}');
+    S.push('.ar-table td{color:#374151;border-bottom:0.5pt solid #e9eef5;padding:4pt 6pt;}');
+    S.push('.ar-table tr:last-child td{border-bottom:none;}');
+    S.push('.ar-th-num,.ar-td-num{text-align:right!important;}');
+    S.push('.ar-td-strong{font-weight:600;color:#111827;}');
+    S.push('.ar-td-sno{color:#94a3b8;width:16pt;font-size:6.5pt;}');
+    S.push('.ar-td-rank{width:20pt;text-align:center;}');
+    S.push('.ar-td-bar{width:55pt;}');
+    S.push('.ar-bar{height:4pt;background:#2563eb;border-radius:2pt;min-width:2pt;}');
+    S.push('.ar-good{color:#065f46!important;font-weight:600;}.ar-warn{color:#92400e!important;font-weight:600;}.ar-bad{color:#7f1d1d!important;font-weight:600;}');
+    S.push('.ar-inline-bar-wrap{display:flex;flex-direction:column;align-items:flex-end;gap:2pt;min-width:44pt;}');
+    S.push('.ar-inline-bar{width:100%;height:3pt;background:#e2e8f0;border-radius:2pt;overflow:hidden;}');
+    S.push('.ar-fill-good{background:#059669;height:3pt;}.ar-fill-warn{background:#d97706;height:3pt;}.ar-fill-bad{background:#dc2626;height:3pt;}');
+    S.push('.ar-rank-medal{display:inline-flex;align-items:center;justify-content:center;width:14pt;height:14pt;border-radius:50%;font-weight:800;font-size:7pt;}');
+    S.push('.ar-rank-gold{background:#f59e0b;color:#fff;}.ar-rank-silver{background:#94a3b8;color:#fff;}.ar-rank-bronze{background:#c2410c;color:#fff;}.ar-rank-plain{color:#6b7280;font-weight:700;}');
+    S.push('.ar-status-dot{display:inline-block;width:6pt;height:6pt;border-radius:50%;margin-right:3pt;background:#94a3b8;vertical-align:middle;}');
+    S.push('.ar-status-dot--closed{background:#059669;}.ar-status-dot--lodged{background:#4f46e5;}.ar-status-dot--received{background:#0284c7;}.ar-status-dot--action_instructed{background:#dc2626;}.ar-status-dot--action_taken{background:#16a34a;}.ar-status-dot--assigned_to_inspector{background:#7c3aed;}.ar-status-dot--enquiry_in_progress{background:#ea580c;}.ar-status-dot--forwarded_to_po{background:#0891b2;}');
+    S.push('.ar-grade{display:inline-flex;align-items:center;justify-content:center;width:16pt;height:16pt;border-radius:4pt;font-size:7pt;font-weight:800;}');
+    S.push('.ar-grade-a{background:#d1fae5;color:#065f46;}.ar-grade-b{background:#dbeafe;color:#1e40af;}.ar-grade-c{background:#fef3c7;color:#92400e;}.ar-grade-d{background:#fee2e2;color:#7f1d1d;}');
+    S.push('.ar-row-performer td{background:#f0fdf4!important;}');
+    S.push('.ar-row-defaulter td{background:#fff7f7!important;}');
+    S.push('.ar-sort-icon{display:none;}');
+    S.push('.ar-insight-panel{border:0.75pt solid #e2e8f0;border-radius:5pt;overflow:hidden;}');
+    S.push('.ar-insight-row{display:flex;align-items:flex-start;gap:6pt;padding:4.5pt 8pt;font-size:7pt;border-bottom:0.5pt solid #f0f4f8;line-height:1.5;}');
+    S.push('.ar-insight-row:last-child{border-bottom:none;}');
+    S.push('.ar-insight-icon{width:11pt;height:11pt;border-radius:50%;flex-shrink:0;display:flex;align-items:center;justify-content:center;margin-top:1pt;}');
+    S.push('.ar-insight-good{background:#f0fdf4;}.ar-insight-good .ar-insight-icon{background:#bbf7d0;}.ar-insight-good .ar-insight-icon svg{stroke:#065f46;}');
+    S.push('.ar-insight-warn{background:#fffbeb;}.ar-insight-warn .ar-insight-icon{background:#fde68a;}.ar-insight-warn .ar-insight-icon svg{stroke:#92400e;}');
+    S.push('.ar-insight-bad{background:#fff1f2;}.ar-insight-bad .ar-insight-icon{background:#fecdd3;}.ar-insight-bad .ar-insight-icon svg{stroke:#9f1239;}');
+    S.push('.ar-insight-neutral{background:#f8f9ff;}.ar-insight-neutral .ar-insight-icon{background:#e0e7ff;}.ar-insight-neutral .ar-insight-icon svg{stroke:#3730a3;}');
+    S.push('.ar-sla-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:6pt;margin-bottom:7pt;}');
+    S.push('.ar-sla-card{border:0.75pt solid #e2e8f0;border-radius:5pt;padding:7pt 9pt;text-align:center;background:#fafbfc;}');
+    S.push('.ar-sla-card.ar-good{border-top:2pt solid #059669;}.ar-sla-card.ar-warn{border-top:2pt solid #d97706;}.ar-sla-card.ar-bad{border-top:2pt solid #dc2626;}');
+    S.push('.ar-sla-val{font-size:15pt;font-weight:800;color:#1e293b;line-height:1;letter-spacing:-1pt;}');
+    S.push('.ar-sla-card.ar-good .ar-sla-val{color:#065f46;}.ar-sla-card.ar-warn .ar-sla-val{color:#92400e;}.ar-sla-card.ar-bad .ar-sla-val{color:#7f1d1d;}');
+    S.push('.ar-sla-label{font-size:6.5pt;font-weight:600;text-transform:uppercase;color:#374151;margin-top:3pt;letter-spacing:.04em;}');
+    S.push('.ar-sla-sub{font-size:5.5pt;color:#94a3b8;margin-top:1pt;}');
+    S.push('.ar-sla-bar-wrap{margin-top:5pt;}');
+    S.push('.ar-sla-bar{height:16pt;border-radius:8pt;overflow:hidden;display:flex;background:#f1f5f9;}');
+    S.push('.ar-sla-bar-within{background:#059669;display:flex;align-items:center;padding:0 7pt;font-size:6.5pt;font-weight:700;color:#fff;white-space:nowrap;overflow:hidden;min-width:24pt;}');
+    S.push('.ar-sla-bar-beyond{background:#dc2626;display:flex;align-items:center;justify-content:flex-end;padding:0 7pt;font-size:6.5pt;font-weight:700;color:#fff;white-space:nowrap;overflow:hidden;min-width:24pt;}');
+    S.push('.ar-sla-bar-legend{font-size:6.5pt;color:#64748b;margin-top:4pt;display:flex;align-items:center;gap:4pt;}');
+    S.push('.ar-sla-legend-dot{display:inline-block;width:7pt;height:7pt;border-radius:50%;}.ar-good-dot{background:#059669;}.ar-bad-dot{background:#dc2626;}');
+    S.push('.ar-doc-footer{display:flex;justify-content:space-between;gap:6pt;padding-top:8pt;margin-top:4pt;border-top:0.75pt solid #e2e8f0;font-size:6pt;color:#94a3b8;}');
+    S.push('.ar-empty{display:flex;flex-direction:column;align-items:center;padding:24pt;color:#64748b;text-align:center;}');
+    S.push('.ar-alerts{display:none;}');
+    S.push('.ar-insight-col-title{font-size:6pt;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:#94a3b8;margin-bottom:3pt;}');
+    /* ── Page breaks ── */
+    S.push('.ar-chapter~.ar-chapter{break-before:page!important;page-break-before:always!important;}');
+    S.push('.ar-chapter-header{break-after:avoid!important;page-break-after:avoid!important;}');
+    S.push('.ar-doc-header{break-after:avoid!important;page-break-after:avoid!important;}');
+    S.push('.ar-table tr{break-inside:avoid!important;page-break-inside:avoid!important;}');
+    S.push('.ar-chart-card{break-inside:avoid!important;page-break-inside:avoid!important;}');
+    S.push('.ar-kpi-grid,.ar-two-col-equal,.ar-insight-panel,.ar-eq-grid,.ar-sla-grid{break-inside:avoid!important;page-break-inside:avoid!important;}');
+    S.push('.ar-section-title,.ar-good-title,.ar-bad-title,.ar-insight-col-title{break-after:avoid!important;page-break-after:avoid!important;}');
+    pw.document.write('<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Petition Analysis Report</title><style>' + S.join('') + '</style></head><body>');
+    pw.document.write(html);
+    pw.document.write('</body></html>');
+    pw.document.close();
+    pw.focus();
+    setTimeout(function() { pw.print(); }, 900);
+}
+</script>
+{% endblock %}

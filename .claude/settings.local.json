@@ -13,7 +13,13 @@
       "Bash(powershell -Command \"cd ''c:\\\\Users\\\\AP TRANSCO\\\\OneDrive - APTRANSCO\\\\Pictures\\\\Petition Tracker with chatbot''; git show HEAD:templates/login.html\")",
       "Bash(grep -E \"\\\\.html$\")",
       "Read(//c/Users/AP TRANSCO/OneDrive - APTRANSCO/Pictures/Petition Tracker with chatbot/**)",
-      "Bash(.venv/Scripts/pip install:*)"
+      "Bash(.venv/Scripts/pip install:*)",
+      "Bash(powershell -Command \"Select-String -Path ''c:/Users/AP TRANSCO/OneDrive - APTRANSCO/Pictures/Petition Tracker with chatbot/static/css/style.css'' -Pattern ''^@media|^\\\\}|^/\\\\* ===='' | Select-Object -Last 60 | ForEach-Object { $_LineNumber.ToString\\(\\) + '':'' + $_Line }\")",
+      "Bash(cmd /c \"findstr /n /r \"\"^@media\"\" \"\"c:\\\\Users\\\\AP TRANSCO\\\\OneDrive - APTRANSCO\\\\Pictures\\\\Petition Tracker with chatbot\\\\static\\\\css\\\\style.css\"\"\")",
+      "Bash(SHELL=\"/C/Program Files/Git/bin/bash.exe\" git -C \"c:/Users/AP TRANSCO/OneDrive - APTRANSCO/Pictures/Petition Tracker with chatbot\" status)",
+      "Bash(git -C \"c:/Users/AP TRANSCO/OneDrive - APTRANSCO/Pictures/Petition Tracker with chatbot\" status)",
+      "Bash(git -C \"c:/Users/AP TRANSCO/OneDrive - APTRANSCO/Pictures/Petition Tracker with chatbot\" diff --stat)",
+      "Bash(git -C \"c:/Users/AP TRANSCO/OneDrive - APTRANSCO/Pictures/Petition Tracker with chatbot\" log --oneline -5)"
     ]
   }
 }

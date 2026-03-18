@@ -2871,6 +2871,497 @@ def _format_electrical_accident_summary(detail_row):
     return f"{accident_label} | {category_label}"
 
 # ========================================
+# ANALYSIS REPORT
+# ========================================
+
+def _build_analysis_report_data(petitions):
+    """Compute comprehensive analysis data from a (filtered) petition list."""
+    TYPE_LABELS = {
+        'bribe': 'Bribe', 'corruption': 'Corruption', 'harassment': 'Harassment',
+        'electrical_accident': 'Electrical Accident', 'misconduct': 'Misconduct',
+        'works_related': 'Works Related', 'irregularities_in_tenders': 'Irregularities in Tenders',
+        'illegal_assets': 'Illegal Assets', 'fake_certificates': 'Fake Certificates',
+        'theft_misappropriation_materials': 'Theft / Misappropriation', 'other': 'Other',
+    }
+    SOURCE_LABELS = {
+        'media': 'Electronic & Print Media', 'public_individual': 'Public (Individual)',
+        'govt': 'Government', 'sumoto': 'Sumoto', 'cmd_office': 'O/o CMD',
+    }
+    CVO_LABELS = {
+        'apspdcl': 'APSPDCL', 'apepdcl': 'APEPDCL',
+        'apcpdcl': 'APCPDCL', 'headquarters': 'Headquarters',
+    }
+    STATUS_LABELS = {
+        'received': 'Received', 'forwarded_to_cvo': 'Forwarded to CVO/DSP',
+        'sent_for_permission': 'Sent for Permission', 'permission_approved': 'Permission Approved',
+        'permission_rejected': 'Permission Rejected', 'assigned_to_inspector': 'Assigned to Field Officer',
+        'sent_back_for_reenquiry': 'Sent Back for Re-enquiry', 'enquiry_in_progress': 'Enquiry In Progress',
+        'enquiry_report_submitted': 'Report Submitted', 'cvo_comments_added': 'CVO/DSP Comments Added',
+        'forwarded_to_po': 'Forwarded to PO', 'forwarded_to_jmd': 'Forwarded to JMD',
+        'action_instructed': 'Action Pending at CMD', 'action_taken': 'Action Taken',
+        'lodged': 'Lodged', 'closed': 'Closed',
+    }
+
+    total = len(petitions)
+    if total == 0:
+        empty_trend = []
+        now = datetime.now()
+        for i in range(5, -1, -1):
+            m = now.month - i; y = now.year
+            while m <= 0: m += 12; y -= 1
+            empty_trend.append({'key': f"{y:04d}-{m:02d}", 'label': datetime(y, m, 1).strftime('%b %Y'), 'value': 0})
+        return {
+            'total': 0, 'closed': 0, 'lodged': 0, 'active': 0,
+            'resolution_rate': 0, 'sla_within': 0, 'sla_beyond': 0, 'sla_compliance': 0,
+            'overdue_count': 0, 'direct_count': 0, 'permission_count': 0,
+            'status_breakdown': [], 'type_breakdown': [], 'source_breakdown': [],
+            'dept_stats': [], 'officer_stats': [], 'best_performers': [], 'top_defaulters': [],
+            'talking_points': [], 'monthly_trend': empty_trend,
+            'enquiry_types': {'preliminary': 0, 'detailed': 0},
+            'accident_stats': {'total': 0, 'fatal': 0, 'non_fatal': 0},
+            'dept_insights': [], 'type_insights': [], 'source_insights': [],
+            'status_insights': [], 'officer_insights': [], 'sla_insights': [],
+        }
+
+    status_counter = Counter()
+    type_counter = Counter()
+    source_counter = Counter()
+    dept_map = {}
+    officer_map = {}
+    direct_count = permission_count = overdue_count = 0
+    prelim_count = detailed_count = 0
+    accident_total = accident_fatal = accident_nonfatal = 0
+    monthly_counter = Counter()
+
+    now = datetime.now()
+    months = []
+    for i in range(5, -1, -1):
+        m = now.month - i; y = now.year
+        while m <= 0: m += 12; y -= 1
+        months.append({'key': f"{y:04d}-{m:02d}", 'label': datetime(y, m, 1).strftime('%b %Y'), 'value': 0})
+    month_set = {m['key'] for m in months}
+
+    for p in petitions:
+        status = p.get('status') or 'unknown'
+        status_counter[status] += 1
+
+        ptype = p.get('petition_type') or 'unknown'
+        type_counter[ptype] += 1
+
+        src = p.get('source_of_petition') or 'unknown'
+        source_counter[src] += 1
+
+        dept = p.get('target_cvo') or 'unknown'
+        if dept not in dept_map:
+            dept_map[dept] = {
+                'key': dept, 'label': CVO_LABELS.get(dept, dept.upper()),
+                'total': 0, 'closed': 0, 'lodged': 0, 'active': 0,
+                'sla_within': 0, 'sla_beyond': 0,
+            }
+        dept_map[dept]['total'] += 1
+        if status == 'closed': dept_map[dept]['closed'] += 1
+        elif status == 'lodged': dept_map[dept]['lodged'] += 1
+        else: dept_map[dept]['active'] += 1
+
+        if p.get('requires_permission'): permission_count += 1
+        else: direct_count += 1
+        if p.get('is_overdue_escalated'): overdue_count += 1
+
+        eq_type = p.get('enquiry_type') or 'detailed'
+        if eq_type == 'preliminary': prelim_count += 1
+        else: detailed_count += 1
+
+        if ptype == 'electrical_accident':
+            accident_total += 1
+            # accident_type comes from enquiry_report join - approximate from petition data
+            # (detailed accident breakdown requires enquiry_reports join - use count only here)
+
+        officer_id = p.get('assigned_inspector_id')
+        officer_name = (p.get('inspector_name') or '').strip()
+        if officer_id and officer_name:
+            oid = str(officer_id)
+            if oid not in officer_map:
+                officer_map[oid] = {
+                    'id': officer_id, 'name': officer_name,
+                    'total': 0, 'closed': 0, 'lodged': 0, 'active': 0,
+                    'overdue': 0, 'sla_within': 0, 'sla_beyond': 0,
+                }
+            officer_map[oid]['total'] += 1
+            if status == 'closed': officer_map[oid]['closed'] += 1
+            elif status == 'lodged': officer_map[oid]['lodged'] += 1
+            else: officer_map[oid]['active'] += 1
+            if p.get('is_overdue_escalated'): officer_map[oid]['overdue'] += 1
+
+        rd = p.get('received_date')
+        if rd:
+            mk = rd.strftime('%Y-%m')
+            if mk in month_set: monthly_counter[mk] += 1
+
+    for m in months:
+        m['value'] = monthly_counter.get(m['key'], 0)
+
+    # SLA analysis - join tracking data
+    sla_rows = models.get_sla_evaluation_rows(petitions)
+    sla_within = sla_beyond = 0
+    for r in sla_rows:
+        bucket = r.get('sla_bucket') or ''
+        dept = r.get('target_cvo') or 'unknown'
+        oid = str(r.get('assigned_inspector_id') or '')
+        if bucket == 'within':
+            sla_within += 1
+            if dept in dept_map: dept_map[dept]['sla_within'] += 1
+            if oid in officer_map: officer_map[oid]['sla_within'] += 1
+        elif bucket == 'beyond':
+            sla_beyond += 1
+            if dept in dept_map: dept_map[dept]['sla_beyond'] += 1
+            if oid in officer_map: officer_map[oid]['sla_beyond'] += 1
+
+    closed_total = status_counter.get('closed', 0)
+    lodged_total = status_counter.get('lodged', 0)
+    terminal_total = closed_total + lodged_total
+    active_total = total - terminal_total
+    resolution_rate = round(terminal_total / total * 100, 1) if total > 0 else 0
+    sla_tracked = sla_within + sla_beyond
+    sla_compliance = round(sla_within / sla_tracked * 100, 1) if sla_tracked > 0 else 0
+
+    # Status breakdown list
+    status_breakdown = sorted(
+        [{'status': k, 'label': STATUS_LABELS.get(k, k.replace('_', ' ').title()),
+          'count': v, 'pct': round(v / total * 100, 1)}
+         for k, v in status_counter.items()],
+        key=lambda x: x['count'], reverse=True
+    )
+
+    # Type breakdown list
+    type_breakdown = sorted(
+        [{'type': k, 'label': TYPE_LABELS.get(k, k.replace('_', ' ').title()),
+          'count': v, 'pct': round(v / total * 100, 1)}
+         for k, v in type_counter.items()],
+        key=lambda x: x['count'], reverse=True
+    )
+
+    # Source breakdown list
+    source_breakdown = sorted(
+        [{'source': k, 'label': SOURCE_LABELS.get(k, k.replace('_', ' ').title()),
+          'count': v, 'pct': round(v / total * 100, 1)}
+         for k, v in source_counter.items()],
+        key=lambda x: x['count'], reverse=True
+    )
+
+    # Department stats list sorted by total
+    dept_stats = sorted(dept_map.values(), key=lambda x: x['total'], reverse=True)
+    for d in dept_stats:
+        dt = d['sla_within'] + d['sla_beyond']
+        d['sla_compliance'] = round(d['sla_within'] / dt * 100, 1) if dt > 0 else None
+        d['resolution_rate'] = round((d['closed'] + d['lodged']) / d['total'] * 100, 1) if d['total'] > 0 else 0
+
+    # Officer stats enriched
+    officer_list = list(officer_map.values())
+    for o in officer_list:
+        ot = o['sla_within'] + o['sla_beyond']
+        o['sla_compliance'] = round(o['sla_within'] / ot * 100, 1) if ot > 0 else None
+        o['resolution_rate'] = round((o['closed'] + o['lodged']) / o['total'] * 100, 1) if o['total'] > 0 else 0
+        o['score'] = (o['closed'] + o['lodged']) + o['sla_within'] * 0.5
+
+    # Best performers: highest closed/lodged + SLA compliance, min 1 petition
+    best_performers = sorted(
+        [o for o in officer_list if o['total'] >= 1],
+        key=lambda x: (x['closed'] + x['lodged'], x['sla_within'], -(x['sla_beyond'])),
+        reverse=True
+    )[:8]
+
+    # Top defaulters: most sla_beyond + overdue + active
+    top_defaulters = sorted(
+        [o for o in officer_list if o['total'] >= 1],
+        key=lambda x: (x['sla_beyond'] + x['overdue'], x['active']),
+        reverse=True
+    )[:8]
+    # Filter to only meaningful defaulters
+    top_defaulters = [o for o in top_defaulters if o['sla_beyond'] > 0 or o['overdue'] > 0 or o['active'] > 2]
+
+    officer_stats_sorted = sorted(officer_list, key=lambda x: x['total'], reverse=True)
+
+    # Auto-generate talking points (dicts with 'text' and 'severity': neutral/good/warn/bad)
+    def _tp(text, severity='neutral'):
+        return {'text': text, 'severity': severity}
+
+    talking_points = []
+    talking_points.append(_tp(f"A total of <strong>{total}</strong> petition{'s' if total != 1 else ''} {'are' if total != 1 else 'is'} covered in this report period."))
+    if resolution_rate > 0:
+        sev = 'good' if resolution_rate >= 70 else ('warn' if resolution_rate >= 40 else 'bad')
+        talking_points.append(_tp(f"Overall resolution rate stands at <strong>{resolution_rate}%</strong> ({terminal_total} closed/lodged out of {total} petitions).", sev))
+    if sla_tracked > 0:
+        if sla_compliance >= 80:
+            talking_points.append(_tp(f"SLA compliance is <strong>{sla_compliance}%</strong> — {sla_within} of {sla_tracked} tracked petitions resolved within SLA timelines.", 'good'))
+        elif sla_compliance >= 50:
+            talking_points.append(_tp(f"SLA compliance is <strong>{sla_compliance}%</strong> — {sla_beyond} petition{'s' if sla_beyond != 1 else ''} beyond SLA and need attention.", 'warn'))
+        else:
+            talking_points.append(_tp(f"SLA compliance is critically low at <strong>{sla_compliance}%</strong> — {sla_beyond} of {sla_tracked} tracked petitions are beyond SLA deadlines.", 'bad'))
+    if overdue_count > 0:
+        talking_points.append(_tp(f"<strong>{overdue_count}</strong> petition{'s' if overdue_count != 1 else ''} {'have' if overdue_count != 1 else 'has'} been escalated as overdue and require immediate action.", 'bad'))
+    if active_total > 0:
+        talking_points.append(_tp(f"<strong>{active_total}</strong> petition{'s are' if active_total != 1 else ' is'} currently active in the workflow pipeline."))
+    if dept_stats:
+        top_dept = dept_stats[0]
+        talking_points.append(_tp(f"<strong>{top_dept['label']}</strong> has the highest workload with <strong>{top_dept['total']}</strong> petitions ({round(top_dept['total']/total*100,1)}% of total)."))
+        if len(dept_stats) > 1:
+            best_dept = max(dept_stats, key=lambda x: x.get('sla_compliance') or -1)
+            if (best_dept.get('sla_compliance') or 0) > 0:
+                talking_points.append(_tp(f"Best SLA performance by department: <strong>{best_dept['label']}</strong> at {best_dept['sla_compliance']}% compliance.", 'good'))
+    if best_performers:
+        bp = best_performers[0]
+        talking_points.append(_tp(f"Top performing officer: <strong>{bp['name']}</strong> — {bp['closed'] + bp['lodged']} cases resolved out of {bp['total']} assigned.", 'good'))
+    if top_defaulters:
+        td = top_defaulters[0]
+        talking_points.append(_tp(f"Attention required: <strong>{td['name']}</strong> has {td['sla_beyond']} beyond-SLA case{'s' if td['sla_beyond'] != 1 else ''} and {td['overdue']} overdue escalation{'s' if td['overdue'] != 1 else ''}.", 'bad'))
+    if type_breakdown:
+        top_type = type_breakdown[0]
+        talking_points.append(_tp(f"Most common petition type: <strong>{top_type['label']}</strong> ({top_type['count']} petitions, {top_type['pct']}% of total)."))
+    if source_breakdown:
+        top_src = source_breakdown[0]
+        talking_points.append(_tp(f"Primary source of petitions: <strong>{top_src['label']}</strong> ({top_src['count']} petitions, {top_src['pct']}% of total)."))
+    if permission_count > 0 or direct_count > 0:
+        talking_points.append(_tp(f"Enquiry mode: <strong>{direct_count}</strong> direct {'enquiry' if direct_count == 1 else 'enquiries'} vs <strong>{permission_count}</strong> requiring prior permission."))
+    if prelim_count > 0 or detailed_count > 0:
+        talking_points.append(_tp(f"Enquiry type: <strong>{prelim_count}</strong> preliminary (15-day SLA) and <strong>{detailed_count}</strong> detailed enquiries."))
+
+    # ── Department insights
+    dept_insights = []
+    if dept_stats:
+        if len(dept_stats) > 1:
+            best_res_dept = max(dept_stats, key=lambda d: d['resolution_rate'])
+            worst_res_dept = min(dept_stats, key=lambda d: d['resolution_rate'])
+            most_active_dept = max(dept_stats, key=lambda d: d['active'])
+            most_beyond_dept = max(dept_stats, key=lambda d: d['sla_beyond'])
+            if best_res_dept['resolution_rate'] > 0:
+                dept_insights.append(_tp(f"<strong>{best_res_dept['label']}</strong> leads in resolution with a <strong>{best_res_dept['resolution_rate']}%</strong> closure rate ({best_res_dept['closed'] + best_res_dept['lodged']} of {best_res_dept['total']} petitions resolved).", 'good'))
+            if worst_res_dept['resolution_rate'] < 50 and worst_res_dept['total'] >= 2:
+                dept_insights.append(_tp(f"<strong>{worst_res_dept['label']}</strong> has the lowest resolution rate at <strong>{worst_res_dept['resolution_rate']}%</strong> — {worst_res_dept['active']} petitions still active.", 'warn'))
+            if most_active_dept['active'] > 0:
+                dept_insights.append(_tp(f"<strong>{most_active_dept['label']}</strong> carries the highest active workload with <strong>{most_active_dept['active']}</strong> open cases.", 'neutral'))
+            if most_beyond_dept['sla_beyond'] > 0:
+                dept_insights.append(_tp(f"<strong>{most_beyond_dept['label']}</strong> has the most SLA breaches: <strong>{most_beyond_dept['sla_beyond']}</strong> petitions beyond deadline.", 'bad'))
+        no_closure_depts = [d for d in dept_stats if d['closed'] + d['lodged'] == 0 and d['total'] >= 2]
+        if no_closure_depts:
+            names = ', '.join(d['label'] for d in no_closure_depts)
+            dept_insights.append(_tp(f"No closures recorded in: <strong>{names}</strong>. All assigned petitions are still active.", 'warn'))
+        perfect_sla_depts = [d for d in dept_stats if d.get('sla_compliance') == 100.0 and (d['sla_within'] + d['sla_beyond']) >= 2]
+        if perfect_sla_depts:
+            names = ', '.join(d['label'] for d in perfect_sla_depts)
+            dept_insights.append(_tp(f"Perfect SLA compliance (100%) achieved by: <strong>{names}</strong>.", 'good'))
+
+    # ── Type insights
+    type_insights = []
+    if type_breakdown:
+        top_type = type_breakdown[0]
+        type_insights.append(_tp(f"<strong>{top_type['label']}</strong> is the most reported category with <strong>{top_type['count']}</strong> petitions ({top_type['pct']}% of total).", 'neutral'))
+        if top_type['pct'] > 50:
+            type_insights.append(_tp(f"Over half of all petitions are of type <strong>{top_type['label']}</strong> — consider focused mitigation measures for this category.", 'warn'))
+        if len(type_breakdown) > 1:
+            second = type_breakdown[1]
+            type_insights.append(_tp(f"Second most common: <strong>{second['label']}</strong> ({second['count']} petitions, {second['pct']}%).", 'neutral'))
+        rare_types = [t for t in type_breakdown if t['count'] == 1]
+        if rare_types:
+            type_insights.append(_tp(f"{len(rare_types)} petition type{'s' if len(rare_types) != 1 else ''} ({', '.join(t['label'] for t in rare_types[:4])}) {'each have' if len(rare_types) != 1 else 'has'} only 1 petition in this period.", 'neutral'))
+
+    # ── Source insights
+    source_insights = []
+    if source_breakdown:
+        top_src = source_breakdown[0]
+        source_insights.append(_tp(f"<strong>{top_src['label']}</strong> is the primary source with <strong>{top_src['count']}</strong> petitions ({top_src['pct']}%).", 'neutral'))
+        if top_src['pct'] > 60:
+            source_insights.append(_tp(f"<strong>{top_src['pct']}%</strong> of petitions originate from a single source (<strong>{top_src['label']}</strong>). Consider monitoring other channels.", 'warn'))
+        if len(source_breakdown) > 1:
+            second_src = source_breakdown[1]
+            source_insights.append(_tp(f"Second source: <strong>{second_src['label']}</strong> with {second_src['count']} petitions ({second_src['pct']}%).", 'neutral'))
+        media_count = source_counter.get('media', 0)
+        public_count = source_counter.get('public_individual', 0)
+        if media_count > 0 and public_count > 0:
+            source_insights.append(_tp(f"Media-reported petitions: <strong>{media_count}</strong>. Public (individual) petitions: <strong>{public_count}</strong>.", 'neutral'))
+
+    # ── Status pipeline insights
+    EARLY_STAGES = {'received', 'forwarded_to_cvo', 'sent_for_permission', 'permission_approved'}
+    ENQUIRY_STAGES = {'assigned_to_inspector', 'enquiry_in_progress', 'sent_back_for_reenquiry'}
+    REPORTING_STAGES = {'enquiry_report_submitted', 'cvo_comments_added'}
+    DECISION_STAGES = {'forwarded_to_po', 'forwarded_to_jmd', 'action_instructed', 'action_taken'}
+    early_count_s = sum(status_counter.get(s, 0) for s in EARLY_STAGES)
+    enquiry_count_s = sum(status_counter.get(s, 0) for s in ENQUIRY_STAGES)
+    reporting_count_s = sum(status_counter.get(s, 0) for s in REPORTING_STAGES)
+    decision_count_s = sum(status_counter.get(s, 0) for s in DECISION_STAGES)
+    reenquiry_count = status_counter.get('sent_back_for_reenquiry', 0)
+    perm_rejected_count = status_counter.get('permission_rejected', 0)
+    action_instructed_count = status_counter.get('action_instructed', 0)
+
+    status_insights = []
+    if early_count_s > 0:
+        sev = 'warn' if early_count_s > total * 0.3 else 'neutral'
+        status_insights.append(_tp(f"<strong>{early_count_s}</strong> petition{'s are' if early_count_s != 1 else ' is'} in early intake/forwarding stages — these haven't yet reached field investigation.", sev))
+    if enquiry_count_s > 0:
+        status_insights.append(_tp(f"<strong>{enquiry_count_s}</strong> petition{'s are' if enquiry_count_s != 1 else ' is'} currently under active field enquiry.", 'neutral'))
+    if reenquiry_count > 0:
+        status_insights.append(_tp(f"<strong>{reenquiry_count}</strong> petition{'s were' if reenquiry_count != 1 else ' was'} sent back for re-enquiry — indicates initial report was insufficient.", 'warn'))
+    if perm_rejected_count > 0:
+        status_insights.append(_tp(f"<strong>{perm_rejected_count}</strong> petition{'s had' if perm_rejected_count != 1 else ' had'} permission rejected. These may need review for alternate handling.", 'warn'))
+    if reporting_count_s > 0:
+        status_insights.append(_tp(f"<strong>{reporting_count_s}</strong> petition{'s have' if reporting_count_s != 1 else ' has'} field reports submitted and are awaiting CVO/senior review.", 'neutral'))
+    if action_instructed_count > 0:
+        status_insights.append(_tp(f"<strong>{action_instructed_count}</strong> petition{'s are' if action_instructed_count != 1 else ' is'} pending action at CMD level.", 'warn'))
+    if decision_count_s > 0:
+        status_insights.append(_tp(f"<strong>{decision_count_s}</strong> petition{'s are' if decision_count_s != 1 else ' is'} at the final decision/action stage.", 'good'))
+    if terminal_total > 0:
+        status_insights.append(_tp(f"<strong>{closed_total}</strong> petition{'s' if closed_total != 1 else ''} closed and <strong>{lodged_total}</strong> lodged — total terminal: {terminal_total}.", 'good'))
+
+    # ── Officer insights
+    officer_insights = []
+    if officer_list:
+        avg_petitions = round(sum(o['total'] for o in officer_list) / len(officer_list), 1)
+        officer_insights.append(_tp(f"<strong>{len(officer_list)}</strong> officers have assigned petitions. Average workload: <strong>{avg_petitions}</strong> petitions per officer.", 'neutral'))
+        overdue_officers = [o for o in officer_list if o['overdue'] > 0]
+        if overdue_officers:
+            names = ', '.join(o['name'] for o in overdue_officers[:4])
+            officer_insights.append(_tp(f"<strong>{len(overdue_officers)}</strong> officer{'s have' if len(overdue_officers) != 1 else ' has'} overdue escalations: <strong>{names}</strong>{'...' if len(overdue_officers) > 4 else ''}.", 'bad'))
+        all_resolved_officers = [o for o in officer_list if o['total'] >= 1 and o['active'] == 0 and (o['closed'] + o['lodged']) > 0]
+        if all_resolved_officers:
+            names = ', '.join(o['name'] for o in all_resolved_officers[:4])
+            officer_insights.append(_tp(f"{len(all_resolved_officers)} officer{'s have' if len(all_resolved_officers) != 1 else ' has'} resolved all assigned petitions with zero active cases: <strong>{names}</strong>.", 'good'))
+        no_resolution_officers = [o for o in officer_list if o['total'] >= 2 and (o['closed'] + o['lodged']) == 0]
+        if no_resolution_officers:
+            names = ', '.join(o['name'] for o in no_resolution_officers[:4])
+            officer_insights.append(_tp(f"<strong>{len(no_resolution_officers)}</strong> officer{'s have' if len(no_resolution_officers) != 1 else ' has'} no closures despite having 2+ assigned cases: <strong>{names}</strong>.", 'warn'))
+        beyond_sla_officers = [o for o in officer_list if o['sla_beyond'] > 0]
+        if beyond_sla_officers:
+            total_beyond = sum(o['sla_beyond'] for o in beyond_sla_officers)
+            officer_insights.append(_tp(f"<strong>{len(beyond_sla_officers)}</strong> officer{'s account' if len(beyond_sla_officers) != 1 else ' accounts'} for all {total_beyond} beyond-SLA cases.", 'warn'))
+
+    # ── SLA insights
+    sla_insights = []
+    untracked = total - sla_tracked
+    if sla_tracked == 0:
+        sla_insights.append(_tp("No SLA tracking data is available for this report period. SLA compliance cannot be assessed.", 'neutral'))
+    else:
+        if untracked > 0:
+            sla_insights.append(_tp(f"<strong>{untracked}</strong> petition{'s' if untracked != 1 else ''} ({round(untracked/total*100,1)}%) do not yet have SLA tracking data (may still be in early stages).", 'neutral'))
+        if sla_compliance == 100.0:
+            sla_insights.append(_tp(f"Perfect SLA compliance — all <strong>{sla_tracked}</strong> tracked petitions were resolved within their SLA deadlines.", 'good'))
+        elif sla_beyond > 0:
+            sla_insights.append(_tp(f"<strong>{sla_beyond}</strong> petition{'s have' if sla_beyond != 1 else ' has'} breached SLA deadlines. Immediate follow-up is recommended.", 'bad'))
+        if prelim_count > 0:
+            sla_insights.append(_tp(f"<strong>{prelim_count}</strong> preliminary enquiry case{'s' if prelim_count != 1 else ''} subject to the 15-day SLA window.", 'neutral'))
+        if detailed_count > 0:
+            sla_insights.append(_tp(f"<strong>{detailed_count}</strong> detailed enquiry case{'s' if detailed_count != 1 else ''} subject to the 45–90 day SLA window.", 'neutral'))
+        if dept_stats:
+            worst_sla_dept = max(dept_stats, key=lambda d: d['sla_beyond'])
+            if worst_sla_dept['sla_beyond'] > 0:
+                sla_insights.append(_tp(f"Department with most SLA breaches: <strong>{worst_sla_dept['label']}</strong> with {worst_sla_dept['sla_beyond']} beyond-deadline case{'s' if worst_sla_dept['sla_beyond'] != 1 else ''}.", 'bad'))
+
+    return {
+        'total': total,
+        'closed': closed_total,
+        'lodged': lodged_total,
+        'active': active_total,
+        'terminal': terminal_total,
+        'resolution_rate': resolution_rate,
+        'sla_within': sla_within,
+        'sla_beyond': sla_beyond,
+        'sla_tracked': sla_tracked,
+        'sla_compliance': sla_compliance,
+        'overdue_count': overdue_count,
+        'direct_count': direct_count,
+        'permission_count': permission_count,
+        'enquiry_types': {'preliminary': prelim_count, 'detailed': detailed_count},
+        'status_breakdown': status_breakdown,
+        'type_breakdown': type_breakdown,
+        'source_breakdown': source_breakdown,
+        'dept_stats': dept_stats,
+        'officer_stats': officer_stats_sorted,
+        'best_performers': best_performers,
+        'top_defaulters': top_defaulters,
+        'talking_points': talking_points,
+        'monthly_trend': months,
+        'dept_insights': dept_insights,
+        'type_insights': type_insights,
+        'source_insights': source_insights,
+        'status_insights': status_insights,
+        'officer_insights': officer_insights,
+        'sla_insights': sla_insights,
+    }
+
+
+@app.route('/analysis-report')
+@login_required
+def analysis_report():
+    user_role = session['user_role']
+    user_id = session['user_id']
+    cvo_office = session.get('cvo_office')
+
+    petitions = get_petitions_for_user_cached(user_id, user_role, cvo_office)
+    officer_lookup = {}
+    for p in petitions:
+        oid = p.get('assigned_inspector_id')
+        oname = (p.get('inspector_name') or '').strip()
+        if oid and oname:
+            officer_lookup[int(oid)] = oname
+    officer_options = [
+        {'id': oid, 'name': name}
+        for oid, name in sorted(officer_lookup.items(), key=lambda x: x[1].lower())
+    ]
+
+    dashboard_filter = _extract_dashboard_filters(request.args, officer_lookup)
+    filtered = _apply_dashboard_filters(petitions, dashboard_filter)
+
+    report_data = _build_analysis_report_data(filtered)
+
+    # Build active filter labels (same as dashboard)
+    source_labels = {'media': 'Electronic and Print Media', 'public_individual': 'Public (Individual)',
+                     'govt': 'Govt', 'sumoto': 'Sumoto', 'cmd_office': 'O/o CMD'}
+    office_labels = {'jmd_office': 'PO Office', 'cvo_apspdcl_tirupathi': 'CVO/DSP APSPDCL',
+                     'cvo_apepdcl_vizag': 'CVO/DSP APEPDCL', 'cvo_apcpdcl_vijayawada': 'CVO/DSP APCPDCL'}
+    cvo_labels = {'apspdcl': 'APSPDCL', 'apepdcl': 'APEPDCL', 'apcpdcl': 'APCPDCL', 'headquarters': 'Headquarters'}
+    active_filter_labels = []
+    if dashboard_filter['from_date']:
+        active_filter_labels.append(f"From: {dashboard_filter['from_date'].strftime('%d %b %Y')}")
+    if dashboard_filter['to_date']:
+        active_filter_labels.append(f"To: {dashboard_filter['to_date'].strftime('%d %b %Y')}")
+    if dashboard_filter['petition_type'] != 'all':
+        active_filter_labels.append(f"Type: {PETITION_TYPE_LABELS.get(dashboard_filter['petition_type'], dashboard_filter['petition_type'])}")
+    if dashboard_filter['source_of_petition'] != 'all':
+        active_filter_labels.append(f"Source: {source_labels.get(dashboard_filter['source_of_petition'], dashboard_filter['source_of_petition'])}")
+    if dashboard_filter['received_at'] != 'all':
+        active_filter_labels.append(f"Received at: {office_labels.get(dashboard_filter['received_at'], dashboard_filter['received_at'])}")
+    if dashboard_filter['target_cvo'] != 'all':
+        active_filter_labels.append(f"Office: {cvo_labels.get(dashboard_filter['target_cvo'], dashboard_filter['target_cvo'])}")
+    if dashboard_filter['officer_id']:
+        active_filter_labels.append(f"Officer: {officer_lookup.get(dashboard_filter['officer_id'], str(dashboard_filter['officer_id']))}")
+
+    generated_at = datetime.now().strftime('%d %b %Y, %I:%M %p')
+    period_label = 'All Time'
+    if dashboard_filter['from_date'] and dashboard_filter['to_date']:
+        period_label = f"{dashboard_filter['from_date'].strftime('%d %b %Y')} – {dashboard_filter['to_date'].strftime('%d %b %Y')}"
+    elif dashboard_filter['from_date']:
+        period_label = f"From {dashboard_filter['from_date'].strftime('%d %b %Y')}"
+    elif dashboard_filter['to_date']:
+        period_label = f"Until {dashboard_filter['to_date'].strftime('%d %b %Y')}"
+
+    return render_template(
+        'analysis_report.html',
+        report=report_data,
+        officer_options=officer_options,
+        active_filter_labels=active_filter_labels,
+        period_label=period_label,
+        generated_at=generated_at,
+        dashboard_filter={
+            'from_date': dashboard_filter['from_date'].strftime('%Y-%m-%d') if dashboard_filter['from_date'] else '',
+            'to_date': dashboard_filter['to_date'].strftime('%Y-%m-%d') if dashboard_filter['to_date'] else '',
+            'petition_type': dashboard_filter['petition_type'],
+            'source_of_petition': dashboard_filter['source_of_petition'],
+            'received_at': dashboard_filter['received_at'],
+            'target_cvo': dashboard_filter['target_cvo'],
+            'officer_id': str(dashboard_filter['officer_id']) if dashboard_filter['officer_id'] else 'all',
+        },
+    )
+
+
+# ========================================
 # PETITION ROUTES
 # ========================================
 
@@ -5713,6 +6204,121 @@ def chatbot_api():
     if msg_lower in ('help', '?', 'help me', 'commands', 'what can you do', 'options', 'menu'):
         return jsonify({'type': 'help'})
 
+    # ---- Role / Responsibility info ----
+    _ROLE_WORDS = ('my role', 'my responsibility', 'my responsibilities', 'my duties',
+                   'my job', 'what is my role', 'what should i do', 'role info',
+                   'what is my job', 'my work', 'who am i', 'what do i do',
+                   'officer duty', 'my function', 'my task', 'my designation')
+    _ROLE_DESCRIPTIONS = {
+        'inspector': {
+            'title': 'Field Inspector',
+            'badge': '🔍',
+            'color': '#06b6d4',
+            'summary': 'You conduct field investigations on petitions assigned to you and submit enquiry reports.',
+            'responsibilities': [
+                '📥 Check petitions assigned to you under the Assigned tab',
+                '🔍 Conduct on-site field investigations and gather evidence',
+                '📝 Submit detailed enquiry reports with findings',
+                '🔁 Re-investigate cases sent back for re-enquiry promptly',
+                '📊 Keep petition status updated as you progress',
+            ],
+            'key_link': '/petitions?status=assigned_to_inspector',
+        },
+        'cvo_apspdcl': {
+            'title': 'Chief Vigilance Officer (APSPDCL)',
+            'badge': '🛡️',
+            'color': '#8b5cf6',
+            'summary': 'You oversee all petitions under your CVO jurisdiction, assign inspectors, and ensure timely resolution.',
+            'responsibilities': [
+                '📥 Review all petitions received in your CVO office',
+                '👨‍💼 Assign petitions to appropriate field inspectors',
+                '🔐 Request permission for sensitive/complex cases',
+                '📊 Monitor inspector progress and SLA compliance',
+                '⚠️ Escalate overdue cases to the Petitions Officer',
+            ],
+            'key_link': '/petitions',
+        },
+        'po': {
+            'title': 'Petitions Officer',
+            'badge': '⚖️',
+            'color': '#6366f1',
+            'summary': 'You oversee the entire petition lifecycle, approve/reject permissions, and issue action instructions.',
+            'responsibilities': [
+                '📥 Review petitions forwarded to you for action',
+                '✅ Approve or reject CVO permission requests',
+                '📣 Issue action instructions to CMD/CGM officers',
+                '📊 Monitor SLA compliance across all CVOs',
+                '⚠️ Escalate and resolve overdue petitions',
+            ],
+            'key_link': '/petitions?status=forwarded_to_po',
+        },
+        'data_entry': {
+            'title': 'Data Entry Officer',
+            'badge': '📋',
+            'color': '#f59e0b',
+            'summary': 'You register new petitions, upload documents, and route them to the correct CVO office.',
+            'responsibilities': [
+                '➕ Register new petitions with complete petitioner details',
+                '📎 Upload scanned E-Receipts and supporting documents',
+                '🏢 Route petitions to the correct CVO based on jurisdiction',
+                '🔍 Track and verify petition status after submission',
+                '✅ Ensure data accuracy and completeness at entry',
+            ],
+            'key_link': '/petitions/new',
+        },
+        'super_admin': {
+            'title': 'Super Administrator',
+            'badge': '👑',
+            'color': '#ef4444',
+            'summary': 'You have full system access — manage users, monitor all petitions, and ensure system-wide compliance.',
+            'responsibilities': [
+                '👥 Create and manage officer accounts and role assignments',
+                '📊 Monitor all petitions and SLA compliance system-wide',
+                '⚠️ Review and escalate overdue petitions across all CVOs',
+                '📂 Generate reports and review audit activity',
+                '🔧 Configure system settings and help resources',
+            ],
+            'key_link': '/users',
+        },
+    }
+    _ROLE_DESCRIPTIONS['cvo_apepdcl'] = dict(_ROLE_DESCRIPTIONS['cvo_apspdcl'], title='Chief Vigilance Officer (APEPDCL)')
+    _ROLE_DESCRIPTIONS['cvo_apcpdcl'] = dict(_ROLE_DESCRIPTIONS['cvo_apspdcl'], title='Chief Vigilance Officer (APCPDCL)')
+    _ROLE_DESCRIPTIONS['dsp'] = dict(_ROLE_DESCRIPTIONS['cvo_apspdcl'], title='DSP Officer', badge='🔒')
+    _ROLE_DESCRIPTIONS['cmd_apspdcl'] = {
+        'title': 'CMD / CGM Officer',
+        'badge': '🏛️',
+        'color': '#10b981',
+        'summary': 'You execute action instructions issued by the Petitions Officer and report back with actions taken.',
+        'responsibilities': [
+            '📥 Check action instructions assigned to you',
+            '✅ Execute required corrective or disciplinary action',
+            '📤 Submit action-taken report with supporting evidence',
+            '📊 Track closed cases for compliance records',
+        ],
+        'key_link': '/petitions?status=action_instructed',
+    }
+    for _r in ('cmd_apepdcl', 'cmd_apcpdcl', 'cgm_hr_transco'):
+        _ROLE_DESCRIPTIONS[_r] = _ROLE_DESCRIPTIONS['cmd_apspdcl']
+
+    if any(phrase in msg_lower for phrase in _ROLE_WORDS):
+        role_data = _ROLE_DESCRIPTIONS.get(user_role)
+        if role_data:
+            return jsonify({
+                'type': 'role_info',
+                'role': user_role,
+                'role_data': role_data,
+                'user_name': user_name,
+                'suggestions': [
+                    {'label': '📋 Guide', 'msg': 'guide'},
+                    {'label': '⏳ Pending', 'msg': 'pending'},
+                    {'label': '💡 What Next', 'msg': 'what next'},
+                ],
+            })
+        return jsonify({'type': 'text', 'text': (
+            f"You are logged in as **{user_role.replace('_', ' ').title()}**, {user_name}. "
+            "Contact your administrator for role-specific guidance."
+        )})
+
     # ---- Keyword sets for main intents ----
     _PENDING_WORDS = ('pending', 'overdue', 'waiting', 'my work', 'action needed',
                       'not closed', 'todo', 'to do', 'due', 'my petitions',
@@ -5735,6 +6341,11 @@ def chatbot_api():
                 'type': 'pending',
                 'petitions': _chatbot_format_petitions(petitions),
                 'role': user_role,
+                'suggestions': [
+                    {'label': '💡 What Next', 'msg': 'what next'},
+                    {'label': '📊 Stats', 'msg': 'stats'},
+                    {'label': '📋 Guide', 'msg': 'guide'},
+                ],
             })
         except Exception:
             app.logger.exception('Chatbot pending error')
@@ -5748,6 +6359,11 @@ def chatbot_api():
                 'type': 'updates',
                 'petitions': _chatbot_format_petitions_with_date(petitions),
                 'role': user_role,
+                'suggestions': [
+                    {'label': '⏳ Pending', 'msg': 'pending'},
+                    {'label': '📊 Stats', 'msg': 'stats'},
+                    {'label': '📈 Report', 'msg': 'report'},
+                ],
             })
         except Exception:
             app.logger.exception('Chatbot updates error')
@@ -5755,16 +6371,201 @@ def chatbot_api():
 
     # ---- Action / workflow guide ----
     if any(w in msg_lower for w in _GUIDE_WORDS):
-        return jsonify({'type': 'action_guide', 'role': user_role})
+        return jsonify({
+            'type': 'action_guide',
+            'role': user_role,
+            'suggestions': [
+                {'label': '⏳ Pending', 'msg': 'pending'},
+                {'label': '💡 What Next', 'msg': 'what next'},
+            ],
+        })
 
     # ---- Stats ----
     if any(w in msg_lower for w in _STATS_WORDS):
         try:
             stats = models.get_petition_stats_for_chatbot(user_id, user_role, cvo_office)
-            return jsonify({'type': 'stats', 'stats': {k: int(v) for k, v in stats.items()}})
+            return jsonify({
+                'type': 'stats',
+                'stats': {k: int(v) for k, v in stats.items()},
+                'suggestions': [
+                    {'label': '⏳ Pending', 'msg': 'pending'},
+                    {'label': '🔔 Updates', 'msg': 'updates'},
+                    {'label': '📈 Report', 'msg': 'report'},
+                ],
+            })
         except Exception:
             app.logger.exception('Chatbot stats error')
             return jsonify({'type': 'text', 'text': 'Stats are taking a moment to load. Give it another shot! 🔄'})
+
+    # ---- Analysis Report / Download ----
+    _DOWNLOAD_WORDS = ('download', 'report', 'analysis', 'export', 'analysis report',
+                       'download report', 'generate report', 'view report',
+                       'excel', 'pdf report', 'csv report', 'see report')
+    if any(w in msg_lower for w in _DOWNLOAD_WORDS):
+        return jsonify({
+            'type': 'download',
+            'text': 'Access the full petition analysis with charts, trends, status breakdowns, and export options.',
+            'url': '/analysis-report',
+            'suggestions': [
+                {'label': '📊 Stats', 'msg': 'stats'},
+                {'label': '⏳ Pending', 'msg': 'pending'},
+            ],
+        })
+
+    # ---- Urgent / Overdue / SLA ----
+    _URGENT_WORDS = ('urgent', 'overdue', 'sla breach', 'beyond sla', 'critical',
+                      'escalate', 'delayed', 'late', 'sla', 'priority cases',
+                      'breach', 'violation', 'missed deadline')
+    if any(w in msg_lower for w in _URGENT_WORDS):
+        if user_role in ('po', 'super_admin'):
+            return jsonify({
+                'type': 'urgent',
+                'message': 'Petitions beyond SLA threshold are flagged for escalation. Review them below.',
+                'url': '/petitions?status=beyond_sla',
+                'sla_url': '/sla_dashboard',
+                'suggestions': [
+                    {'label': '⏳ Pending', 'msg': 'pending'},
+                    {'label': '📊 Stats', 'msg': 'stats'},
+                    {'label': '📈 Report', 'msg': 'report'},
+                ],
+            })
+        else:
+            return jsonify({
+                'type': 'text',
+                'text': (
+                    "For SLA breach and overdue escalation details, check with your **Petitions Officer** "
+                    "or visit the **SLA Dashboard**.\n\n"
+                    "Your immediate pending items can be found by asking for _\"pending\"_."
+                ),
+                'suggestions': [
+                    {'label': '⏳ Pending', 'msg': 'pending'},
+                    {'label': '📋 Guide', 'msg': 'guide'},
+                ],
+            })
+
+    # ---- Daily Summary ----
+    _SUMMARY_WORDS = ('today', 'daily', 'my day', 'daily report', 'today summary',
+                       'day summary', 'what happened today', 'daily summary', 'todays update')
+    if any(w in msg_lower for w in _SUMMARY_WORDS):
+        try:
+            _stats = models.get_petition_stats_for_chatbot(user_id, user_role, cvo_office)
+            _pending = models.get_pending_petitions_for_chatbot(user_id, user_role, cvo_office, limit=20)
+            _updates = models.get_recent_updates_for_chatbot(user_id, user_role, cvo_office, limit=20)
+            _pc = len(_pending)
+            _uc = len(_updates)
+            if _pc > 0:
+                _day_msg = (f"You have **{_pc} pending** item{'s' if _pc != 1 else ''} and "
+                            f"**{_uc} update{'s' if _uc != 1 else ''}** today, {user_name}.")
+            else:
+                _day_msg = (f"Great work, {user_name}! No pending items today. "
+                            f"{_uc} update{'s' if _uc != 1 else ''} in your scope.")
+            return jsonify({
+                'type': 'summary',
+                'stats': {k: int(v) for k, v in _stats.items()},
+                'pending_count': _pc,
+                'updates_count': _uc,
+                'message': _day_msg,
+                'suggestions': [
+                    {'label': '⏳ Pending', 'msg': 'pending'},
+                    {'label': '🔔 Updates', 'msg': 'updates'},
+                    {'label': '💡 What Next', 'msg': 'what next'},
+                ],
+            })
+        except Exception:
+            app.logger.exception('Chatbot summary error')
+            return jsonify({'type': 'text', 'text': 'Could not load your daily summary right now. Try again! 🔄'})
+
+    # ---- What Next / Smart Suggestions ----
+    _SUGGEST_WORDS = ('what next', 'suggest', 'recommendation', 'next action',
+                       'what should i work on', 'help me prioritize', 'what to do next',
+                       'prioritize', 'my priority', 'next steps', 'suggest me', 'advise me')
+    if any(w in msg_lower for w in _SUGGEST_WORDS):
+        try:
+            _pending_list = models.get_pending_petitions_for_chatbot(user_id, user_role, cvo_office)
+            _pc2 = len(_pending_list)
+            _rd2 = _ROLE_DESCRIPTIONS.get(user_role, {})
+            _key_link2 = _rd2.get('key_link', '/petitions')
+            _actions2 = []
+            if _pc2 > 0:
+                _actions2.append({
+                    'priority': 'high', 'icon': '🔴',
+                    'title': f'{_pc2} Pending Petition{"s" if _pc2 != 1 else ""}',
+                    'desc': f'{"These petitions require" if _pc2 > 1 else "This petition requires"} your immediate attention.',
+                    'link': _key_link2, 'link_label': 'View Pending →',
+                })
+            if user_role == 'inspector':
+                _actions2 += [
+                    {'priority': 'medium', 'icon': '📝', 'title': 'Submit Pending Reports',
+                     'desc': 'Complete and submit enquiry reports for in-progress petitions.',
+                     'link': '/petitions?status=enquiry_in_progress', 'link_label': 'View In Progress →'},
+                    {'priority': 'low', 'icon': '🔁', 'title': 'Check Re-enquiry Cases',
+                     'desc': 'Review petitions sent back for re-investigation.',
+                     'link': '/petitions?status=sent_back_for_reenquiry', 'link_label': 'View →'},
+                ]
+            elif user_role in ('cvo_apspdcl', 'cvo_apepdcl', 'cvo_apcpdcl', 'dsp'):
+                _actions2 += [
+                    {'priority': 'medium', 'icon': '👨\u200d💼', 'title': 'Assign Uninspected Petitions',
+                     'desc': 'Route unassigned petitions to appropriate field inspectors.',
+                     'link': '/petitions?status=forwarded_to_cvo', 'link_label': 'View →'},
+                    {'priority': 'low', 'icon': '📊', 'title': 'Review SLA Compliance',
+                     'desc': 'Check enquiry progress and monitor SLA status.',
+                     'link': '/sla_dashboard', 'link_label': 'SLA Dashboard →'},
+                ]
+            elif user_role == 'po':
+                _actions2 += [
+                    {'priority': 'medium', 'icon': '✅', 'title': 'Approve/Reject Permissions',
+                     'desc': 'CVOs are waiting for your decision on permission requests.',
+                     'link': '/petitions?status=sent_for_permission', 'link_label': 'Review →'},
+                    {'priority': 'medium', 'icon': '📣', 'title': 'Issue Action Instructions',
+                     'desc': 'Petitions ready for action instruction to CMD/CGM.',
+                     'link': '/petitions?status=forwarded_to_po', 'link_label': 'View →'},
+                    {'priority': 'low', 'icon': '⚠️', 'title': 'SLA Overdue Review',
+                     'desc': 'Check petitions beyond SLA and escalate as needed.',
+                     'link': '/petitions?status=beyond_sla', 'link_label': 'View Overdue →'},
+                ]
+            elif user_role == 'data_entry':
+                _actions2 += [
+                    {'priority': 'medium', 'icon': '➕', 'title': 'Register New Petitions',
+                     'desc': 'Enter any unregistered petitions into the system.',
+                     'link': '/petitions/new', 'link_label': 'Add Petition →'},
+                    {'priority': 'low', 'icon': '🔍', 'title': 'Verify Data Accuracy',
+                     'desc': 'Review recently registered petitions for completeness.',
+                     'link': '/petitions', 'link_label': 'View All →'},
+                ]
+            elif user_role == 'super_admin':
+                _actions2 += [
+                    {'priority': 'medium', 'icon': '📊', 'title': 'Review System Analytics',
+                     'desc': 'Check overall system performance and compliance metrics.',
+                     'link': '/analysis-report', 'link_label': 'View Report →'},
+                    {'priority': 'low', 'icon': '👥', 'title': 'User Management',
+                     'desc': 'Review pending account requests and role assignments.',
+                     'link': '/users', 'link_label': 'Manage Users →'},
+                ]
+            elif user_role in ('cmd_apspdcl', 'cmd_apepdcl', 'cmd_apcpdcl', 'cgm_hr_transco'):
+                _actions2 += [
+                    {'priority': 'medium', 'icon': '📤', 'title': 'Submit Action Reports',
+                     'desc': 'Report back on actions taken for instructed petitions.',
+                     'link': '/petitions?status=action_instructed', 'link_label': 'View →'},
+                ]
+            if not _actions2:
+                _actions2.append({
+                    'priority': 'low', 'icon': '✅', 'title': 'All Caught Up!',
+                    'desc': 'No immediate actions required. Monitor your dashboard for new items.',
+                    'link': '/', 'link_label': 'Go to Dashboard →',
+                })
+            return jsonify({
+                'type': 'suggest',
+                'actions': _actions2,
+                'user_name': user_name,
+                'suggestions': [
+                    {'label': '⏳ Pending', 'msg': 'pending'},
+                    {'label': '📊 Stats', 'msg': 'stats'},
+                    {'label': '📋 Guide', 'msg': 'guide'},
+                ],
+            })
+        except Exception:
+            app.logger.exception('Chatbot suggest error')
+            return jsonify({'type': 'action_guide', 'role': user_role})
 
     # ---- Search by petitioner name ----
     name_match = _re.search(r'(?:search|find|name|petitioner)[:\s]+(.+)', msg_lower)
@@ -5777,8 +6578,16 @@ def chatbot_api():
             # If name search finds nothing, automatically try all fields (covers e-office/e-receipt typed after "search")
             if not results:
                 results = models.search_petitions(user_id, user_role, cvo_office, query, search_type='all')
-            return jsonify({'type': 'petitions', 'petitions': _chatbot_format_petitions(results),
-                            'query': query, 'search_type': 'name'})
+            return jsonify({
+                'type': 'petitions',
+                'petitions': _chatbot_format_petitions(results),
+                'query': query,
+                'search_type': 'name',
+                'suggestions': [
+                    {'label': '⏳ Pending', 'msg': 'pending'},
+                    {'label': '📊 Stats', 'msg': 'stats'},
+                ],
+            })
         except Exception:
             app.logger.exception('Chatbot search error')
             return jsonify({'type': 'text', 'text': 'Search hit a snag — please try again! 🔄'})
@@ -5789,8 +6598,16 @@ def chatbot_api():
         query = efile_match.group(1).strip()
         try:
             results = models.search_petitions(user_id, user_role, cvo_office, query, search_type='efile')
-            return jsonify({'type': 'petitions', 'petitions': _chatbot_format_petitions(results),
-                            'query': query, 'search_type': 'efile'})
+            return jsonify({
+                'type': 'petitions',
+                'petitions': _chatbot_format_petitions(results),
+                'query': query,
+                'search_type': 'efile',
+                'suggestions': [
+                    {'label': '⏳ Pending', 'msg': 'pending'},
+                    {'label': '📊 Stats', 'msg': 'stats'},
+                ],
+            })
         except Exception:
             return jsonify({'type': 'text', 'text': 'Search failed. Please try again! 🔄'})
 
@@ -5800,8 +6617,16 @@ def chatbot_api():
         query = ereceipt_match.group(1).strip()
         try:
             results = models.search_petitions(user_id, user_role, cvo_office, query, search_type='ereceipt')
-            return jsonify({'type': 'petitions', 'petitions': _chatbot_format_petitions(results),
-                            'query': query, 'search_type': 'ereceipt'})
+            return jsonify({
+                'type': 'petitions',
+                'petitions': _chatbot_format_petitions(results),
+                'query': query,
+                'search_type': 'ereceipt',
+                'suggestions': [
+                    {'label': '⏳ Pending', 'msg': 'pending'},
+                    {'label': '📊 Stats', 'msg': 'stats'},
+                ],
+            })
         except Exception:
             return jsonify({'type': 'text', 'text': 'Search failed. Please try again! 🔄'})
 
@@ -5811,8 +6636,16 @@ def chatbot_api():
         query = sno_match.group(1).strip()
         try:
             results = models.search_petitions(user_id, user_role, cvo_office, query, search_type='sno')
-            return jsonify({'type': 'petitions', 'petitions': _chatbot_format_petitions(results),
-                            'query': query, 'search_type': 'sno'})
+            return jsonify({
+                'type': 'petitions',
+                'petitions': _chatbot_format_petitions(results),
+                'query': query,
+                'search_type': 'sno',
+                'suggestions': [
+                    {'label': '⏳ Pending', 'msg': 'pending'},
+                    {'label': '📊 Stats', 'msg': 'stats'},
+                ],
+            })
         except Exception:
             return jsonify({'type': 'text', 'text': 'Search failed. Please try again! 🔄'})
 
