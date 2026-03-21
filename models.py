@@ -1209,6 +1209,31 @@ def list_help_resources(active_only=False):
         conn.close()
 
 
+def public_petition_status_lookup(search_term, search_field, office=None):
+    """Public-facing petition status lookup — returns minimal info (no PII)."""
+    conn = get_db()
+    try:
+        cur = dict_cursor(conn)
+        if search_field == 'ereceipt_no':
+            where = 'p.ereceipt_no ILIKE %s'
+        else:
+            where = 'p.efile_no ILIKE %s'
+        params = [search_term.strip()]
+        if office:
+            where += ' AND p.received_at = %s'
+            params.append(office)
+        cur.execute(f"""
+            SELECT p.sno, p.status, p.petition_type, p.received_date, p.received_at
+            FROM petitions p
+            WHERE {where}
+            ORDER BY p.received_date DESC
+            LIMIT 5
+        """, params)
+        return [dict(row) for row in cur.fetchall()]
+    finally:
+        conn.close()
+
+
 def get_help_resource_by_id(resource_id):
     conn = get_db()
     try:

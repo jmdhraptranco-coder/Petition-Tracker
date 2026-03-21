@@ -6,9 +6,11 @@
 
 {# ── Browse section (all users) ─────────────────────────────────────────── #}
 {% set section_meta = {
-    'manual':    {'title': 'User Manuals',  'icon': 'M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z M14 2v6h6 M16 13H8 M16 17H8 M10 9H8', 'empty': 'No user manuals available yet.'},
-    'flowchart': {'title': 'Flowcharts',    'icon': 'M3 3h18v18H3z M8 8h8 M8 12h8 M8 16h5',                                                                'empty': 'No flowcharts available yet.'},
-    'video':     {'title': 'Videos',        'icon': 'M22.54 6.42a2.78 2.78 0 0 0-1.94-2C18.88 4 12 4 12 4s-6.88 0-8.6.46a2.78 2.78 0 0 0-1.94 2A29 29 0 0 0 1 12a29 29 0 0 0 .46 5.58A2.78 2.78 0 0 0 3.4 19.6C5.12 20 12 20 12 20s6.88 0 8.6-.46a2.78 2.78 0 0 0 1.94-1.95A29 29 0 0 0 23 12a29 29 0 0 0-.46-5.58z M9.75 15.02l6.25-3.02-6.25-3.02v6.04z', 'empty': 'No videos available yet.'}
+    'manual':       {'title': 'User Manuals',           'icon': 'M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z M14 2v6h6 M16 13H8 M16 17H8 M10 9H8', 'empty': 'No user manuals available yet.'},
+    'flowchart':    {'title': 'Flowcharts',             'icon': 'M3 3h18v18H3z M8 8h8 M8 12h8 M8 16h5',                                                                'empty': 'No flowcharts available yet.'},
+    'video':        {'title': 'Videos',                 'icon': 'M22.54 6.42a2.78 2.78 0 0 0-1.94-2C18.88 4 12 4 12 4s-6.88 0-8.6.46a2.78 2.78 0 0 0-1.94 2A29 29 0 0 0 1 12a29 29 0 0 0 .46 5.58A2.78 2.78 0 0 0 3.4 19.6C5.12 20 12 20 12 20s6.88 0 8.6-.46a2.78 2.78 0 0 0 1.94-1.95A29 29 0 0 0 23 12a29 29 0 0 0-.46-5.58z M9.75 15.02l6.25-3.02-6.25-3.02v6.04z', 'empty': 'No videos available yet.'},
+    'office_order': {'title': 'TRANSCO Office Orders (TOO) — Vigilance &amp; Security', 'icon': 'M9 5H7a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-2 M9 5a2 2 0 0 0 2 2h2a2 2 0 0 0 2-2 M9 5a2 2 0 0 0 2-2h2a2 2 0 0 0 2 2 M9 12h6 M9 16h4', 'empty': 'No office orders published yet. Upload TOOs related to Vigilance and Security to display them on the landing page.'},
+    'news':         {'title': 'News &amp; Updates (Landing Page)',    'icon': 'M4 22h16a2 2 0 0 0 2-2V4a2 2 0 0 0-2-2H8a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2zm0 0L2.5 19.5 M16 2v4 M8 2v4 M3 10h18', 'empty': 'No news articles published yet. Upload news items to display them on the public landing page with glowing highlights.'}
 } %}
 
 {% for section_key, meta in section_meta.items() %}
@@ -109,9 +111,15 @@
             <div class="form-group" style="margin:0;">
                 <label>Category <span class="required">*</span></label>
                 <select name="resource_type" required style="width:100%;">
-                    <option value="manual">📄 User Manual</option>
-                    <option value="flowchart">🔀 Flowchart</option>
-                    <option value="video">🎬 Video</option>
+                    <optgroup label="Help Resources">
+                        <option value="manual">📄 User Manual</option>
+                        <option value="flowchart">🔀 Flowchart</option>
+                        <option value="video">🎬 Video</option>
+                    </optgroup>
+                    <optgroup label="Landing Page (Public)">
+                        <option value="office_order">📋 TRANSCO Office Order (TOO)</option>
+                        <option value="news">📰 News / Update</option>
+                    </optgroup>
                 </select>
             </div>
             <div class="form-group" style="margin:0;">

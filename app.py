@@ -67,7 +67,7 @@ HELP_RESOURCE_ALLOWED_EXTENSIONS = {
     'jpg', 'jpeg', 'png', 'webp', 'svg',
     'mp4', 'webm', 'mov'
 }
-HELP_RESOURCE_TYPES = {'manual', 'flowchart', 'video'}
+HELP_RESOURCE_TYPES = {'manual', 'flowchart', 'video', 'office_order', 'news'}
 HELP_RESOURCE_STORAGE_KINDS = {'upload', 'external_url'}
 LOGIN_ATTEMPTS = {}
 VALID_RECEIVED_AT = {'jmd_office', 'cvo_apspdcl_tirupathi', 'cvo_apepdcl_vizag', 'cvo_apcpdcl_vijayawada'}
@@ -2048,7 +2048,37 @@ def index():
         # Keep landing page accessible even if database is not reachable.
         pass
 
-    return render_template('landing.html', landing_stats=landing_stats, live_status=live_status)
+    # Fetch landing page public resources (office orders & news)
+    landing_office_orders = []
+    landing_news = []
+    try:
+        all_resources = models.list_help_resources(active_only=True)
+        for r in all_resources:
+            if r.get('resource_type') == 'office_order':
+                entry = dict(r)
+                if r.get('storage_kind') == 'upload' and r.get('file_name'):
+                    from flask import url_for as _uf
+                    entry['view_url'] = _uf('help_resource_file', filename=r['file_name'])
+                elif r.get('storage_kind') == 'external_url':
+                    entry['view_url'] = r.get('external_url')
+                else:
+                    entry['view_url'] = None
+                landing_office_orders.append(entry)
+            elif r.get('resource_type') == 'news':
+                entry = dict(r)
+                if r.get('storage_kind') == 'upload' and r.get('file_name'):
+                    from flask import url_for as _uf
+                    entry['view_url'] = _uf('help_resource_file', filename=r['file_name'])
+                elif r.get('storage_kind') == 'external_url':
+                    entry['view_url'] = r.get('external_url')
+                else:
+                    entry['view_url'] = None
+                landing_news.append(entry)
+    except Exception:
+        pass
+
+    return render_template('landing.html', landing_stats=landing_stats, live_status=live_status,
+                           landing_office_orders=landing_office_orders, landing_news=landing_news)
 
 @app.route('/login', methods=['GET', 'POST'])
 def login():
@@ -5064,6 +5094,55 @@ def profile_photo_file(filename):
     return send_from_directory(PROFILE_UPLOAD_DIR, filename, as_attachment=False)
 
 
+@app.route('/petition-search')
+def petition_search_public():
+    """Public petition status lookup — returns minimal info (no PII)."""
+    q = (request.args.get('q') or '').strip()
+    field = (request.args.get('field') or 'efile_no').strip()
+    office = (request.args.get('office') or '').strip()
+    if not q or len(q) < 3:
+        return jsonify({'results': [], 'message': 'Please enter at least 3 characters.'})
+    if field not in ('efile_no', 'ereceipt_no'):
+        field = 'efile_no'
+    if office and office not in VALID_RECEIVED_AT:
+        office = ''
+    OFFICE_LABELS = {
+        'jmd_office': 'JMD Office, Hyderabad',
+        'cvo_apspdcl_tirupathi': 'CVO/DSP APSPDCL – Tirupathi',
+        'cvo_apepdcl_vizag': 'CVO/DSP APEPDCL – Vizag',
+        'cvo_apcpdcl_vijayawada': 'CVO/DSP APCPDCL – Vijayawada',
+    }
+    STATUS_LABELS = {
+        'received': 'Received',
+        'forwarded_to_cvo': 'Forwarded to CVO/DSP',
+        'sent_for_permission': 'Sent for Permission',
+        'permission_approved': 'Permission Approved',
+        'permission_rejected': 'Permission Rejected',
+        'assigned_to_inspector': 'Assigned to Inspector',
+        'sent_back_for_reenquiry': 'Sent Back for Re-Enquiry',
+        'enquiry_in_progress': 'Enquiry in Progress',
+        'enquiry_report_submitted': 'Enquiry Report Submitted',
+        'cvo_comments_added': 'CVO Comments Added',
+        'forwarded_to_po': 'Forwarded to PO',
+        'forwarded_to_jmd': 'Forwarded to JMD',
+        'action_instructed': 'Action Instructed',
+        'closed': 'Closed',
+    }
+    try:
+        results = models.public_petition_status_lookup(q, field, office or None)
+        out = []
+        for r in results:
+            out.append({
+                'sno': r.get('sno') or '—',
+                'status': STATUS_LABELS.get(r.get('status'), str(r.get('status') or '').replace('_', ' ').title()),
+                'received_date': r['received_date'].strftime('%d %b %Y') if r.get('received_date') else '—',
+                'office': OFFICE_LABELS.get(r.get('received_at'), str(r.get('received_at') or '').replace('_', ' ').title()),
+            })
+        return jsonify({'results': out})
+    except Exception:
+        return jsonify({'results': [], 'message': 'Could not connect to database. Please try again.'})
+
+
 @app.route('/help-resources/files/<path:filename>')
 @login_required
 def help_resource_file(filename):
@@ -5084,7 +5163,7 @@ def help_center():
 
 def _build_grouped_resources(active_only=True):
     resources = models.list_help_resources(active_only=active_only)
-    grouped_resources = {key: [] for key in ('manual', 'flowchart', 'video')}
+    grouped_resources = {key: [] for key in ('manual', 'flowchart', 'video', 'office_order', 'news')}
     for resource in resources:
         entry = dict(resource)
         mime_type = (entry.get('mime_type') or '').strip().lower()
