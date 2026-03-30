@@ -1,3 +1,6 @@
+# Generated from: pip install -r requirements.txt && pip freeze > requirements-lock.txt
+# NOTE: rapidfuzz and other packages must be installed first:
+#   pip install -r requirements.txt && pip freeze > requirements-lock.txt
 blinker==1.9.0
 click==8.3.1
 colorama==0.4.6

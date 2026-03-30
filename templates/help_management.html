@@ -93,8 +93,73 @@
 </div>
 {% endfor %}
 
-{# ── Admin management section (super_admin / po only) ───────────────────── #}
+{# ── Bulk Petition Import (super_admin / po only) ───────────────────────── #}
 {% if is_admin %}
+<div id="bulk-petition-import" class="card" style="margin-top:2rem;">
+    <div class="card-header">
+        <h3>Bulk Upload Previous Petitions</h3>
+        <a class="btn btn-sm btn-outline" href="{{ url_for('petitions_import_template') }}">Download Template (.csv)</a>
+    </div>
+    <div style="padding:20px 28px 0;">
+        <p style="margin:0 0 6px;color:var(--text-muted,#94a3b8);font-size:.92rem;line-height:1.5;">
+            Upload historical/previous petitions via <strong>.xlsx</strong> or <strong>.csv</strong> file.
+            Data is mapped to the current petition format automatically.
+            Missing optional fields are filled with sensible defaults — only <code>subject</code> is required.
+        </p>
+    </div>
+
+    <form method="POST" action="{{ url_for('petitions_import_upload') }}" enctype="multipart/form-data" style="padding:16px 28px 24px;">
+        <input type="hidden" name="_return_to" value="help">
+        <div style="display:grid;grid-template-columns:1fr auto;gap:16px;align-items:end;">
+            <div class="form-group" style="margin:0;">
+                <label>Upload File (.xlsx or .csv) <span class="required">*</span></label>
+                <input type="file" name="petitions_file" accept=".xlsx,.csv" required style="width:100%;">
+            </div>
+            <button type="submit" class="btn btn-primary" style="white-space:nowrap;">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" style="margin-right:6px;vertical-align:middle;"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+                Upload &amp; Import
+            </button>
+        </div>
+    </form>
+
+    {# Collapsible field-mapping reference #}
+    <details style="padding:0 28px 24px;">
+        <summary style="cursor:pointer;font-weight:600;color:var(--text-secondary,#cbd5e1);font-size:.93rem;user-select:none;">
+            View Field Mapping Reference
+        </summary>
+        <div class="table-wrapper" style="margin-top:12px;">
+            <table class="data-table" style="font-size:.88rem;">
+                <thead>
+                    <tr><th>Column</th><th>Required</th><th>Notes / Fallback</th></tr>
+                </thead>
+                <tbody>
+                    <tr><td><code>subject</code></td><td>Yes</td><td>If blank, mapped from <code>remarks</code> or default text.</td></tr>
+                    <tr><td><code>received_date</code></td><td>No</td><td>YYYY-MM-DD, DD-MM-YYYY, DD/MM/YYYY accepted. Defaults to today.</td></tr>
+                    <tr><td><code>received_at</code></td><td>No</td><td>Office aliases supported; derived from <code>target_cvo</code> if missing.</td></tr>
+                    <tr><td><code>target_cvo</code></td><td>No</td><td>Aliases supported; derived from <code>received_at</code> if missing.</td></tr>
+                    <tr><td><code>petitioner_name</code></td><td>No</td><td>Defaults to "Anonymous" if blank.</td></tr>
+                    <tr><td><code>contact</code>, <code>place</code></td><td>No</td><td>Left blank if not provided.</td></tr>
+                    <tr><td><code>petition_type</code></td><td>No</td><td>Label-to-value mapping. Invalid/blank → <code>other</code>.</td></tr>
+                    <tr><td><code>source_of_petition</code></td><td>No</td><td>Alias mapping. Default → <code>public_individual</code>.</td></tr>
+                    <tr><td><code>govt_institution_type</code></td><td>No</td><td>Only when source is <code>govt</code>.</td></tr>
+                    <tr><td><code>enquiry_type</code></td><td>No</td><td><code>preliminary</code> / <code>detailed</code>. Default: <code>detailed</code>.</td></tr>
+                    <tr><td><code>permission_request_type</code></td><td>No</td><td>Auto-resolved with <code>requires_permission</code> &amp; <code>permission_status</code>.</td></tr>
+                    <tr><td><code>status</code></td><td>No</td><td>Invalid/blank → <code>received</code>.</td></tr>
+                    <tr><td><code>efile_no</code>, <code>ereceipt_no</code>, <code>remarks</code></td><td>No</td><td>Imported as-is.</td></tr>
+                    <tr><td><code>assigned_inspector_username</code></td><td>No</td><td>Maps to inspector if valid username found.</td></tr>
+                </tbody>
+            </table>
+        </div>
+        <div style="margin-top:10px;color:var(--text-muted,#94a3b8);font-size:.85rem;">
+            <strong>Template headers:</strong>
+            {% for h in bulk_import_headers %}
+            <code>{{ h }}</code>{% if not loop.last %}, {% endif %}
+            {% endfor %}
+        </div>
+    </details>
+</div>
+
+{# ── Admin management section (super_admin / po only) ───────────────────── #}
 <div id="help-manage" class="card" style="margin-top:2rem;">
     <div class="card-header">
         <h3 data-i18n="help.add_resource">Add Help Resource</h3>

@@ -15,3 +15,7 @@ server.err.log
 pytest_out.txt
 *.codex-backup
 test_app_routes.py
+# Dev-only utility scripts — not part of production deployment
+extract_landing.py
+git_extract.py
+git_read.py

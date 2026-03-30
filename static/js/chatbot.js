@@ -236,9 +236,10 @@
 
         showTyping();
 
+        const _csrfToken = document.querySelector('meta[name="csrf-token"]')?.content || '';
         fetch('/api/chatbot', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': _csrfToken },
             body: JSON.stringify({ message: text }),
         })
             .then(r => r.json())
@@ -570,7 +571,7 @@
           <ul class="nigaa-role-resp-list">
             ${(roleData.responsibilities || []).map(r => `<li>${escHtml(r)}</li>`).join('')}
           </ul>
-          ${roleData.key_link ? `<a href="${escHtml(roleData.key_link)}" class="nigaa-view-all-link">Go to my work →</a>` : ''}
+          ${roleData.key_link ? `<a href="${escHtml(safeUrl(roleData.key_link))}" class="nigaa-view-all-link">Go to my work →</a>` : ''}
         `;
         wrap.appendChild(card);
         appendMsg(wrap);
@@ -646,8 +647,8 @@
           <div class="nigaa-card-title">🚨 Urgent / SLA Breach</div>
           <div class="nigaa-urgent-msg">${escHtml(data.message || 'Review petitions beyond SLA threshold.')}</div>
           <div class="nigaa-urgent-actions">
-            <a href="${escHtml(data.url || '/petitions?status=beyond_sla')}" class="nigaa-urgent-btn" target="_blank">⚠️ View Overdue Petitions</a>
-            <a href="${escHtml(data.sla_url || '/sla_dashboard')}" class="nigaa-urgent-btn nigaa-urgent-btn-sec" target="_blank">📊 SLA Dashboard</a>
+            <a href="${escHtml(safeUrl(data.url || '/petitions?status=beyond_sla'))}" class="nigaa-urgent-btn" target="_blank">⚠️ View Overdue Petitions</a>
+            <a href="${escHtml(safeUrl(data.sla_url || '/sla_dashboard'))}" class="nigaa-urgent-btn nigaa-urgent-btn-sec" target="_blank">📊 SLA Dashboard</a>
           </div>
         `;
         wrap.appendChild(card);
@@ -665,7 +666,7 @@
         card.appendChild(titleEl);
         const sub = document.createElement('div');
         sub.className = 'nigaa-suggest-subtitle';
-        sub.textContent = `Here's what you should focus on, ${escHtml(data.user_name || '')}:`;
+        sub.textContent = `Here's what you should focus on, ${data.user_name || ''}:`;
         card.appendChild(sub);
         (data.actions || []).forEach(action => {
             const item = document.createElement('div');
@@ -680,7 +681,7 @@
                   <span class="nigaa-suggest-badge" style="background:${pColor}20;color:${pColor};border-color:${pColor}40">${(action.priority || 'low').toUpperCase()}</span>
                 </div>
                 <div class="nigaa-suggest-desc">${escHtml(action.desc)}</div>
-                ${action.link ? `<a href="${escHtml(action.link)}" class="nigaa-suggest-link">${escHtml(action.link_label || 'View →')}</a>` : ''}
+                ${action.link ? `<a href="${escHtml(safeUrl(action.link))}" class="nigaa-suggest-link">${escHtml(action.link_label || 'View →')}</a>` : ''}
               </div>
             `;
             card.appendChild(item);
@@ -797,6 +798,15 @@
         return String(s || '')
             .replace(/&/g, '&amp;').replace(/</g, '&lt;')
             .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    }
+
+    /* Only allow same-origin relative paths and http/https absolute URLs.
+       Blocks javascript:, data:, vbscript:, and any other dangerous protocol. */
+    function safeUrl(url) {
+        const s = String(url || '').trim();
+        if (!s) return '#';
+        if (/^(https?:\/\/|\/)/i.test(s)) return s;
+        return '#';
     }
 
     /* ── Inline mini bear-bot SVG (matches mascot) ─ */

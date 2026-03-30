@@ -1315,6 +1315,7 @@ def _security_before_request():
 def _security_after_request(response):
     response.headers.setdefault('X-Content-Type-Options', 'nosniff')
     response.headers.setdefault('X-Frame-Options', 'DENY')
+    response.headers.setdefault('X-XSS-Protection', '0')
     response.headers.setdefault('Referrer-Policy', 'strict-origin-when-cross-origin')
     response.headers.setdefault('Permissions-Policy', 'geolocation=(), microphone=(), camera=()')
     response.headers.setdefault('Cross-Origin-Opener-Policy', 'same-origin')
@@ -1334,6 +1335,10 @@ def _security_after_request(response):
             "form-action 'self'; "
             "frame-ancestors 'none'"
         )
+    # Prevent caching of authenticated / sensitive responses.
+    if 'user_id' in session or request.path.startswith('/api/'):
+        response.headers.setdefault('Cache-Control', 'no-store, no-cache, must-revalidate, private')
+        response.headers.setdefault('Pragma', 'no-cache')
     return response
 
 
@@ -1400,7 +1405,10 @@ def get_form_field_config(form_key, field_key):
 
 
 def _is_otp_login_enabled():
-    return os.getenv('OTP_ENABLED', 'True').strip().lower() in ('1', 'true', 'yes', 'on')
+    # OTP_LOGIN_ENABLED is the canonical env var (see .env.example).
+    # OTP_ENABLED is kept as a fallback for backward compatibility.
+    val = os.getenv('OTP_LOGIN_ENABLED') or os.getenv('OTP_ENABLED', '1')
+    return val.strip().lower() in ('1', 'true', 'yes', 'on')
 
 
 def _normalize_mobile_for_otp(phone):
@@ -3689,7 +3697,7 @@ def petition_new():
 
 @app.route('/petitions/import')
 @login_required
-@role_required('po')
+@role_required('po', 'super_admin')
 def petitions_import():
     return render_template(
         'petitions_import.html',
@@ -3699,7 +3707,7 @@ def petitions_import():
 
 @app.route('/petitions/import/template')
 @login_required
-@role_required('po')
+@role_required('po', 'super_admin')
 def petitions_import_template():
     sample = {
         'received_date': date.today().strftime('%Y-%m-%d'),
@@ -3736,12 +3744,14 @@ def petitions_import_template():
 
 @app.route('/petitions/import/upload', methods=['POST'])
 @login_required
-@role_required('po')
+@role_required('po', 'super_admin')
 def petitions_import_upload():
+    _return_to = (request.form.get('_return_to') or '').strip()
+    _import_back = url_for('help_page') if _return_to == 'help' else url_for('petitions_import')
     upload = request.files.get('petitions_file')
     if not upload or not upload.filename:
         flash('Please choose an Excel/CSV file to upload.', 'warning')
-        return redirect(url_for('petitions_import'))
+        return redirect(_import_back)
 
     try:
         rows = _parse_tabular_upload_rows(
@@ -3752,11 +3762,11 @@ def petitions_import_upload():
     except Exception as e:
         app.logger.exception('Unable to parse petition import upload file')
         flash('Unable to parse upload file. Please verify format and retry.', 'danger')
-        return redirect(url_for('petitions_import'))
+        return redirect(_import_back)
 
     if not rows:
         flash('Uploaded file is empty.', 'warning')
-        return redirect(url_for('petitions_import'))
+        return redirect(_import_back)
 
     active_users = [u for u in models.get_all_users() if u.get('is_active')]
     user_by_username = {(u.get('username') or '').strip().lower(): u for u in active_users if u.get('username')}
@@ -3934,7 +3944,7 @@ def petitions_import_upload():
     if errors:
         preview = '; '.join(errors[:5]) + ('; ...' if len(errors) > 5 else '')
         flash(f'Import errors: {preview}', 'danger')
-    return redirect(url_for('petitions_import'))
+    return redirect(_import_back)
 
 
 @app.route('/petitions/<int:petition_id>')
@@ -5272,7 +5282,7 @@ def help_page():
     is_admin = session.get('user_role') in ('super_admin', 'po')
     resources = models.list_help_resources(active_only=False) if is_admin else []
     grouped_resources = _build_grouped_resources(active_only=True)
-    return render_template('help_management.html', resources=resources, grouped_resources=grouped_resources, is_admin=is_admin)
+    return render_template('help_management.html', resources=resources, grouped_resources=grouped_resources, is_admin=is_admin, bulk_import_headers=IMPORT_PETITION_HEADERS)
 
 
 @app.route('/profile', methods=['GET', 'POST'])
