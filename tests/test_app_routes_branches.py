@@ -180,9 +180,26 @@ def _post_action(client, role, action, data=None, multipart=False):
     return client.post("/petitions/1/action", data=payload)
 
 
-def _post_login(client, username="u", password="p"):
+def _issue_login_captcha(client, answer="482753", issued_at=None):
     client.get("/login")
-    _, captcha_token = app_module.generate_login_captcha("482753")
+    with client.session_transaction() as session_data:
+        challenges = dict(session_data.get("login_captcha_challenges") or {})
+        assert challenges
+        captcha_token = next(reversed(challenges))
+        challenge = dict(challenges[captcha_token])
+        challenge["answer_digest"] = app_module._login_captcha_answer_digest(captcha_token, answer)
+        challenge["image_b64"] = app_module.base64.b64encode(
+            app_module._build_login_captcha_bmp(answer)
+        ).decode("ascii")
+        if issued_at is not None:
+            challenge["issued_at"] = issued_at
+        challenges[captcha_token] = challenge
+        session_data["login_captcha_challenges"] = challenges
+        return captcha_token
+
+
+def _post_login(client, username="u", password="p"):
+    captcha_token = _issue_login_captcha(client, "482753")
     return client.post(
         "/login",
         data={
@@ -236,8 +253,7 @@ def test_login_session_cookie_is_opaque(monkeypatch):
     app_module.app.config["TESTING"] = True
     app_module.TEST_SERVER_SESSION_STORE.clear()
     with app_module.app.test_client() as client:
-        client.get("/login")
-        _, captcha_token = app_module.generate_login_captcha("482753")
+        captcha_token = _issue_login_captcha(client, "482753")
         response = client.post(
             "/login",
             data={
@@ -843,6 +859,16 @@ def test_login_page_does_not_embed_captcha_answer_in_html():
         assert '<img src="/auth/login-captcha/' in html
 
 
+def test_login_captcha_image_is_served_from_session_state():
+    app_module.app.config["TESTING"] = True
+    with app_module.app.test_client() as client:
+        captcha_token = _issue_login_captcha(client, "482753")
+        response = client.get(f"/auth/login-captcha/{captcha_token}")
+        assert response.status_code == 200
+        assert response.mimetype == "image/bmp"
+        assert response.headers["Cache-Control"].startswith("no-store")
+
+
 def test_request_entity_too_large_rejects_external_referer(monkeypatch):
     app_module.app.config["TESTING"] = True
     with app_module.app.test_client() as client:
@@ -859,18 +885,23 @@ def test_request_entity_too_large_rejects_external_referer(monkeypatch):
 def test_login_captcha_token_is_single_use():
     app_module.LOGIN_CAPTCHA_USED_TOKENS.clear()
     app_module.LOGIN_CAPTCHA_CHALLENGES.clear()
-    _, captcha_token = app_module.generate_login_captcha("482753")
-    assert app_module.validate_login_captcha("482753", captcha_token) is True
-    assert app_module.validate_login_captcha("482753", captcha_token) is False
+    with app_module.app.test_request_context("/login"):
+        _, captcha_token = app_module.generate_login_captcha("482753")
+        assert app_module.validate_login_captcha("482753", captcha_token) is True
+        assert app_module.validate_login_captcha("482753", captcha_token) is False
 
 
 def test_login_captcha_token_expires(monkeypatch):
     app_module.LOGIN_CAPTCHA_USED_TOKENS.clear()
     app_module.LOGIN_CAPTCHA_CHALLENGES.clear()
     now_ts = 1_800_000_000
-    _, captcha_token = app_module.generate_login_captcha("482753", issued_at=now_ts - app_module.LOGIN_CAPTCHA_TTL_SECONDS - 1)
-    monkeypatch.setattr(app_module.time, "time", lambda: now_ts)
-    assert app_module.validate_login_captcha("482753", captcha_token) is False
+    with app_module.app.test_request_context("/login"):
+        _, captcha_token = app_module.generate_login_captcha(
+            "482753",
+            issued_at=now_ts - app_module.LOGIN_CAPTCHA_TTL_SECONDS - 1,
+        )
+        monkeypatch.setattr(app_module.time, "time", lambda: now_ts)
+        assert app_module.validate_login_captcha("482753", captcha_token) is False
 
 
 def test_petition_action_negative_matrix(monkeypatch):

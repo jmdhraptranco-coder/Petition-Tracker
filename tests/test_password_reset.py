@@ -117,8 +117,19 @@ def _get_session(client):
 
 # ─── helper: patch OTP helpers ────────────────────────────────────────────────
 
-def _captcha_form(answer="482753"):
-    _, token = app_module.generate_login_captcha(answer)
+def _captcha_form(client, answer="482753"):
+    client.get("/login")
+    with client.session_transaction() as session_data:
+        challenges = dict(session_data.get("login_captcha_challenges") or {})
+        assert challenges
+        token = next(reversed(challenges))
+        challenge = dict(challenges[token])
+        challenge["answer_digest"] = app_module._login_captcha_answer_digest(token, answer)
+        challenge["image_b64"] = app_module.base64.b64encode(
+            app_module._build_login_captcha_bmp(answer)
+        ).decode("ascii")
+        challenges[token] = challenge
+        session_data["login_captcha_challenges"] = challenges
     return {
         "captcha_answer": answer,
         "captcha_token": token,
@@ -613,7 +624,7 @@ class TestLoginMustChangePassword:
             "username": "officer1",
             "password": "Nigaa@123",
             "login_action": "credentials",
-            **_captcha_form(),
+            **_captcha_form(client),
         })
         assert r.status_code == 302
         assert "first-login-setup" in r.headers["Location"]
@@ -625,7 +636,7 @@ class TestLoginMustChangePassword:
             "username": "officer1",
             "password": "Nigaa@123",
             "login_action": "credentials",
-            **_captcha_form(),
+            **_captcha_form(client),
         })
         sess = _get_session(client)
         assert sess.get("force_change_user_id") == NORMAL_USER["id"]
@@ -641,7 +652,7 @@ class TestLoginMustChangePassword:
             "username": "officer1",
             "password": "Pass@1234",
             "login_action": "credentials",
-            **_captcha_form(),
+            **_captcha_form(client),
         })
         # Should NOT redirect to first-login-setup
         assert "first-login-setup" not in r.headers.get("Location", "")
@@ -659,7 +670,7 @@ class TestLoginMustChangePassword:
             "username": "deo_apcpdcl",
             "password": "Nigaa@123",
             "login_action": "credentials",
-            **_captcha_form(),
+            **_captcha_form(client),
         })
         assert r.status_code == 302
         assert "first-login-setup" in r.headers["Location"]
@@ -675,7 +686,7 @@ class TestLoginMustChangePassword:
             "username": "deo_apcpdcl",
             "password": "Nigaa@123",
             "login_action": "credentials",
-            **_captcha_form(),
+            **_captcha_form(client),
         })
         sess = _get_session(client)
         assert sess.get("force_change_user_id") == NORMAL_USER["id"]
@@ -692,7 +703,7 @@ class TestLoginMustChangePassword:
             "username": "deo_apcpdcl",
             "password": "Nigaa@123",
             "login_action": "credentials",
-            **_captcha_form(),
+            **_captcha_form(client),
         }, follow_redirects=True)
         # Must NOT see the old dead-end error on the login page
         assert b"Contact admin to update phone number" not in r.data

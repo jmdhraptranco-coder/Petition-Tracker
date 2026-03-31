@@ -135,9 +135,10 @@
   .hero {
     position: relative; z-index: 2;
     min-height: 100vh; display: flex; align-items: center;
+    justify-content: center;
     padding: 7rem 5% 3rem; gap: 2rem;
   }
-  .hero-text { flex: 1.1; max-width: 580px; }
+  .hero-text { flex: 1.1; max-width: 700px; margin: 0 auto; text-align: center; }
   .hero-badge {
     display: inline-flex; align-items: center; gap: 0.5rem;
     background: rgba(245,166,35,0.1); border: 1px solid rgba(245,166,35,0.2);
@@ -276,6 +277,7 @@
 
   .hero-actions {
     display: flex; gap: 1rem; flex-wrap: wrap;
+    justify-content: center;
     animation: fadeSlideUp 0.8s ease-out 0.4s both;
     margin-bottom: 0.2rem;
   }
@@ -783,9 +785,6 @@
     </div>
   </a>
   <div class="nav-links">
-    <a href="#too-section">TOO Orders</a>
-    <a href="#news-section">Updates</a>
-    <a href="#features">Features</a>
     <button id="themeToggle" class="theme-toggle" type="button" aria-label="Toggle night mode" aria-pressed="false" title="Toggle night mode">
       <span class="theme-toggle-icon theme-toggle-sun" aria-hidden="true">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="4"/><path d="M12 2v2"/><path d="M12 20v2"/><path d="M4.93 4.93l1.41 1.41"/><path d="M17.66 17.66l1.41 1.41"/><path d="M2 12h2"/><path d="M20 12h2"/><path d="M6.34 17.66l-1.41 1.41"/><path d="M19.07 4.93l-1.41 1.41"/></svg>
@@ -804,253 +803,13 @@
     <div class="hero-badge"><span class="badge-dot"></span> APTRANSCO Vigilance Wing</div>
     <h1>PORTAL<br><span class="gold">NIGAA</span> <span class="outline">నిఘా</span></h1>
     <p class="hero-subtitle">Vigilance Petition Tracking System</p>
+    <p style="max-width: 560px; margin: 0 auto 1.8rem; color: var(--text-dim); line-height: 1.7; font-size: 0.98rem;">
+      Secure internal portal for APTRANSCO vigilance officers to manage petitions and workflow actions.
+    </p>
 
     <div class="hero-actions">
       <a href="{{ url_for('login') }}" class="btn-primary"><span>🛡️</span> Staff Portal Login</a>
-      <a href="#too-section" class="btn-secondary"><span>📋</span> Office Orders</a>
     </div>
-
-    <!-- SEARCH TRIGGER -->
-    <button class="btn-track" id="openSearchModal">
-      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
-      Track Petition Status
-      <span class="btn-track-pulse"></span>
-    </button>
-  </div>
-
-  <!-- 3D OFFICER -->
-  <div class="hero-3d">
-    <div class="scan-ring"></div><div class="scan-ring"></div><div class="scan-ring"></div>
-    <div class="officer-container">
-      <div class="float-item">📋</div><div class="float-item">✍️</div><div class="float-item">📂</div><div class="float-item">🔒</div><div class="float-item"><img src="{{ url_for('static', filename='img/nigaa-logo.svg') }}" alt=""></div>
-      <div class="thought-bubble"><div class="thought-text" id="thoughtText">Reviewing petition #247...</div></div>
-      <div class="magnifier"><div class="mag-glass"><div class="mag-shine"></div></div></div>
-      <div class="status-hud">
-        <div class="hud-title">Live Status</div>
-        <div class="hud-item"><span class="hud-dot green"></span> {{ live_status.resolved_today }} Resolved Today</div>
-        <div class="hud-item"><span class="hud-dot gold"></span> {{ live_status.under_review }} Under Review</div>
-        <div class="hud-item"><span class="hud-dot red"></span> {{ live_status.urgent_pending }} Urgent Pending</div>
-      </div>
-      <div class="officer-whole">
-        <div class="head-group">
-          <div class="head-sphere">
-            <div class="ear left"></div><div class="ear right"></div>
-            <div class="brow left"></div><div class="brow right"></div>
-            <div class="eyes-group" id="eyesGroup">
-              <div class="eye-socket"><div class="iris" id="irisL"></div><div class="eyelid"></div></div>
-              <div class="eye-socket"><div class="iris" id="irisR"></div><div class="eyelid"></div></div>
-            </div>
-            <div class="nose"></div>
-            <div class="cheek left"></div><div class="cheek right"></div>
-            <div class="mouth-group"><div class="mouth-shape"><div class="teeth"></div></div></div>
-          </div>
-          <div class="cap-group">
-            <div class="cap-crown"><div class="cap-band"></div><div class="cap-star"></div></div>
-            <div class="cap-visor"><div class="cap-visor-shine"></div></div>
-          </div>
-        </div>
-        <div class="torso-group">
-          <div class="torso-body">
-            <div class="epaulette left"><div class="epaulette-star"></div></div>
-            <div class="epaulette right"><div class="epaulette-star"></div></div>
-            <div class="chest-star"></div><div class="name-plate">VIGILANCE</div>
-            <div class="uni-btn"></div><div class="uni-btn"></div><div class="uni-btn"></div><div class="uni-btn"></div><div class="uni-btn"></div>
-            <div class="pocket left"><div class="pocket-flap"></div></div>
-            <div class="pocket right"><div class="pocket-flap"></div></div>
-            <div class="belt"><div class="belt-buckle"></div></div>
-            <div class="arm-group left"><div class="upper-arm"></div><div class="forearm"></div><div class="hand-shape"></div></div>
-            <div class="arm-group right"><div class="upper-arm"></div><div class="forearm"></div><div class="hand-shape"></div></div>
-          </div>
-          <div class="clipboard-holder">
-            <div class="clipboard-board">
-              <div class="clipboard-clip"></div>
-              <div class="clipboard-paper">
-                <div class="paper-header"></div>
-                <div class="paper-line scanning"></div><div class="paper-line scanning"></div>
-                <div class="paper-line scanning"></div><div class="paper-line scanning"></div>
-                <div class="paper-line scanning"></div><div class="paper-line scanning"></div>
-                <div class="paper-line scanning"></div>
-              </div>
-              <div class="paper-stamp">✓</div>
-            </div>
-          </div>
-          <div class="pen"><div class="pen-tip"></div></div>
-          <div class="legs-group">
-            <div class="leg left"><div class="shoe"><div class="shoe-shine"></div></div></div>
-            <div class="leg right"><div class="shoe"><div class="shoe-shine"></div></div></div>
-          </div>
-        </div>
-      </div>
-      <div class="officer-ground-shadow"></div>
-    </div>
-  </div>
-</section>
-
-<!-- TICKER BAR -->
-<div class="ticker-bar">
-  <div class="ticker-label">Latest</div>
-  <div class="ticker-track">
-    <div class="ticker-content" id="tickerContent">
-      {% if landing_office_orders or landing_news %}
-        {% for item in landing_office_orders[:5] %}
-          <span class="ticker-item"><span>TOO:</span> {{ item.title }}</span><span class="ticker-dot"></span>
-        {% endfor %}
-        {% for item in landing_news[:5] %}
-          <span class="ticker-item"><span>UPDATE:</span> {{ item.title }}</span><span class="ticker-dot"></span>
-        {% endfor %}
-        {# Duplicate for seamless loop #}
-        {% for item in landing_office_orders[:5] %}
-          <span class="ticker-item"><span>TOO:</span> {{ item.title }}</span><span class="ticker-dot"></span>
-        {% endfor %}
-        {% for item in landing_news[:5] %}
-          <span class="ticker-item"><span>UPDATE:</span> {{ item.title }}</span><span class="ticker-dot"></span>
-        {% endfor %}
-      {% else %}
-        <span class="ticker-item"><span>APTRANSCO</span> Portal Nigaa — Vigilance Petition Tracking System</span>
-        <span class="ticker-dot"></span>
-        <span class="ticker-item"><span>INFO:</span> Staff login required to access portal. Contact Vigilance Wing for queries.</span>
-        <span class="ticker-dot"></span>
-        <span class="ticker-item"><span>APTRANSCO</span> Vidyut Soudha, Gundala, Vijayawada – 520 004</span>
-        <span class="ticker-dot"></span>
-        <span class="ticker-item"><span>APTRANSCO</span> Portal Nigaa — Vigilance Petition Tracking System</span>
-        <span class="ticker-dot"></span>
-        <span class="ticker-item"><span>INFO:</span> Staff login required to access portal. Contact Vigilance Wing for queries.</span>
-        <span class="ticker-dot"></span>
-        <span class="ticker-item"><span>APTRANSCO</span> Vidyut Soudha, Gundala, Vijayawada – 520 004</span>
-        <span class="ticker-dot"></span>
-      {% endif %}
-    </div>
-  </div>
-</div>
-
-<!-- STATS STRIP -->
-<section class="stats-strip" id="stats">
-  <div class="stat-card">
-    <span class="stat-number" data-count="{{ landing_stats.petitions_tracked }}">{{ landing_stats.petitions_tracked }}</span>
-    <div class="stat-label">Petitions Tracked</div>
-  </div>
-  <div class="stat-card">
-    <span class="stat-number" data-count="{{ landing_stats.offices_covered }}">{{ landing_stats.offices_covered }}</span>
-    <div class="stat-label">Offices Covered</div>
-  </div>
-  <div class="stat-card">
-    <span class="stat-number" data-count="{{ landing_stats.resolution_rate }}">{{ landing_stats.resolution_rate }}</span>
-    <div class="stat-label">Resolution Rate (%)</div>
-  </div>
-  <div class="stat-card">
-    <span class="stat-number" data-count="{{ landing_stats.active_monitoring }}">{{ landing_stats.active_monitoring }}</span>
-    <div class="stat-label">Active Monitoring</div>
-  </div>
-</section>
-
-<!-- TOO ORDERS + NEWS TWO-COLUMN -->
-<div class="info-section">
-  <!-- TOO Orders Column -->
-  <div class="info-col reveal" id="too-section">
-    <div class="section-header">
-      <div class="section-tag">Office Circulars</div>
-      <div class="section-title">TOO Orders</div>
-      <div class="section-divider"></div>
-      <div style="font-size:0.75rem;color:var(--text-dim);margin-top:0.5rem;">Transco Office Orders — Vigilance &amp; Security</div>
-    </div>
-    <div class="too-list">
-      {% if landing_office_orders %}
-        {% for item in landing_office_orders %}
-        <div class="too-card">
-          <div class="too-icon">📄</div>
-          <div class="too-body">
-            <div class="too-title">{{ item.title }}</div>
-            <div class="too-meta">
-              {% if item.get('created_at') %}
-              <span class="too-date">{{ item.created_at.strftime('%d %b %Y') if item.created_at else '' }}</span>
-              {% endif %}
-              <span class="too-badge">TOO</span>
-            </div>
-          </div>
-          {% if item.view_url %}
-          <a href="{{ item.view_url }}" class="too-link" target="_blank" rel="noopener">View ↗</a>
-          {% else %}
-          <a href="{{ url_for('login') }}" class="too-link">Login</a>
-          {% endif %}
-        </div>
-        {% endfor %}
-      {% else %}
-        <div class="too-empty">
-          <div style="font-size:1.8rem;margin-bottom:0.5rem;">📋</div>
-          <div>No TOO Orders published yet.</div>
-          <div style="font-size:0.72rem;margin-top:0.3rem;opacity:0.7;">Upload via Super Admin → Resources</div>
-        </div>
-      {% endif %}
-    </div>
-    {% if landing_office_orders|length > 5 %}
-    <div class="view-more-row">
-      <a href="{{ url_for('login') }}" class="btn-outline-gold">View All Orders ›</a>
-    </div>
-    {% endif %}
-  </div>
-
-  <!-- News & Updates Column -->
-  <div class="info-col reveal" id="news-section">
-    <div class="section-header">
-      <div class="section-tag">Announcements</div>
-      <div class="section-title">News &amp; Updates</div>
-      <div class="section-divider"></div>
-      <div style="font-size:0.75rem;color:var(--text-dim);margin-top:0.5rem;">Latest from Vigilance &amp; Security Wing</div>
-    </div>
-    <div class="news-list">
-      {% if landing_news %}
-        {% for item in landing_news %}
-        <div class="news-card">
-          <div class="news-card-top">
-            <span class="news-badge-new">NEW</span>
-            <div class="news-title">{{ item.title }}</div>
-          </div>
-          {% if item.get('description') %}
-          <div class="news-desc">{{ item.description }}</div>
-          {% endif %}
-          <div class="news-footer">
-            {% if item.get('created_at') %}
-            <span class="news-date">{{ item.created_at.strftime('%d %b %Y') if item.created_at else '' }}</span>
-            {% else %}
-            <span></span>
-            {% endif %}
-            {% if item.view_url %}
-            <a href="{{ item.view_url }}" class="news-link" target="_blank" rel="noopener">Read More ↗</a>
-            {% else %}
-            <a href="{{ url_for('login') }}" class="news-link">Login to View</a>
-            {% endif %}
-          </div>
-        </div>
-        {% endfor %}
-      {% else %}
-        <div class="news-empty">
-          <div style="font-size:1.8rem;margin-bottom:0.5rem;">📰</div>
-          <div>No news or updates published yet.</div>
-          <div style="font-size:0.72rem;margin-top:0.3rem;opacity:0.7;">Upload via Super Admin → Resources</div>
-        </div>
-      {% endif %}
-    </div>
-    {% if landing_news|length > 5 %}
-    <div class="view-more-row">
-      <a href="{{ url_for('login') }}" class="btn-outline-gold">View All Updates ›</a>
-    </div>
-    {% endif %}
-  </div>
-</div>
-
-<!-- FEATURES -->
-<section class="features" id="features">
-  <div class="features-header reveal">
-    <div class="section-tag" style="text-align:center;">Powerful Capabilities</div>
-    <div class="section-title" style="text-align:center;font-size:clamp(1.4rem,2.5vw,2rem);">What Portal Nigaa Offers</div>
-  </div>
-  <div class="features-grid">
-    <div class="feature-card reveal"><div class="feature-icon">📊</div><h3>Real-Time Dashboard</h3><p>Comprehensive overview of all petitions with status indicators, priority levels, and aging analysis across all APTRANSCO circles and divisions.</p></div>
-    <div class="feature-card reveal"><div class="feature-icon">🔄</div><h3>Workflow Automation</h3><p>Automated routing, escalation timers, and status updates ensure petitions move through investigation stages without manual intervention.</p></div>
-    <div class="feature-card reveal"><div class="feature-icon">🏢</div><h3>Multi-Office Tracking</h3><p>Track petitions across Corporate Office, all circles, and field divisions with hierarchical access controls and consolidated reporting.</p></div>
-    <div class="feature-card reveal"><div class="feature-icon">📈</div><h3>Analytics &amp; Reports</h3><p>Generate MIS reports, trend analyses, and compliance summaries. Export data for board presentations and review meetings.</p></div>
-    <div class="feature-card reveal"><div class="feature-icon">🔔</div><h3>Alert System</h3><p>Automated reminders for pending actions, deadline breaches, and escalation triggers keep investigations on track.</p></div>
-    <div class="feature-card reveal"><div class="feature-icon">🔐</div><h3>Secure &amp; Auditable</h3><p>Role-based access control with complete audit trails. Every action is logged for transparency and accountability.</p></div>
   </div>
 </section>
 
@@ -1074,11 +833,8 @@
       <div class="footer-col-title">Quick Links</div>
       <ul class="footer-links-list">
         <li><a href="{{ url_for('login') }}">Staff Login</a></li>
-        <li><a href="#too-section">TOO Orders</a></li>
-        <li><a href="#news-section">News &amp; Updates</a></li>
-        <li><a href="#features">Features</a></li>
-        <li><a href="#stats">Statistics</a></li>
         <li><a href="mailto:vigilance@aptransco.gov.in">Contact Vigilance</a></li>
+        <li><a href="https://www.aptransco.gov.in" target="_blank" rel="noopener">APTRANSCO Website</a></li>
       </ul>
     </div>
 
@@ -1108,33 +864,6 @@
     <div class="footer-badge"><span></span> System Operational</div>
   </div>
 </footer>
-
-<!-- SEARCH POPUP MODAL -->
-<div class="search-overlay" id="searchOverlay">
-  <div class="search-panel">
-    <button class="search-panel-close" id="closeSearchModal">&#x2715;</button>
-    <div class="search-title">Track Your Petition Status</div>
-    <div class="search-tabs">
-      <button class="search-tab active" data-field="efile_no" id="tabEfile">E-Office No.</button>
-      <button class="search-tab" data-field="ereceipt_no" id="tabEreceipt">E-Receipt No.</button>
-    </div>
-    <div class="search-row">
-      <input class="search-input" type="text" id="searchInput" placeholder="Enter number (min. 3 chars)" autocomplete="off" spellcheck="false">
-      <select class="search-select" id="searchOffice">
-        <option value="">All Offices</option>
-        <option value="jmd_office">JMD Office, Hyderabad</option>
-        <option value="cvo_apspdcl_tirupathi">CVO/DSP APSPDCL – Tirupathi</option>
-        <option value="cvo_apepdcl_vizag">CVO/DSP APEPDCL – Vizag</option>
-        <option value="cvo_apcpdcl_vijayawada">CVO/DSP APCPDCL – Vijayawada</option>
-      </select>
-      <button class="btn-search" id="searchBtn">
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
-        Search
-      </button>
-    </div>
-    <div class="search-results" id="searchResults"></div>
-  </div>
-</div>
 
 <script>
 // Particles
@@ -1174,152 +903,6 @@ if (themeToggle) {
     localStorage.setItem(themeStorageKey, next);
   });
 }
-
-// Eye tracking
-const irisL = document.getElementById('irisL');
-const irisR = document.getElementById('irisR');
-const eyesGroup = document.getElementById('eyesGroup');
-document.addEventListener('mousemove', (e) => {
-  const rect = eyesGroup.getBoundingClientRect();
-  const cx = rect.left + rect.width / 2;
-  const cy = rect.top + rect.height / 2;
-  const angle = Math.atan2(e.clientY - cy, e.clientX - cx);
-  const dist = Math.min(Math.hypot(e.clientX - cx, e.clientY - cy) / 100, 1);
-  const ex = Math.cos(angle) * 6 * dist;
-  const ey = Math.sin(angle) * 5 * dist;
-  irisL.style.transform = `translate(${ex}px, ${ey}px)`;
-  irisR.style.transform = `translate(${ex}px, ${ey}px)`;
-});
-document.addEventListener('touchmove', (e) => {
-  const t = e.touches[0];
-  document.dispatchEvent(new MouseEvent('mousemove', { clientX: t.clientX, clientY: t.clientY }));
-}, { passive: true });
-
-// Thought bubble
-const thoughts = [
-  "Reviewing petition #247...", "Cross-checking SE office data...",
-  "3 complaints pending review...", "Updating investigation status...",
-  "Escalation alert — Case #89!", "Preparing MIS report...",
-  "Verifying complaint details...", "Forwarding to Circle Vigilance...",
-  "Checking deadline compliance...", "Approving field inspection report...",
-];
-let ti = 0;
-const tt = document.getElementById('thoughtText');
-setInterval(() => { ti = (ti + 1) % thoughts.length; tt.textContent = thoughts[ti]; }, 4000);
-
-// Search modal
-(function () {
-  const overlay = document.getElementById('searchOverlay');
-  const openBtn = document.getElementById('openSearchModal');
-  const closeBtn = document.getElementById('closeSearchModal');
-  const input = document.getElementById('searchInput');
-
-  function openModal() {
-    overlay.classList.add('open');
-    document.body.style.overflow = 'hidden';
-    setTimeout(() => input.focus(), 300);
-  }
-  function closeModal() {
-    overlay.classList.remove('open');
-    document.body.style.overflow = '';
-  }
-
-  openBtn.addEventListener('click', openModal);
-  closeBtn.addEventListener('click', closeModal);
-  overlay.addEventListener('click', e => { if (e.target === overlay) closeModal(); });
-  document.addEventListener('keydown', e => { if (e.key === 'Escape') closeModal(); });
-
-  let currentField = 'efile_no';
-  const tabs = document.querySelectorAll('.search-tab');
-  const officeEl = document.getElementById('searchOffice');
-  const btn = document.getElementById('searchBtn');
-  const resultsEl = document.getElementById('searchResults');
-
-  tabs.forEach(tab => {
-    tab.addEventListener('click', () => {
-      tabs.forEach(t => t.classList.remove('active'));
-      tab.classList.add('active');
-      currentField = tab.dataset.field;
-      input.placeholder = currentField === 'efile_no' ? 'Enter E-Office No. (min. 3 chars)' : 'Enter E-Receipt No. (min. 3 chars)';
-      resultsEl.classList.remove('show');
-      resultsEl.innerHTML = '';
-    });
-  });
-
-  function statusClass(s) {
-    const sl = (s || '').toLowerCase();
-    if (sl === 'closed') return 'status-closed';
-    if (sl.includes('urgent') || sl.includes('escalat')) return 'status-urgent';
-    return 'status-pending';
-  }
-
-  function doSearch() {
-    const q = input.value.trim();
-    if (!q || q.length < 3) {
-      resultsEl.innerHTML = '<div class="search-msg error">Please enter at least 3 characters.</div>';
-      resultsEl.classList.add('show');
-      return;
-    }
-    btn.disabled = true;
-    btn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg> Searching…';
-    resultsEl.innerHTML = '<div class="search-msg">Searching…</div>';
-    resultsEl.classList.add('show');
-
-    const params = new URLSearchParams({ q, field: currentField, office: officeEl.value });
-    fetch('/petition-search?' + params.toString())
-      .then(r => r.json())
-      .then(data => {
-        btn.disabled = false;
-        btn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg> Search';
-        if (!data.results || data.results.length === 0) {
-          resultsEl.innerHTML = '<div class="search-msg">' + (data.message || 'No petitions found.') + '</div>';
-          return;
-        }
-        let html = '';
-        data.results.forEach(r => {
-          html += `<div class="result-row">
-            <span class="result-sno">${r.sno}</span>
-            <span class="result-office">${r.office}</span>
-            <span class="result-date">${r.received_date}</span>
-            <span class="result-status ${statusClass(r.status)}">${r.status}</span>
-          </div>`;
-        });
-        resultsEl.innerHTML = html;
-      })
-      .catch(() => {
-        btn.disabled = false;
-        btn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg> Search';
-        resultsEl.innerHTML = '<div class="search-msg error">Could not connect. Please try again.</div>';
-      });
-  }
-
-  btn.addEventListener('click', doSearch);
-  input.addEventListener('keydown', e => { if (e.key === 'Enter') doSearch(); });
-})();
-
-// Animated counters
-const counters = document.querySelectorAll('.stat-number');
-const cObs = new IntersectionObserver((entries) => {
-  entries.forEach(entry => {
-    if (entry.isIntersecting) {
-      const el = entry.target, target = +el.dataset.count, start = performance.now();
-      const anim = (now) => {
-        const p = Math.min((now - start) / 2000, 1);
-        el.textContent = Math.round(target * (1 - Math.pow(1 - p, 3)));
-        if (p < 1) requestAnimationFrame(anim);
-      };
-      requestAnimationFrame(anim); cObs.unobserve(el);
-    }
-  });
-}, { threshold: 0.5 });
-counters.forEach(c => cObs.observe(c));
-
-// Reveal on scroll
-const reveals = document.querySelectorAll('.reveal');
-const rObs = new IntersectionObserver((entries) => {
-  entries.forEach(e => { if (e.isIntersecting) e.target.classList.add('visible'); });
-}, { threshold: 0.1 });
-reveals.forEach(el => rObs.observe(el));
 </script>
 </body>
 </html>

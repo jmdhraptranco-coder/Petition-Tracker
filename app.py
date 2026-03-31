@@ -20,6 +20,7 @@ import urllib.parse
 import ipaddress
 import time
 import hmac
+import hashlib
 import secrets
 from uuid import uuid4
 from werkzeug.exceptions import (
@@ -823,6 +824,8 @@ def _clear_legacy_login_captcha_session():
     session.pop('login_captcha_a', None)
     session.pop('login_captcha_b', None)
     session.pop('login_captcha_answer', None)
+    session.pop('login_captcha_challenges', None)
+    session.pop('login_captcha_used_tokens', None)
 
 
 def _normalize_login_captcha_answer(raw_answer):
@@ -830,23 +833,54 @@ def _normalize_login_captcha_answer(raw_answer):
     return value[:32]
 
 
+def _login_captcha_answer_digest(token, answer):
+    normalized_token = (token or '').strip()
+    normalized_answer = _normalize_login_captcha_answer(answer)
+    secret_key = (app.config.get('SECRET_KEY') or '').encode('utf-8')
+    payload = f'{normalized_token}:{normalized_answer}'.encode('utf-8')
+    return hmac.new(secret_key, payload, hashlib.sha256).hexdigest()
+
+
+def _get_login_captcha_challenges_store():
+    if has_request_context():
+        challenges = session.get('login_captcha_challenges')
+        if not isinstance(challenges, dict):
+            challenges = {}
+            session['login_captcha_challenges'] = challenges
+        return challenges
+    return LOGIN_CAPTCHA_CHALLENGES
+
+
+def _get_login_captcha_used_tokens_store():
+    if has_request_context():
+        used_tokens = session.get('login_captcha_used_tokens')
+        if not isinstance(used_tokens, dict):
+            used_tokens = {}
+            session['login_captcha_used_tokens'] = used_tokens
+        return used_tokens
+    return LOGIN_CAPTCHA_USED_TOKENS
+
+
 def _cleanup_used_login_captcha_tokens(now_ts=None):
     now_ts = int(time.time() if now_ts is None else now_ts)
     stale_before = now_ts - LOGIN_CAPTCHA_TTL_SECONDS - 5
-    stale_tokens = [token for token, seen_at in LOGIN_CAPTCHA_USED_TOKENS.items() if seen_at < stale_before]
+    used_tokens = _get_login_captcha_used_tokens_store()
+    challenges = _get_login_captcha_challenges_store()
+    stale_tokens = [token for token, seen_at in used_tokens.items() if seen_at < stale_before]
     for token in stale_tokens:
-        LOGIN_CAPTCHA_USED_TOKENS.pop(token, None)
+        used_tokens.pop(token, None)
     stale_challenges = [
-        token for token, data in LOGIN_CAPTCHA_CHALLENGES.items()
+        token for token, data in challenges.items()
         if int(data.get('issued_at') or 0) < stale_before
     ]
     for token in stale_challenges:
-        LOGIN_CAPTCHA_CHALLENGES.pop(token, None)
+        challenges.pop(token, None)
 
 
 def _mark_login_captcha_token_used(captcha_token, now_ts=None):
     _cleanup_used_login_captcha_tokens(now_ts)
-    LOGIN_CAPTCHA_USED_TOKENS[(captcha_token or '').strip()] = int(time.time() if now_ts is None else now_ts)
+    used_tokens = _get_login_captcha_used_tokens_store()
+    used_tokens[(captcha_token or '').strip()] = int(time.time() if now_ts is None else now_ts)
 
 
 def _captcha_set_pixel(buffer, width, height, x, y, color):
@@ -990,10 +1024,12 @@ def generate_login_captcha(challenge_text=None, issued_at=None):
         challenge = ''.join(secrets.choice(LOGIN_CAPTCHA_ALPHABET) for _ in range(LOGIN_CAPTCHA_LENGTH))
     issued_at = int(time.time() if issued_at is None else issued_at)
     token = secrets.token_urlsafe(24)
-    LOGIN_CAPTCHA_CHALLENGES[token] = {
-        'answer': challenge,
+    image_bytes = _build_login_captcha_bmp(challenge)
+    challenges = _get_login_captcha_challenges_store()
+    challenges[token] = {
+        'answer_digest': _login_captcha_answer_digest(token, challenge),
         'issued_at': issued_at,
-        'image_bytes': _build_login_captcha_bmp(challenge),
+        'image_b64': base64.b64encode(image_bytes).decode('ascii'),
     }
     _cleanup_used_login_captcha_tokens(issued_at)
     return _login_captcha_image_url(token), token
@@ -1001,6 +1037,8 @@ def generate_login_captcha(challenge_text=None, issued_at=None):
 
 def reset_login_captcha():
     _clear_legacy_login_captcha_session()
+    challenges = _get_login_captcha_challenges_store()
+    challenges.clear()
     return generate_login_captcha()
 
 
@@ -1015,22 +1053,28 @@ def validate_login_captcha(raw_answer, captcha_token):
         return False
     now_ts = int(time.time())
     _cleanup_used_login_captcha_tokens(now_ts)
-    if token in LOGIN_CAPTCHA_USED_TOKENS:
+    used_tokens = _get_login_captcha_used_tokens_store()
+    challenges = _get_login_captcha_challenges_store()
+    if token in used_tokens:
         return False
-    challenge = LOGIN_CAPTCHA_CHALLENGES.get(token)
+    challenge = challenges.get(token)
     if not challenge:
         return False
     issued_at = int(challenge.get('issued_at') or 0)
     if issued_at > now_ts + 5:
         return False
     if now_ts - issued_at > LOGIN_CAPTCHA_TTL_SECONDS:
-        LOGIN_CAPTCHA_CHALLENGES.pop(token, None)
+        challenges.pop(token, None)
         return False
-    expected_answer = _normalize_login_captcha_answer(challenge.get('answer') or '')
-    is_valid = hmac.compare_digest(answer, expected_answer)
+    expected_digest = (challenge.get('answer_digest') or '').strip()
+    if not expected_digest:
+        challenges.pop(token, None)
+        return False
+    provided_digest = _login_captcha_answer_digest(token, answer)
+    is_valid = hmac.compare_digest(provided_digest, expected_digest)
     if is_valid:
         _mark_login_captcha_token_used(token, now_ts)
-        LOGIN_CAPTCHA_CHALLENGES.pop(token, None)
+        challenges.pop(token, None)
     return is_valid
 
 
@@ -2911,20 +2955,31 @@ def login():
 def login_captcha_image(captcha_token):
     token = (captcha_token or '').strip()
     _cleanup_used_login_captcha_tokens()
-    if not token or token in LOGIN_CAPTCHA_USED_TOKENS:
+    used_tokens = _get_login_captcha_used_tokens_store()
+    challenges = _get_login_captcha_challenges_store()
+    if not token or token in used_tokens:
         raise NotFound()
-    challenge = LOGIN_CAPTCHA_CHALLENGES.get(token)
+    challenge = challenges.get(token)
     if not challenge:
         raise NotFound()
     issued_at = int(challenge.get('issued_at') or 0)
     now_ts = int(time.time())
     if issued_at > now_ts + 5 or now_ts - issued_at > LOGIN_CAPTCHA_TTL_SECONDS:
-        LOGIN_CAPTCHA_CHALLENGES.pop(token, None)
+        challenges.pop(token, None)
         raise NotFound()
-    image_bytes = challenge.get('image_bytes')
-    if not image_bytes:
+    image_b64 = (challenge.get('image_b64') or '').strip()
+    if not image_b64:
         raise NotFound()
-    return Response(image_bytes, mimetype='image/bmp')
+    try:
+        image_bytes = base64.b64decode(image_b64, validate=True)
+    except Exception:
+        raise NotFound()
+    response = Response(image_bytes, mimetype='image/bmp')
+    response.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate, max-age=0'
+    response.headers['Pragma'] = 'no-cache'
+    response.headers['Expires'] = '0'
+    response.headers['X-Content-Type-Options'] = 'nosniff'
+    return response
 
 
 @app.route('/auth/request-signup', methods=['POST'])
@@ -5812,6 +5867,7 @@ def profile_photo_file(filename):
 
 @app.route('/petition-search')
 def petition_search_public():
+    raise NotFound()
     """Public petition status lookup — returns minimal info (no PII)."""
     q = (request.args.get('q') or '').strip()
     field = (request.args.get('field') or 'efile_no').strip()
