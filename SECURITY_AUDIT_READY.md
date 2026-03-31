@@ -1,62 +1,107 @@
 # Security Audit Readiness
 
-This project has been hardened for a baseline web application security audit.
+## Current Position
 
-## Implemented Controls
+The application codebase is now in a strong state for audit retest against the `Nigaa Web Application VAPT First Audit Report`.
 
-- Session hardening:
-  - `HttpOnly`, `Secure` (production), `SameSite=Lax`
-  - Permanent session timeout (`SESSION_LIFETIME_MINUTES`, default 120)
-  - Session reset on successful login (session fixation mitigation)
-- CSRF protection:
-  - Global CSRF check for authenticated unsafe methods (`POST/PUT/PATCH/DELETE`)
-  - Token is injected globally into all forms and AJAX/fetch requests
-- Security headers:
-  - `Content-Security-Policy`
-  - `X-Frame-Options: DENY`
-  - `X-Content-Type-Options: nosniff`
-  - `Referrer-Policy: strict-origin-when-cross-origin`
-  - `Permissions-Policy`
-  - `Cross-Origin-Opener-Policy`, `Cross-Origin-Resource-Policy`
-  - `Strict-Transport-Security` in production
-- Brute-force login protection:
-  - IP-based rate limiting with temporary lockout
-  - Configurable via:
-    - `LOGIN_RATE_LIMIT_WINDOW_SECONDS`
-    - `LOGIN_RATE_LIMIT_MAX_ATTEMPTS`
-    - `LOGIN_RATE_LIMIT_BLOCK_SECONDS`
-- Upload and request safety:
-  - Global request body limit (`MAX_CONTENT_LENGTH`)
-  - Existing upload checks retained (extension, size, PDF signature)
-- Access control hardening:
-  - Petition-level authorization added to petition view/action
-  - Petition file access now checks petition visibility
-  - Profile photo access restricted to owner or super admin
-- Credential policy:
-  - Password complexity checks enforced for reset/create/update/recovery flows
-  - Minimum 8 chars + upper/lower/digit/special
-- OTP transport hardening:
-  - OTP endpoints are required to use `https://` by default
-  - Internal `http://` is blocked unless explicitly approved via:
-    - `OTP_ALLOW_HTTP_INTERNAL=1`
-    - `OTP_HTTP_ALLOWED_HOSTS`
-    - `OTP_HTTP_EXCEPTION_TICKET`
-    - `OTP_HTTP_EXCEPTION_APPROVED_BY`
-    - `OTP_HTTP_EXCEPTION_REASON`
+Audit finding status in code:
 
-## Environment Checklist (Before External Audit)
+- `NIG001` remediated
+- `NIG002` remediated
+- `NIG003` remediated
+- `NIG004` remediated
+- `NIG005` remediated
+- `NIG006` remediated
+- `NIG007` remediated
 
-- Set `APP_ENV=production`.
-- Set a strong `SECRET_KEY` (not default).
-- Serve app only behind HTTPS termination.
-- Store `.env` securely (not public).
-- Rotate admin credentials and database credentials.
-- Ensure database backups are encrypted and access-controlled.
-- Enable centralized log retention and alerting.
+Primary implementation details are recorded in:
 
-## Recommended Next Enhancements (Optional but Valuable)
+- [PLAN.md](c:/Users/AP%20TRANSCO/OneDrive%20-%20APTRANSCO/Pictures/Petition%20Tracker%20with%20chatbot/PLAN.md)
+- [RESOLUTION.md](c:/Users/AP%20TRANSCO/OneDrive%20-%20APTRANSCO/Pictures/Petition%20Tracker%20with%20chatbot/RESOLUTION.md)
+- [AUDIT_EVIDENCE_INDEX.md](c:/Users/AP%20TRANSCO/OneDrive%20-%20APTRANSCO/Pictures/Petition%20Tracker%20with%20chatbot/AUDIT_EVIDENCE_INDEX.md)
 
-- Add account lock/unlock workflow in DB (persistent lockouts).
-- Add MFA for all privileged roles (not only OTP toggle).
-- Add automated dependency vulnerability scan in CI.
-- Add structured security event logs (auth failures, privilege changes).
+## Implemented Security Controls
+
+### Session and Authentication
+
+- Server-side session storage backed by persistent database records.
+- Browser cookie reduced to an opaque session identifier.
+- Session validation now checks:
+  - user existence
+  - active state
+  - session version
+  - issued time
+  - last activity time
+  - inactivity expiry
+- Session identifier rotation on authentication-state changes.
+- Old sessions invalidated after password change and reset events.
+- Anonymous public pages do not create persistent session records.
+
+### Password and Account Protection
+
+- Password complexity enforcement for create/reset/update flows.
+- Current password required for self-service password changes.
+- Profile password change forces re-login.
+- Login throttling with temporary block behavior.
+- Optional OTP flow retained for configured deployments.
+
+### CAPTCHA and Login Friction
+
+- Arithmetic CAPTCHA removed.
+- Login now uses a server-served image CAPTCHA.
+- CAPTCHA state stays server-side.
+- CAPTCHA tokens are single-use and expire.
+
+### Authorization and Redirect Safety
+
+- Trusted user/role refreshed from the database for protected access checks.
+- Petition/file/profile-photo authorization checks remain enforced.
+- Unsafe external redirect targets are blocked.
+- Referrer-based redirect fallbacks now use validated internal-only targets.
+
+### Abuse Protection and Operational Hardening
+
+- Petition submission rate limiting added.
+- Separate per-user and per-IP throttling logic.
+- Rate-limit counters stored persistently for multi-worker/restart consistency.
+- Admin-controlled system settings page for throttle tuning.
+- `X-Forwarded-For` is ignored by default unless `TRUST_PROXY_HEADERS=1`.
+- Inactive help-resource files are blocked from non-admin direct download.
+
+### Request and Browser Protections
+
+- CSRF checks on authenticated unsafe methods.
+- Security headers applied globally.
+- Request body size limit enforced.
+- Upload validation retained for PDF/image handling.
+
+## Auditor Handoff Documents
+
+- [RESOLUTION.md](c:/Users/AP%20TRANSCO/OneDrive%20-%20APTRANSCO/Pictures/Petition%20Tracker%20with%20chatbot/RESOLUTION.md): finding-by-finding remediation summary
+- [AUDIT_EVIDENCE_INDEX.md](c:/Users/AP%20TRANSCO/OneDrive%20-%20APTRANSCO/Pictures/Petition%20Tracker%20with%20chatbot/AUDIT_EVIDENCE_INDEX.md): evidence map
+- [THREAT_MODEL.md](c:/Users/AP%20TRANSCO/OneDrive%20-%20APTRANSCO/Pictures/Petition%20Tracker%20with%20chatbot/THREAT_MODEL.md): lightweight threat model
+- [INCIDENT_RESPONSE_MAPPING.md](c:/Users/AP%20TRANSCO/OneDrive%20-%20APTRANSCO/Pictures/Petition%20Tracker%20with%20chatbot/INCIDENT_RESPONSE_MAPPING.md): event-to-response mapping
+- [DEPENDENCY_LOCK_GOVERNANCE.md](c:/Users/AP%20TRANSCO/OneDrive%20-%20APTRANSCO/Pictures/Petition%20Tracker%20with%20chatbot/DEPENDENCY_LOCK_GOVERNANCE.md): dependency lock SOP
+- [AUDITOR_HANDOFF_CHECKLIST.md](c:/Users/AP%20TRANSCO/OneDrive%20-%20APTRANSCO/Pictures/Petition%20Tracker%20with%20chatbot/AUDITOR_HANDOFF_CHECKLIST.md): deployment and retest checklist
+
+## What Still Requires Live Validation
+
+These items are outside local code review and still need deployment-side proof before formal external closure:
+
+- deploy the latest application code and templates
+- restart/reload the application service
+- confirm schema update creation in the real database
+- verify production env values and secrets
+- confirm production headers/cookies behind the real proxy path
+- capture live retest evidence for the seven report findings
+- attach CI/logging/ops evidence where required by governance or compliance
+
+## Local Verification Status
+
+Local verification has been completed with:
+
+- Python compile checks
+- focused security regression tests
+- broader route/auth/password/quality regression runs
+
+This makes the codebase audit-ready from an application-remediation perspective. Final external closure still depends on deployment evidence and live retest.

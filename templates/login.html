@@ -367,6 +367,15 @@ html[data-theme='dark'] .lp-tt-moon { color: #d0ddff; }
   font-size: 1rem; font-weight: 700;
   color: var(--gold); letter-spacing: 2px;
 }
+.lp-captcha-image {
+  display: block;
+  width: 170px;
+  max-width: 100%;
+  height: 58px;
+  border-radius: 10px;
+  user-select: none;
+  -webkit-user-drag: none;
+}
 .lp-captcha-refresh {
   background: rgba(245,166,35,0.10); border: 1px solid rgba(245,166,35,0.22);
   color: var(--gold); border-radius: 6px; padding: 4px 7px; font-size: 0.95rem;
@@ -955,14 +964,15 @@ html[data-theme='light'] .lp-card-footer { color: #8aaad0; }
             <label for="captcha_answer" data-i18n="login.security_verification">Security Check</label>
             <div class="lp-captcha-row">
               <div class="lp-captcha-box" aria-live="polite">
-                <span class="lp-captcha-text">{{ captcha_a }} + {{ captcha_b }} = ?</span>
+                <img src="{{ captcha_image }}" alt="Verification challenge" class="lp-captcha-image">
                 <a href="{{ url_for('login', refresh_captcha='1') }}"
                    class="lp-captcha-refresh" title="Refresh captcha" aria-label="Refresh captcha">&#8635;</a>
               </div>
               <div class="lp-input-wrap">
+                <input type="hidden" name="captcha_token" value="{{ captcha_token }}">
                 <input type="text" id="captcha_answer" name="captcha_answer"
-                       required inputmode="numeric" pattern="[0-9]+"
-                       placeholder="Answer" data-i18n-placeholder="login.ph_captcha">
+                       required inputmode="text" autocapitalize="characters" autocomplete="off" spellcheck="false"
+                       maxlength="8" placeholder="Enter the code" data-i18n-placeholder="login.ph_captcha">
               </div>
             </div>
           </div>

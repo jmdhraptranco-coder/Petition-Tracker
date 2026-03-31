@@ -1,4 +1,5 @@
 from flask import Flask, render_template, request, redirect, url_for, session, flash, jsonify, send_from_directory, g, has_request_context, Response
+from flask.sessions import SessionInterface, SessionMixin
 from functools import wraps
 from config import Config
 import models
@@ -34,6 +35,7 @@ from werkzeug.exceptions import (
     TooManyRequests,
     Unauthorized,
 )
+from werkzeug.datastructures import CallbackDict
 from werkzeug.utils import secure_filename
 try:
     from openpyxl import load_workbook
@@ -50,6 +52,127 @@ app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
 app.config['SESSION_COOKIE_SECURE'] = config.SESSION_COOKIE_SECURE
 app.config['MAX_CONTENT_LENGTH'] = config.MAX_UPLOAD_SIZE_MB * 1024 * 1024
 app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(minutes=max(15, config.SESSION_LIFETIME_MINUTES))
+
+
+class DatabaseBackedSession(CallbackDict, SessionMixin):
+    def __init__(self, initial=None, sid=None, new=False):
+        def _mark_modified(_self):
+            _self.modified = True
+
+        super().__init__(initial, _mark_modified)
+        self.sid = sid
+        self.new = new
+        self.modified = False
+
+
+TEST_SERVER_SESSION_STORE = {}
+
+
+def _load_server_session_record(session_id):
+    if app.config.get('TESTING'):
+        record = TEST_SERVER_SESSION_STORE.get(session_id)
+        if not record:
+            return None
+        expires_at = record.get('expires_at')
+        if expires_at and expires_at <= datetime.now(timezone.utc).replace(tzinfo=None):
+            TEST_SERVER_SESSION_STORE.pop(session_id, None)
+            return None
+        return {
+            'session_id': session_id,
+            'user_id': record.get('user_id'),
+            'data': copy.deepcopy(record.get('data') or {}),
+            'expires_at': expires_at,
+        }
+    if hasattr(models, 'get_server_session'):
+        return models.get_server_session(session_id)
+    return None
+
+
+def _save_server_session_record(session_id, data, user_id, expires_at):
+    if app.config.get('TESTING'):
+        TEST_SERVER_SESSION_STORE[session_id] = {
+            'user_id': user_id,
+            'data': copy.deepcopy(data or {}),
+            'expires_at': expires_at,
+        }
+        return
+    if hasattr(models, 'save_server_session'):
+        models.save_server_session(session_id, data, user_id, expires_at)
+
+
+def _delete_server_session_record(session_id):
+    if app.config.get('TESTING'):
+        TEST_SERVER_SESSION_STORE.pop(session_id, None)
+        return
+    if hasattr(models, 'delete_server_session'):
+        models.delete_server_session(session_id)
+
+
+class DatabaseSessionInterface(SessionInterface):
+    session_class = DatabaseBackedSession
+
+    def generate_sid(self):
+        return secrets.token_urlsafe(32)
+
+    def open_session(self, app, request):
+        cookie_name = self.get_cookie_name(app)
+        sid = request.cookies.get(cookie_name)
+        if not sid:
+            return self.session_class(sid=self.generate_sid(), new=True)
+        record = _load_server_session_record(sid)
+        if not record:
+            return self.session_class(sid=self.generate_sid(), new=True)
+        return self.session_class(initial=record.get('data') or {}, sid=sid, new=False)
+
+    def save_session(self, app, session_obj, response):
+        cookie_name = self.get_cookie_name(app)
+        domain = self.get_cookie_domain(app)
+        path = self.get_cookie_path(app)
+
+        if not session_obj:
+            if session_obj.new and not session_obj.modified:
+                return
+            if getattr(session_obj, 'sid', None):
+                _delete_server_session_record(session_obj.sid)
+            response.delete_cookie(
+                cookie_name,
+                domain=domain,
+                path=path,
+                secure=self.get_cookie_secure(app),
+                samesite=self.get_cookie_samesite(app),
+                httponly=self.get_cookie_httponly(app),
+            )
+            return
+
+        if not getattr(session_obj, 'sid', None):
+            session_obj.sid = self.generate_sid()
+
+        expires = self.get_expiration_time(app, session_obj)
+        persist_expires = expires
+        if persist_expires is not None and getattr(persist_expires, 'tzinfo', None) is not None:
+            persist_expires = persist_expires.astimezone(timezone.utc).replace(tzinfo=None)
+        user_id = session_obj.get('user_id')
+        _save_server_session_record(
+            session_obj.sid,
+            dict(session_obj),
+            user_id,
+            persist_expires or (datetime.now(timezone.utc).replace(tzinfo=None) + app.permanent_session_lifetime),
+        )
+
+        if session_obj.modified or session_obj.new or self.should_set_cookie(app, session_obj):
+            response.set_cookie(
+                cookie_name,
+                session_obj.sid,
+                expires=expires,
+                httponly=self.get_cookie_httponly(app),
+                secure=self.get_cookie_secure(app),
+                samesite=self.get_cookie_samesite(app),
+                path=path,
+                domain=domain,
+            )
+
+
+app.session_interface = DatabaseSessionInterface()
 
 if os.getenv('SKIP_SCHEMA_UPDATES') != '1':
     models.ensure_schema_updates()
@@ -70,6 +193,7 @@ HELP_RESOURCE_ALLOWED_EXTENSIONS = {
 HELP_RESOURCE_TYPES = {'manual', 'flowchart', 'video', 'office_order', 'news'}
 HELP_RESOURCE_STORAGE_KINDS = {'upload', 'external_url'}
 LOGIN_ATTEMPTS = {}
+PETITION_SUBMISSION_ATTEMPTS = {}
 VALID_RECEIVED_AT = {'jmd_office', 'cvo_apspdcl_tirupathi', 'cvo_apepdcl_vizag', 'cvo_apcpdcl_vijayawada'}
 VALID_TARGET_CVO = {'apspdcl', 'apepdcl', 'apcpdcl', 'headquarters'}
 VALID_ORGANIZATIONS = {'aptransco', 'apgenco'}
@@ -83,6 +207,11 @@ VALID_GOVT_INSTITUTIONS = {
     'cmo',
     'energy_department',
 }
+LOGIN_CAPTCHA_TTL_SECONDS = 300
+LOGIN_CAPTCHA_LENGTH = 6
+LOGIN_CAPTCHA_ALPHABET = '23456789'
+LOGIN_CAPTCHA_USED_TOKENS = {}
+LOGIN_CAPTCHA_CHALLENGES = {}
 VALID_PETITION_TYPES = {
     'bribe',
     'corruption',
@@ -375,6 +504,51 @@ FORM_MANAGEMENT_GROUPS = {
     'po_decision': 'PO Decision Form',
 }
 
+SYSTEM_SETTING_DEFINITIONS = {
+    'petition_user_rate_limit_window_seconds': {
+        'label': 'Per-user window (seconds)',
+        'description': 'How long each DEO account submission window stays open.',
+        'default': lambda: int(config.PETITION_USER_RATE_LIMIT_WINDOW_SECONDS),
+        'min': 30,
+        'max': 3600,
+    },
+    'petition_user_rate_limit_max_submissions': {
+        'label': 'Per-user max submissions',
+        'description': 'Maximum successful petition submissions allowed inside the per-user window.',
+        'default': lambda: int(config.PETITION_USER_RATE_LIMIT_MAX_SUBMISSIONS),
+        'min': 1,
+        'max': 200,
+    },
+    'petition_user_rate_limit_block_seconds': {
+        'label': 'Per-user block duration (seconds)',
+        'description': 'Temporary block duration after a DEO account crosses the user threshold.',
+        'default': lambda: int(config.PETITION_USER_RATE_LIMIT_BLOCK_SECONDS),
+        'min': 30,
+        'max': 3600,
+    },
+    'petition_ip_rate_limit_window_seconds': {
+        'label': 'Per-IP window (seconds)',
+        'description': 'How long the shared office IP submission window stays open.',
+        'default': lambda: int(config.PETITION_IP_RATE_LIMIT_WINDOW_SECONDS),
+        'min': 30,
+        'max': 3600,
+    },
+    'petition_ip_rate_limit_max_submissions': {
+        'label': 'Per-IP max submissions',
+        'description': 'Maximum successful petition submissions allowed from one office/public IP inside the IP window.',
+        'default': lambda: int(config.PETITION_IP_RATE_LIMIT_MAX_SUBMISSIONS),
+        'min': 1,
+        'max': 1000,
+    },
+    'petition_ip_rate_limit_block_seconds': {
+        'label': 'Per-IP block duration (seconds)',
+        'description': 'Temporary block duration after the shared office/public IP crosses the IP threshold.',
+        'default': lambda: int(config.PETITION_IP_RATE_LIMIT_BLOCK_SECONDS),
+        'min': 30,
+        'max': 3600,
+    },
+}
+
 
 def parse_optional_int(raw_value):
     value = (raw_value or '').strip()
@@ -645,30 +819,219 @@ def status_labels_for_api():
         'closed': 'Closed',
     }
 
+def _clear_legacy_login_captcha_session():
+    session.pop('login_captcha_a', None)
+    session.pop('login_captcha_b', None)
+    session.pop('login_captcha_answer', None)
+
+
+def _normalize_login_captcha_answer(raw_answer):
+    value = re.sub(r'[^A-Za-z0-9]', '', (raw_answer or '').strip().upper())
+    return value[:32]
+
+
+def _cleanup_used_login_captcha_tokens(now_ts=None):
+    now_ts = int(time.time() if now_ts is None else now_ts)
+    stale_before = now_ts - LOGIN_CAPTCHA_TTL_SECONDS - 5
+    stale_tokens = [token for token, seen_at in LOGIN_CAPTCHA_USED_TOKENS.items() if seen_at < stale_before]
+    for token in stale_tokens:
+        LOGIN_CAPTCHA_USED_TOKENS.pop(token, None)
+    stale_challenges = [
+        token for token, data in LOGIN_CAPTCHA_CHALLENGES.items()
+        if int(data.get('issued_at') or 0) < stale_before
+    ]
+    for token in stale_challenges:
+        LOGIN_CAPTCHA_CHALLENGES.pop(token, None)
+
+
+def _mark_login_captcha_token_used(captcha_token, now_ts=None):
+    _cleanup_used_login_captcha_tokens(now_ts)
+    LOGIN_CAPTCHA_USED_TOKENS[(captcha_token or '').strip()] = int(time.time() if now_ts is None else now_ts)
+
+
+def _captcha_set_pixel(buffer, width, height, x, y, color):
+    if 0 <= x < width and 0 <= y < height:
+        buffer[y * width + x] = color
+
+
+def _captcha_fill_rect(buffer, width, height, x, y, w, h, color):
+    for yy in range(y, y + h):
+        for xx in range(x, x + w):
+            _captcha_set_pixel(buffer, width, height, xx, yy, color)
+
+
+def _captcha_draw_line(buffer, width, height, x1, y1, x2, y2, color):
+    dx = abs(x2 - x1)
+    dy = -abs(y2 - y1)
+    sx = 1 if x1 < x2 else -1
+    sy = 1 if y1 < y2 else -1
+    err = dx + dy
+    x, y = x1, y1
+    while True:
+        _captcha_set_pixel(buffer, width, height, x, y, color)
+        if x == x2 and y == y2:
+            break
+        e2 = 2 * err
+        if e2 >= dy:
+            err += dy
+            x += sx
+        if e2 <= dx:
+            err += dx
+            y += sy
+
+
+def _captcha_bmp_bytes(width, height, buffer):
+    row_stride = width * 3
+    row_padding = (4 - (row_stride % 4)) % 4
+    pixel_bytes = bytearray()
+    for y in range(height - 1, -1, -1):
+        offset = y * width
+        for x in range(width):
+            r, g, b = buffer[offset + x]
+            pixel_bytes.extend((b, g, r))
+        pixel_bytes.extend(b'\x00' * row_padding)
+    header_size = 14 + 40
+    file_size = header_size + len(pixel_bytes)
+    bmp = bytearray()
+    bmp.extend(b'BM')
+    bmp.extend(file_size.to_bytes(4, 'little'))
+    bmp.extend((0).to_bytes(4, 'little'))
+    bmp.extend(header_size.to_bytes(4, 'little'))
+    bmp.extend((40).to_bytes(4, 'little'))
+    bmp.extend(width.to_bytes(4, 'little', signed=True))
+    bmp.extend(height.to_bytes(4, 'little', signed=True))
+    bmp.extend((1).to_bytes(2, 'little'))
+    bmp.extend((24).to_bytes(2, 'little'))
+    bmp.extend((0).to_bytes(4, 'little'))
+    bmp.extend(len(pixel_bytes).to_bytes(4, 'little'))
+    bmp.extend((2835).to_bytes(4, 'little', signed=True))
+    bmp.extend((2835).to_bytes(4, 'little', signed=True))
+    bmp.extend((0).to_bytes(4, 'little'))
+    bmp.extend((0).to_bytes(4, 'little'))
+    bmp.extend(pixel_bytes)
+    return bytes(bmp)
+
+
+def _build_login_captcha_bmp(challenge_text):
+    width = 210
+    height = 72
+    bg = (16, 24, 40)
+    fg = (248, 250, 252)
+    accent = (245, 166, 35)
+    alt = (125, 211, 252)
+    buffer = [bg] * (width * height)
+    for _ in range(14):
+        _captcha_draw_line(
+            buffer,
+            width,
+            height,
+            random.randint(0, width - 1),
+            random.randint(0, height - 1),
+            random.randint(0, width - 1),
+            random.randint(0, height - 1),
+            accent if random.randint(0, 1) else alt,
+        )
+    segments_by_digit = {
+        '0': 'abcedf',
+        '1': 'bc',
+        '2': 'abged',
+        '3': 'abgcd',
+        '4': 'fgbc',
+        '5': 'afgcd',
+        '6': 'afgcde',
+        '7': 'abc',
+        '8': 'abcdefg',
+        '9': 'abcfgd',
+    }
+    digit = challenge_text
+    digit_width = 22
+    digit_height = 40
+    thickness = 4
+    spacing = 10
+    start_x = 14
+    start_y = 16
+    for idx, ch in enumerate(digit):
+        x = start_x + idx * (digit_width + spacing) + random.randint(-1, 1)
+        y = start_y + random.randint(-3, 3)
+        segs = segments_by_digit.get(ch, '')
+        seg_rects = {
+            'a': (x + thickness, y, digit_width - (2 * thickness), thickness),
+            'b': (x + digit_width - thickness, y + thickness, thickness, (digit_height // 2) - thickness),
+            'c': (x + digit_width - thickness, y + (digit_height // 2), thickness, (digit_height // 2) - thickness),
+            'd': (x + thickness, y + digit_height - thickness, digit_width - (2 * thickness), thickness),
+            'e': (x, y + (digit_height // 2), thickness, (digit_height // 2) - thickness),
+            'f': (x, y + thickness, thickness, (digit_height // 2) - thickness),
+            'g': (x + thickness, y + (digit_height // 2) - (thickness // 2), digit_width - (2 * thickness), thickness),
+        }
+        color = fg if idx % 2 == 0 else accent
+        for seg in segs:
+            _captcha_fill_rect(buffer, width, height, *seg_rects[seg], color)
+    for _ in range(28):
+        _captcha_fill_rect(
+            buffer,
+            width,
+            height,
+            random.randint(0, width - 4),
+            random.randint(0, height - 4),
+            random.randint(1, 3),
+            random.randint(1, 3),
+            alt if random.randint(0, 1) else accent,
+        )
+    return _captcha_bmp_bytes(width, height, buffer)
+
+
+def _login_captcha_image_url(token):
+    return f'/auth/login-captcha/{urllib.parse.quote((token or "").strip(), safe="")}'
+
+
+def generate_login_captcha(challenge_text=None, issued_at=None):
+    challenge = _normalize_login_captcha_answer(challenge_text)
+    if not challenge:
+        challenge = ''.join(secrets.choice(LOGIN_CAPTCHA_ALPHABET) for _ in range(LOGIN_CAPTCHA_LENGTH))
+    issued_at = int(time.time() if issued_at is None else issued_at)
+    token = secrets.token_urlsafe(24)
+    LOGIN_CAPTCHA_CHALLENGES[token] = {
+        'answer': challenge,
+        'issued_at': issued_at,
+        'image_bytes': _build_login_captcha_bmp(challenge),
+    }
+    _cleanup_used_login_captcha_tokens(issued_at)
+    return _login_captcha_image_url(token), token
+
+
 def reset_login_captcha():
-    a = random.randint(1, 9)
-    b = random.randint(1, 9)
-    session['login_captcha_a'] = a
-    session['login_captcha_b'] = b
-    session['login_captcha_answer'] = a + b
-    return a, b
+    _clear_legacy_login_captcha_session()
+    return generate_login_captcha()
 
 
 def get_login_captcha():
-    a = session.get('login_captcha_a')
-    b = session.get('login_captcha_b')
-    ans = session.get('login_captcha_answer')
-    if a is None or b is None or ans is None:
-        return reset_login_captcha()
-    return a, b
+    return reset_login_captcha()
 
 
-def validate_login_captcha(raw_answer):
-    try:
-        ans = int((raw_answer or '').strip())
-        return ans == session.get('login_captcha_answer')
-    except (TypeError, ValueError):
+def validate_login_captcha(raw_answer, captcha_token):
+    answer = _normalize_login_captcha_answer(raw_answer)
+    token = (captcha_token or '').strip()
+    if not answer or not token:
         return False
+    now_ts = int(time.time())
+    _cleanup_used_login_captcha_tokens(now_ts)
+    if token in LOGIN_CAPTCHA_USED_TOKENS:
+        return False
+    challenge = LOGIN_CAPTCHA_CHALLENGES.get(token)
+    if not challenge:
+        return False
+    issued_at = int(challenge.get('issued_at') or 0)
+    if issued_at > now_ts + 5:
+        return False
+    if now_ts - issued_at > LOGIN_CAPTCHA_TTL_SECONDS:
+        LOGIN_CAPTCHA_CHALLENGES.pop(token, None)
+        return False
+    expected_answer = _normalize_login_captcha_answer(challenge.get('answer') or '')
+    is_valid = hmac.compare_digest(answer, expected_answer)
+    if is_valid:
+        _mark_login_captcha_token_used(token, now_ts)
+        LOGIN_CAPTCHA_CHALLENGES.pop(token, None)
+    return is_valid
 
 
 def get_deo_office_flow(user_role, cvo_office):
@@ -962,8 +1325,7 @@ def handle_request_entity_too_large(_error):
         response.status_code = 413
         return response
     flash(f'Upload exceeds {config.MAX_UPLOAD_SIZE_MB} MB limit.', 'danger')
-    referer = request.headers.get('Referer')
-    return redirect(referer or url_for('petitions_list'))
+    return redirect(_safe_internal_redirect_target(request.headers.get('Referer'), fallback_endpoint='petitions_list'))
 
 
 @app.errorhandler(InternalServerError)
@@ -1051,13 +1413,11 @@ def delete_profile_photo_file(filename):
     _delete_uploaded_file(PROFILE_UPLOAD_DIR, filename)
 
 
-def refresh_session_user():
-    user_id = session.get('user_id')
-    if not user_id:
-        return
-    user = models.get_user_by_id(user_id)
-    if not user:
-        return
+def _session_lifetime_seconds():
+    return max(900, int(config.SESSION_LIFETIME_MINUTES) * 60)
+
+
+def _sync_session_user_fields(user):
     session['username'] = user.get('username')
     session['full_name'] = user.get('full_name')
     session['user_role'] = user.get('role')
@@ -1065,6 +1425,96 @@ def refresh_session_user():
     session['phone'] = user.get('phone')
     session['email'] = user.get('email')
     session['profile_photo'] = user.get('profile_photo')
+    session['session_version'] = int(user.get('session_version') or 1)
+
+
+def refresh_session_user():
+    user_id = session.get('user_id')
+    if not user_id:
+        return None
+    user = models.get_user_by_id(user_id)
+    if not user:
+        return None
+    _sync_session_user_fields(user)
+    return user
+
+
+def _load_current_authenticated_user(refresh_activity=True):
+    if has_request_context() and getattr(g, '_current_user_loaded', False):
+        return getattr(g, 'current_user', None)
+
+    if has_request_context():
+        g._current_user_loaded = True
+        g.current_user = None
+        g.current_user_role = None
+        g.current_user_id = None
+        g.auth_invalid_reason = None
+
+    user_id = session.get('user_id')
+    if not user_id:
+        return None
+
+    now_ts = int(time.time())
+    issued_at = session.get('auth_issued_at')
+    last_seen_at = session.get('auth_last_seen_at')
+
+    try:
+        issued_at = int(issued_at)
+        last_seen_at = int(last_seen_at)
+    except (TypeError, ValueError):
+        session.clear()
+        if has_request_context():
+            g.auth_invalid_reason = 'missing_session_metadata'
+        return None
+
+    if issued_at > now_ts + 5 or last_seen_at > now_ts + 5:
+        session.clear()
+        if has_request_context():
+            g.auth_invalid_reason = 'invalid_session_timestamp'
+        return None
+
+    if now_ts - last_seen_at > _session_lifetime_seconds():
+        session.clear()
+        if has_request_context():
+            g.auth_invalid_reason = 'session_inactive'
+        return None
+
+    user = models.get_user_by_id(user_id)
+    if not user:
+        session.clear()
+        if has_request_context():
+            g.auth_invalid_reason = 'missing_user'
+        return None
+    if user.get('is_active') is False:
+        session.clear()
+        if has_request_context():
+            g.auth_invalid_reason = 'inactive_user'
+        return None
+
+    stored_version = session.get('session_version')
+    current_version = int(user.get('session_version') or 1)
+    try:
+        stored_version = int(stored_version)
+    except (TypeError, ValueError):
+        session.clear()
+        if has_request_context():
+            g.auth_invalid_reason = 'missing_session_version'
+        return None
+    if stored_version != current_version:
+        session.clear()
+        if has_request_context():
+            g.auth_invalid_reason = 'credential_change'
+        return None
+
+    _sync_session_user_fields(user)
+    if refresh_activity and now_ts - last_seen_at >= 30:
+        session['auth_last_seen_at'] = now_ts
+
+    if has_request_context():
+        g.current_user = user
+        g.current_user_role = user.get('role')
+        g.current_user_id = user.get('id')
+    return user
 
 
 ensure_upload_dirs()
@@ -1078,10 +1528,32 @@ def _get_or_create_csrf_token():
     return token
 
 
+def _current_csrf_token():
+    if 'user_id' in session:
+        return _get_or_create_csrf_token()
+    return session.get('_csrf_token', '')
+
+
+def _safe_internal_redirect_target(target, fallback_endpoint='dashboard'):
+    fallback_url = url_for(fallback_endpoint)
+    candidate = (target or '').strip()
+    if not candidate:
+        return fallback_url
+    parsed = urllib.parse.urlsplit(candidate)
+    if parsed.scheme or parsed.netloc:
+        return fallback_url
+    if not candidate.startswith('/'):
+        return fallback_url
+    if candidate.startswith('//') or '\\' in candidate:
+        return fallback_url
+    return candidate
+
+
 def _client_ip():
-    forwarded_for = (request.headers.get('X-Forwarded-For') or '').split(',')[0].strip()
-    if forwarded_for:
-        return forwarded_for
+    if config.TRUST_PROXY_HEADERS:
+        forwarded_for = (request.headers.get('X-Forwarded-For') or '').split(',')[0].strip()
+        if forwarded_for:
+            return forwarded_for
     return request.remote_addr or 'unknown'
 
 
@@ -1126,6 +1598,146 @@ def _register_login_failure():
 
 def _clear_login_failures():
     LOGIN_ATTEMPTS.pop(_client_ip(), None)
+
+
+def _system_setting_defaults():
+    return {key: int(meta['default']()) for key, meta in SYSTEM_SETTING_DEFINITIONS.items()}
+
+
+def get_effective_system_settings():
+    cached = getattr(g, '_effective_system_settings', None) if has_request_context() else None
+    if cached is not None:
+        return cached
+
+    effective = _system_setting_defaults()
+    raw_overrides = {}
+    if hasattr(models, 'get_system_settings'):
+        try:
+            raw_overrides = models.get_system_settings(prefix='petition_') or {}
+        except Exception:
+            app.logger.exception('Unable to load system settings overrides; using defaults')
+
+    for key, raw_value in raw_overrides.items():
+        meta = SYSTEM_SETTING_DEFINITIONS.get(key)
+        if not meta:
+            continue
+        try:
+            value = int(str(raw_value).strip())
+        except (TypeError, ValueError):
+            continue
+        value = max(int(meta['min']), min(int(meta['max']), value))
+        effective[key] = value
+
+    if has_request_context():
+        g._effective_system_settings = effective
+    return effective
+
+
+def _system_settings_rows():
+    effective = get_effective_system_settings()
+    defaults = _system_setting_defaults()
+    rows = []
+    for key, meta in SYSTEM_SETTING_DEFINITIONS.items():
+        rows.append({
+            'key': key,
+            'label': meta['label'],
+            'description': meta['description'],
+            'min': int(meta['min']),
+            'max': int(meta['max']),
+            'default': defaults[key],
+            'value': effective[key],
+        })
+    return rows
+
+
+def _petition_rate_limit_keys():
+    keys = [('ip', f'ip:{_client_ip()}')]
+    user_id = session.get('user_id')
+    if user_id:
+        keys.insert(0, ('user', f'user:{int(user_id)}'))
+    return keys
+
+
+def _petition_rate_limit_settings(scope):
+    effective = get_effective_system_settings()
+    if scope == 'user':
+        return {
+            'window_seconds': max(30, int(effective['petition_user_rate_limit_window_seconds'])),
+            'max_submissions': max(1, int(effective['petition_user_rate_limit_max_submissions'])),
+            'block_seconds': max(30, int(effective['petition_user_rate_limit_block_seconds'])),
+        }
+    return {
+        'window_seconds': max(30, int(effective['petition_ip_rate_limit_window_seconds'])),
+        'max_submissions': max(1, int(effective['petition_ip_rate_limit_max_submissions'])),
+        'block_seconds': max(30, int(effective['petition_ip_rate_limit_block_seconds'])),
+    }
+
+
+def _petition_rate_limit_scope_entries():
+    entries = []
+    for scope, key in _petition_rate_limit_keys():
+        settings = _petition_rate_limit_settings(scope)
+        entries.append({
+            'scope_type': scope,
+            'scope_key': key,
+            'window_seconds': settings['window_seconds'],
+            'max_submissions': settings['max_submissions'],
+            'block_seconds': settings['block_seconds'],
+        })
+    return entries
+
+
+def _cleanup_petition_submission_attempts(now_ts):
+    effective = get_effective_system_settings()
+    max_window = max(
+        int(effective['petition_user_rate_limit_window_seconds']),
+        int(effective['petition_ip_rate_limit_window_seconds']),
+    )
+    max_block = max(
+        int(effective['petition_user_rate_limit_block_seconds']),
+        int(effective['petition_ip_rate_limit_block_seconds']),
+    )
+    stale_before = now_ts - max(max_window, max_block) - 60
+    stale_keys = [k for k, v in PETITION_SUBMISSION_ATTEMPTS.items() if (v.get('last_seen') or 0) < stale_before]
+    for key in stale_keys:
+        PETITION_SUBMISSION_ATTEMPTS.pop(key, None)
+
+
+def _consume_petition_submission_slot():
+    scope_entries = _petition_rate_limit_scope_entries()
+    if hasattr(models, 'consume_rate_limit'):
+        try:
+            result = models.consume_rate_limit('petition_submission', scope_entries)
+            if isinstance(result, dict):
+                return bool(result.get('allowed')), int(result.get('retry_after') or 0), list(result.get('triggered_scopes') or [])
+        except Exception:
+            app.logger.exception('Persistent petition rate limiter unavailable; falling back to in-memory limiter')
+    now_ts = time.time()
+    _cleanup_petition_submission_attempts(now_ts)
+    retry_after = 0
+    blocked_scopes = []
+    for scope, key in _petition_rate_limit_keys():
+        entry = PETITION_SUBMISSION_ATTEMPTS.get(key, {})
+        blocked_until = float(entry.get('blocked_until') or 0)
+        if blocked_until > now_ts:
+            retry_after = max(retry_after, int(blocked_until - now_ts))
+            blocked_scopes.append(scope)
+    if retry_after > 0:
+        return False, retry_after, blocked_scopes
+    triggered = []
+    for scope, key in _petition_rate_limit_keys():
+        settings = _petition_rate_limit_settings(scope)
+        entry = PETITION_SUBMISSION_ATTEMPTS.get(key, {'submissions': [], 'blocked_until': 0, 'last_seen': now_ts})
+        window_start = now_ts - settings['window_seconds']
+        recent = [ts for ts in entry.get('submissions', []) if ts >= window_start]
+        recent.append(now_ts)
+        entry['submissions'] = recent
+        entry['last_seen'] = now_ts
+        if len(recent) >= settings['max_submissions']:
+            entry['blocked_until'] = now_ts + settings['block_seconds']
+            triggered.append(scope)
+        PETITION_SUBMISSION_ATTEMPTS[key] = entry
+    return True, 0, triggered
 
 
 def _can_access_petition(petition_id):
@@ -1304,7 +1916,7 @@ def _security_before_request():
                 if _request_prefers_json():
                     return jsonify({'error': 'Invalid or missing CSRF token.'}), 403
                 flash('Security validation failed. Please refresh and try again.', 'danger')
-                return redirect(request.referrer or url_for('dashboard'))
+                return redirect(_safe_internal_redirect_target(request.referrer, fallback_endpoint='dashboard'))
     if 'user_id' in session:
         session.permanent = True
         _get_or_create_csrf_token()
@@ -1736,21 +2348,33 @@ def _clear_authenticated_session():
         'phone',
         'email',
         'profile_photo',
+        'session_version',
+        'auth_issued_at',
+        'auth_last_seen_at',
+        'auth_method',
         '_csrf_token',
     ):
         session.pop(key, None)
 
 
+def _rotate_session_identifier():
+    prior_sid = getattr(session, 'sid', None)
+    new_sid = secrets.token_urlsafe(32)
+    session.sid = new_sid
+    session.modified = True
+    if prior_sid and prior_sid != new_sid:
+        _delete_server_session_record(prior_sid)
+
+
 def _activate_login_session(user):
     session.clear()
+    _rotate_session_identifier()
+    now_ts = int(time.time())
     session['user_id'] = user['id']
-    session['username'] = user['username']
-    session['full_name'] = user['full_name']
-    session['user_role'] = user['role']
-    session['cvo_office'] = user.get('cvo_office')
-    session['phone'] = user.get('phone')
-    session['email'] = user.get('email')
-    session['profile_photo'] = user.get('profile_photo')
+    _sync_session_user_fields(user)
+    session['auth_issued_at'] = now_ts
+    session['auth_last_seen_at'] = now_ts
+    session['auth_method'] = 'password'
     session.permanent = True
     _get_or_create_csrf_token()
 
@@ -1790,9 +2414,22 @@ def login_required(f):
         if session.get('force_change_user_id'):
             flash('You must change your password before continuing.', 'warning')
             return redirect(url_for('first_login_setup'))
-        if 'user_id' not in session:
-            log_security_event('access.unauthenticated_request', severity='warning')
-            flash('Please login to access this page.', 'warning')
+        user = _load_current_authenticated_user()
+        if not user:
+            reason = getattr(g, 'auth_invalid_reason', None) if has_request_context() else None
+            if reason == 'credential_change':
+                log_security_event('auth.session_revoked_after_credential_change', severity='warning')
+                flash('Your session has expired due to a credential change. Please login again.', 'warning')
+            elif reason == 'inactive_user':
+                log_security_event('auth.inactive_user_session_rejected', severity='warning')
+                flash('Your account is inactive. Please contact administrator.', 'warning')
+            elif reason in ('missing_user',):
+                flash('Your session is no longer valid. Please login again.', 'warning')
+            elif reason in ('session_inactive', 'missing_session_metadata', 'missing_session_version', 'invalid_session_timestamp'):
+                flash('Your session has expired. Please login again.', 'warning')
+            else:
+                log_security_event('access.unauthenticated_request', severity='warning')
+                flash('Please login to access this page.', 'warning')
             return redirect(url_for('login'))
         return f(*args, **kwargs)
     return decorated
@@ -1801,7 +2438,12 @@ def role_required(*roles):
     def decorator(f):
         @wraps(f)
         def decorated(*args, **kwargs):
-            if 'user_role' not in session or session['user_role'] not in roles:
+            current_user = getattr(g, 'current_user', None) if has_request_context() else None
+            current_role = (current_user or {}).get('role') if isinstance(current_user, dict) else None
+            if not current_role:
+                current_user = _load_current_authenticated_user(refresh_activity=False)
+                current_role = (current_user or {}).get('role') if isinstance(current_user, dict) else None
+            if not current_role or current_role not in roles:
                 log_security_event('access.role_forbidden', severity='warning', required_roles=','.join(roles))
                 flash('You do not have permission to access this page.', 'danger')
                 return redirect(url_for('dashboard'))
@@ -1815,6 +2457,9 @@ def role_required(*roles):
 
 @app.context_processor
 def inject_globals():
+    current_user = _load_current_authenticated_user(refresh_activity=False) if session.get('user_id') else None
+    current_user_id = (current_user or {}).get('id') if isinstance(current_user, dict) else None
+    current_user_role = (current_user or {}).get('role') if isinstance(current_user, dict) else None
     role_labels = {
         'super_admin': 'Super Admin',
         'data_entry': 'Data Entry Operator',
@@ -1904,8 +2549,8 @@ def inject_globals():
     cfg = get_effective_form_field_configs()
     govt_options = cfg.get('deo_petition.govt_institution_type', {}).get('options', [])
     govt_labels = {o.get('value'): o.get('label') for o in govt_options if isinstance(o, dict)}
-    profile_photo = session.get('profile_photo')
-    current_user_name = session.get('full_name')
+    profile_photo = (current_user or {}).get('profile_photo') if isinstance(current_user, dict) else None
+    current_user_name = (current_user or {}).get('full_name') if isinstance(current_user, dict) else None
     if isinstance(current_user_name, str) and current_user_name:
         normalized_user_name = re.sub(r'APS?CPDCL', 'APCPDCL', current_user_name, flags=re.IGNORECASE)
         if normalized_user_name != current_user_name:
@@ -1918,8 +2563,8 @@ def inject_globals():
         'badge_text': '0',
         'items': [],
     }
-    user_id = session.get('user_id')
-    user_role = session.get('user_role')
+    user_id = current_user_id
+    user_role = current_user_role
     if user_id and user_role:
         try:
             visible_petitions = get_petitions_for_user_cached(
@@ -1965,17 +2610,17 @@ def inject_globals():
         ),
         workflow_stage_labels=workflow_stage_labels,
         status_to_stage=status_to_stage,
-        current_user_role=session.get('user_role'),
-        current_user_username=session.get('username'),
+        current_user_role=current_user_role,
+        current_user_username=(current_user or {}).get('username') if isinstance(current_user, dict) else None,
         current_user_name=current_user_name,
-        current_user_id=session.get('user_id'),
-        current_user_phone=session.get('phone'),
-        current_user_email=session.get('email'),
-        current_user_profile_photo=session.get('profile_photo'),
+        current_user_id=current_user_id,
+        current_user_phone=(current_user or {}).get('phone') if isinstance(current_user, dict) else None,
+        current_user_email=(current_user or {}).get('email') if isinstance(current_user, dict) else None,
+        current_user_profile_photo=profile_photo,
         current_user_profile_photo_url=(
             url_for('profile_photo_file', filename=profile_photo) if profile_photo else None
         ),
-        csrf_token=_get_or_create_csrf_token(),
+        csrf_token=_current_csrf_token(),
         notification=notification,
         now=datetime.now()
     )
@@ -2053,10 +2698,8 @@ def index():
             'urgent_pending': urgent_pending,
         }
     except Exception:
-        # Keep landing page accessible even if database is not reachable.
         pass
 
-    # Fetch landing page public resources (office orders & news)
     landing_office_orders = []
     landing_news = []
     try:
@@ -2085,8 +2728,13 @@ def index():
     except Exception:
         pass
 
-    return render_template('landing.html', landing_stats=landing_stats, live_status=live_status,
-                           landing_office_orders=landing_office_orders, landing_news=landing_news)
+    return render_template(
+        'landing.html',
+        landing_stats=landing_stats,
+        live_status=live_status,
+        landing_office_orders=landing_office_orders,
+        landing_news=landing_news,
+    )
 
 @app.route('/login', methods=['GET', 'POST'])
 def login():
@@ -2147,9 +2795,7 @@ def login():
                 flash(msg, 'danger')
                 return redirect(url_for('login'))
 
-            session.pop('login_captcha_a', None)
-            session.pop('login_captcha_b', None)
-            session.pop('login_captcha_answer', None)
+            _clear_legacy_login_captcha_session()
             _activate_login_session(pending_user)
             _clear_pending_otp()
             _clear_login_failures()
@@ -2157,12 +2803,21 @@ def login():
             flash(f'Welcome, {pending_user["full_name"]}!', 'success')
             return redirect(url_for('dashboard'))
 
-        if not validate_login_captcha(request.form.get('captcha_answer')):
+        if not validate_login_captcha(
+            request.form.get('captcha_answer'),
+            request.form.get('captcha_token'),
+        ):
             _register_login_failure()
             flash('Captcha answer is incorrect.', 'warning')
             reset_login_captcha()
-            a, b = get_login_captcha()
-            return render_template('login.html', captcha_a=a, captcha_b=b, otp_required=otp_required, otp_mobile_masked=otp_mobile_masked)
+            captcha_image, captcha_token = get_login_captcha()
+            return render_template(
+                'login.html',
+                captcha_image=captcha_image,
+                captcha_token=captcha_token,
+                otp_required=otp_required,
+                otp_mobile_masked=otp_mobile_masked,
+            )
 
         username = request.form.get('username', '').strip()
         password = request.form.get('password', '')
@@ -2176,6 +2831,7 @@ def login():
             # First-login forced password change (must happen before OTP)
             if user.get('must_change_password'):
                 session.clear()
+                _rotate_session_identifier()
                 session['force_change_user_id'] = user['id']
                 session['force_change_username'] = user['username']
                 session['force_change_role'] = user['role']
@@ -2191,6 +2847,7 @@ def login():
                     # their password).  Works for both newly created accounts and
                     # existing accounts that were created before OTP was enforced.
                     session.clear()
+                    _rotate_session_identifier()
                     session['force_change_user_id'] = user['id']
                     session['force_change_username'] = user['username']
                     session['force_change_role'] = user['role']
@@ -2202,9 +2859,16 @@ def login():
                 if not ok:
                     flash(msg, 'danger')
                     reset_login_captcha()
-                    a, b = get_login_captcha()
-                    return render_template('login.html', captcha_a=a, captcha_b=b, otp_required=False, otp_mobile_masked='')
+                    captcha_image, captcha_token = get_login_captcha()
+                    return render_template(
+                        'login.html',
+                        captcha_image=captcha_image,
+                        captcha_token=captcha_token,
+                        otp_required=False,
+                        otp_mobile_masked='',
+                    )
                 _clear_authenticated_session()
+                _rotate_session_identifier()
                 session['otp_pending_user'] = {
                     'id': user['id'],
                     'username': user['username'],
@@ -2220,9 +2884,7 @@ def login():
                 flash(f'OTP sent to {_mask_mobile(mobile)}.', 'success')
                 return redirect(url_for('login'))
 
-            session.pop('login_captcha_a', None)
-            session.pop('login_captcha_b', None)
-            session.pop('login_captcha_answer', None)
+            _clear_legacy_login_captcha_session()
             _activate_login_session(user)
             _clear_login_failures()
             log_security_event('auth.login_success', severity='info', auth_factor='password')
@@ -2233,10 +2895,36 @@ def login():
         flash('Invalid username or password.', 'danger')
         reset_login_captcha()
 
-    a, b = get_login_captcha()
+    captcha_image, captcha_token = get_login_captcha()
     otp_required = bool(session.get('otp_pending_user') and session.get('otp_pending_mobile'))
     otp_mobile_masked = _mask_mobile(session.get('otp_pending_mobile'))
-    return render_template('login.html', captcha_a=a, captcha_b=b, otp_required=otp_required, otp_mobile_masked=otp_mobile_masked)
+    return render_template(
+        'login.html',
+        captcha_image=captcha_image,
+        captcha_token=captcha_token,
+        otp_required=otp_required,
+        otp_mobile_masked=otp_mobile_masked,
+    )
+
+
+@app.route('/auth/login-captcha/<path:captcha_token>')
+def login_captcha_image(captcha_token):
+    token = (captcha_token or '').strip()
+    _cleanup_used_login_captcha_tokens()
+    if not token or token in LOGIN_CAPTCHA_USED_TOKENS:
+        raise NotFound()
+    challenge = LOGIN_CAPTCHA_CHALLENGES.get(token)
+    if not challenge:
+        raise NotFound()
+    issued_at = int(challenge.get('issued_at') or 0)
+    now_ts = int(time.time())
+    if issued_at > now_ts + 5 or now_ts - issued_at > LOGIN_CAPTCHA_TTL_SECONDS:
+        LOGIN_CAPTCHA_CHALLENGES.pop(token, None)
+        raise NotFound()
+    image_bytes = challenge.get('image_bytes')
+    if not image_bytes:
+        raise NotFound()
+    return Response(image_bytes, mimetype='image/bmp')
 
 
 @app.route('/auth/request-signup', methods=['POST'])
@@ -3630,6 +4318,24 @@ def petition_new():
                 return render_petition_form()
             original_name = upload_result
 
+        allowed_submission, retry_after, blocked_scopes = _consume_petition_submission_slot()
+        if not allowed_submission:
+            log_security_event(
+                'petition.rate_limit_blocked',
+                severity='warning',
+                retry_after_seconds=retry_after,
+                rate_limit_scope=','.join(blocked_scopes) if blocked_scopes else 'unknown',
+            )
+            flash(f'Too many petition submissions. Please wait {retry_after} seconds before trying again.', 'danger')
+            return render_petition_form(), 429
+        if blocked_scopes:
+            log_security_event(
+                'petition.rate_limit_triggered',
+                severity='warning',
+                rate_limit_scope=','.join(blocked_scopes),
+            )
+
+        if ereceipt_file and ereceipt_file.filename:
             os.makedirs(ERECEIPT_UPLOAD_DIR, exist_ok=True)
             ereceipt_filename = _build_storage_filename('deo_ereceipt', original_name)
             if not ereceipt_filename:
@@ -5159,6 +5865,12 @@ def help_resource_file(filename):
     filename = _normalize_storage_relpath(filename)
     if not filename:
         return Response(status=404)
+    resource = models.get_help_resource_by_file_name(filename)
+    if not resource:
+        return Response(status=404)
+    if session.get('user_role') not in ('super_admin', 'po') and not resource.get('is_active'):
+        log_security_event('access.help_resource_inactive_forbidden', severity='warning', resource_id=resource.get('id'))
+        return Response(status=404)
     if not _uploaded_file_exists(HELP_RESOURCE_UPLOAD_DIR, filename):
         return Response(status=404)
     return send_from_directory(HELP_RESOURCE_UPLOAD_DIR, filename, as_attachment=False)
@@ -5298,6 +6010,7 @@ def profile():
         username = (request.form.get('username') or '').strip()
         phone = (request.form.get('phone') or '').strip() or None
         email = (request.form.get('email') or '').strip() or None
+        current_password = (request.form.get('current_password') or '').strip()
         new_password = (request.form.get('new_password') or '').strip()
         confirm_password = (request.form.get('confirm_password') or '').strip()
         remove_photo = request.form.get('remove_photo') == 'on'
@@ -5320,6 +6033,13 @@ def profile():
             return redirect(url_for('profile'))
 
         if new_password:
+            if not current_password:
+                flash('Current password is required to set a new password.', 'warning')
+                return redirect(url_for('profile'))
+            if not models.authenticate_user(user.get('username') or '', current_password):
+                log_security_event('auth.profile_password_change_rejected', severity='warning')
+                flash('Current password is incorrect.', 'warning')
+                return redirect(url_for('profile'))
             ok_password, password_error = validate_password_strength(new_password, 'New password')
             if not ok_password:
                 flash(password_error, 'warning')
@@ -5359,6 +6079,11 @@ def profile():
 
             if photo_changed and old_photo and old_photo != stored_photo_name:
                 delete_profile_photo_file(old_photo)
+
+            if new_password:
+                session.clear()
+                flash('Password updated successfully. Please login again.', 'success')
+                return redirect(url_for('login'))
 
             refresh_session_user()
             flash('Profile updated successfully.', 'success')
@@ -5557,6 +6282,49 @@ def form_management():
         form_groups=FORM_MANAGEMENT_GROUPS,
         field_types=sorted(VALID_DYNAMIC_FIELD_TYPES),
     )
+
+
+@app.route('/system-settings', methods=['GET', 'POST'])
+@login_required
+@role_required('super_admin')
+def system_settings():
+    if request.method == 'POST':
+        updates = {}
+        for key, meta in SYSTEM_SETTING_DEFINITIONS.items():
+            raw_value = (request.form.get(key) or '').strip()
+            if not raw_value:
+                flash(f"{meta['label']} is required.", 'warning')
+                return redirect(url_for('system_settings'))
+            try:
+                parsed = int(raw_value)
+            except ValueError:
+                flash(f"{meta['label']} must be a whole number.", 'warning')
+                return redirect(url_for('system_settings'))
+            if parsed < int(meta['min']) or parsed > int(meta['max']):
+                flash(f"{meta['label']} must be between {meta['min']} and {meta['max']}.", 'warning')
+                return redirect(url_for('system_settings'))
+            updates[key] = parsed
+
+        try:
+            models.upsert_system_settings(updates, session['user_id'])
+            if has_request_context() and hasattr(g, '_effective_system_settings'):
+                delattr(g, '_effective_system_settings')
+            flash('System settings updated successfully.', 'success')
+            log_security_event(
+                'admin.system_settings_updated',
+                severity='info',
+                updated_by=session.get('user_id'),
+                setting_keys=','.join(sorted(updates.keys())),
+            )
+        except Exception:
+            flash_internal_error('Unable to update system settings. Please contact administrator.')
+        return redirect(url_for('system_settings'))
+
+    return render_template(
+        'system_settings.html',
+        setting_rows=_system_settings_rows(),
+    )
+
 
 @app.route('/users/new', methods=['POST'])
 @login_required

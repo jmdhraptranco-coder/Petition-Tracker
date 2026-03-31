@@ -78,6 +78,13 @@ class Config:
         self.LOGIN_RATE_LIMIT_WINDOW_SECONDS = int(os.environ.get('LOGIN_RATE_LIMIT_WINDOW_SECONDS', '600'))
         self.LOGIN_RATE_LIMIT_MAX_ATTEMPTS = int(os.environ.get('LOGIN_RATE_LIMIT_MAX_ATTEMPTS', '8'))
         self.LOGIN_RATE_LIMIT_BLOCK_SECONDS = int(os.environ.get('LOGIN_RATE_LIMIT_BLOCK_SECONDS', '900'))
+        self.TRUST_PROXY_HEADERS = os.environ.get('TRUST_PROXY_HEADERS', '0') == '1'
+        self.PETITION_USER_RATE_LIMIT_WINDOW_SECONDS = int(os.environ.get('PETITION_USER_RATE_LIMIT_WINDOW_SECONDS', '300'))
+        self.PETITION_USER_RATE_LIMIT_MAX_SUBMISSIONS = int(os.environ.get('PETITION_USER_RATE_LIMIT_MAX_SUBMISSIONS', '10'))
+        self.PETITION_USER_RATE_LIMIT_BLOCK_SECONDS = int(os.environ.get('PETITION_USER_RATE_LIMIT_BLOCK_SECONDS', '300'))
+        self.PETITION_IP_RATE_LIMIT_WINDOW_SECONDS = int(os.environ.get('PETITION_IP_RATE_LIMIT_WINDOW_SECONDS', '300'))
+        self.PETITION_IP_RATE_LIMIT_MAX_SUBMISSIONS = int(os.environ.get('PETITION_IP_RATE_LIMIT_MAX_SUBMISSIONS', '60'))
+        self.PETITION_IP_RATE_LIMIT_BLOCK_SECONDS = int(os.environ.get('PETITION_IP_RATE_LIMIT_BLOCK_SECONDS', '180'))
 
         if self.IS_PRODUCTION:
             self._validate_production_settings()

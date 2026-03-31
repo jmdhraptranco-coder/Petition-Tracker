@@ -1,4 +1,5 @@
 import io
+import time
 from datetime import date
 
 import app as app_module
@@ -10,12 +11,14 @@ class RichModelsStub:
     def __init__(self):
         self.calls = []
         self.fail_methods = set()
+        self.system_settings = {}
         self.user = {
             "id": 1,
             "username": "tester",
             "full_name": "Tester",
             "role": "super_admin",
             "cvo_office": None,
+            "session_version": 1,
         }
         self.petition = {
             "id": 1,
@@ -84,6 +87,15 @@ class RichModelsStub:
     def get_form_field_configs(self):
         return {}
 
+    def get_system_settings(self, prefix=None):
+        if not prefix:
+            return dict(self.system_settings)
+        return {k: v for k, v in self.system_settings.items() if str(k).startswith(prefix)}
+
+    def upsert_system_settings(self, settings, updated_by):
+        self.system_settings.update({str(k): str(v) for k, v in (settings or {}).items()})
+        self._record("upsert_system_settings", settings=dict(settings or {}), updated_by=updated_by)
+
     def get_all_users(self):
         return [{"id": 1}]
 
@@ -103,7 +115,7 @@ class RichModelsStub:
         return []
 
     def get_user_by_id(self, _uid):
-        return {"id": 2, "role": "cvo_apspdcl"}
+        return {"id": _uid, "role": "super_admin", "username": "tester", "full_name": "Tester", "cvo_office": None, "phone": None, "email": None, "profile_photo": None, "session_version": 1, "is_active": True}
 
     def get_user_by_username(self, _uname):
         return {"id": 2, "role": "cvo_apspdcl"}
@@ -170,9 +182,16 @@ def _post_action(client, role, action, data=None, multipart=False):
 
 def _post_login(client, username="u", password="p"):
     client.get("/login")
-    with client.session_transaction() as sess:
-        captcha = str(sess.get("login_captcha_answer", ""))
-    return client.post("/login", data={"username": username, "password": password, "captcha_answer": captcha})
+    _, captcha_token = app_module.generate_login_captcha("482753")
+    return client.post(
+        "/login",
+        data={
+            "username": username,
+            "password": password,
+            "captcha_answer": "482753",
+            "captcha_token": captcha_token,
+        },
+    )
 
 
 def test_auth_dashboard_and_core_views(monkeypatch):
@@ -180,11 +199,25 @@ def test_auth_dashboard_and_core_views(monkeypatch):
     monkeypatch.setattr(app_module, "models", stub)
     app_module.app.config["TESTING"] = True
     with app_module.app.test_client() as client:
-        assert client.get("/").status_code == 200
+        root_response = client.get("/")
+        assert root_response.status_code == 200
+        assert b"Portal Nigaa" in root_response.data
         assert client.get("/login").status_code == 200
         assert _post_login(client, "u", "p").status_code == 302
         assert client.get("/dashboard").status_code == 200
 
+        stub.get_user_by_id = lambda _uid: {
+            "id": _uid,
+            "role": "super_admin",
+            "username": "tester",
+            "full_name": "Tester",
+            "cvo_office": None,
+            "phone": None,
+            "email": None,
+            "profile_photo": None,
+            "session_version": 1,
+            "is_active": True,
+        }
         login_as(client, role="super_admin")
         assert client.get("/petitions").status_code == 200
         assert client.get("/petitions/1").status_code == 200
@@ -195,6 +228,54 @@ def test_auth_dashboard_and_core_views(monkeypatch):
         assert client.get("/healthz").status_code == 200
         assert client.get("/e-receipts/missing.pdf").status_code in (200, 404)
         assert client.get("/enquiry-files/missing.pdf").status_code in (200, 404)
+
+
+def test_login_session_cookie_is_opaque(monkeypatch):
+    stub = RichModelsStub()
+    monkeypatch.setattr(app_module, "models", stub)
+    app_module.app.config["TESTING"] = True
+    app_module.TEST_SERVER_SESSION_STORE.clear()
+    with app_module.app.test_client() as client:
+        client.get("/login")
+        _, captcha_token = app_module.generate_login_captcha("482753")
+        response = client.post(
+            "/login",
+            data={
+                "username": "tester",
+                "password": "p",
+                "captcha_answer": "482753",
+                "captcha_token": captcha_token,
+            },
+        )
+        assert response.status_code == 302
+        set_cookie = response.headers.get("Set-Cookie", "")
+        assert "session=" in set_cookie
+        assert "super_admin" not in set_cookie
+        assert "tester" not in set_cookie
+        assert "9000000001" not in set_cookie
+
+
+def test_anonymous_public_pages_do_not_create_server_session(monkeypatch):
+    stub = RichModelsStub()
+    monkeypatch.setattr(app_module, "models", stub)
+    app_module.app.config["TESTING"] = True
+    app_module.TEST_SERVER_SESSION_STORE.clear()
+    with app_module.app.test_client() as client:
+        landing = client.get("/")
+        assert landing.status_code == 200
+        assert "session=" not in (landing.headers.get("Set-Cookie") or "")
+        assert not app_module.TEST_SERVER_SESSION_STORE
+
+        login_page = client.get("/login")
+        assert login_page.status_code == 200
+        assert "session=" not in (login_page.headers.get("Set-Cookie") or "")
+        assert not app_module.TEST_SERVER_SESSION_STORE
+
+
+def test_client_ip_ignores_forwarded_for_by_default(monkeypatch):
+    monkeypatch.setattr(app_module.config, "TRUST_PROXY_HEADERS", False, raising=False)
+    with app_module.app.test_request_context("/", headers={"X-Forwarded-For": "203.0.113.10"}, environ_base={"REMOTE_ADDR": "127.0.0.1"}):
+        assert app_module._client_ip() == "127.0.0.1"
 
 
 def test_petition_actions_success_paths(monkeypatch):
@@ -356,6 +437,21 @@ def test_form_and_user_management_routes(monkeypatch):
         assert client.post("/users/8/map-cvo", data={"cvo_id": "2"}).status_code == 302
 
 
+def test_inactive_help_resource_file_is_hidden_from_non_admin(monkeypatch):
+    stub = RichModelsStub()
+    stub.get_help_resource_by_file_name = lambda _filename: {
+        "id": 44,
+        "file_name": "manual.pdf",
+        "is_active": False,
+    }
+    monkeypatch.setattr(app_module, "models", stub)
+    app_module.app.config["TESTING"] = True
+    with app_module.app.test_client() as client:
+        login_as(client, role="data_entry")
+        response = client.get("/help-resources/files/manual.pdf")
+        assert response.status_code == 404
+
+
 def test_petition_new_validation_matrix(monkeypatch):
     stub = RichModelsStub()
     monkeypatch.setattr(app_module, "models", stub)
@@ -407,6 +503,183 @@ def test_petition_new_validation_matrix(monkeypatch):
         jmd_ok = dict(base)
         jmd_ok["ereceipt_file"] = _pdf("deo2.pdf")
         assert client.post("/petitions/new", data=jmd_ok, content_type="multipart/form-data").status_code == 200
+
+
+def test_petition_new_rate_limit_blocks_burst_submissions(monkeypatch):
+    stub = RichModelsStub()
+    monkeypatch.setattr(app_module, "models", stub)
+    monkeypatch.setattr(app_module.config, "PETITION_USER_RATE_LIMIT_WINDOW_SECONDS", 300, raising=False)
+    monkeypatch.setattr(app_module.config, "PETITION_USER_RATE_LIMIT_MAX_SUBMISSIONS", 1, raising=False)
+    monkeypatch.setattr(app_module.config, "PETITION_USER_RATE_LIMIT_BLOCK_SECONDS", 300, raising=False)
+    monkeypatch.setattr(app_module.config, "PETITION_IP_RATE_LIMIT_WINDOW_SECONDS", 300, raising=False)
+    monkeypatch.setattr(app_module.config, "PETITION_IP_RATE_LIMIT_MAX_SUBMISSIONS", 50, raising=False)
+    monkeypatch.setattr(app_module.config, "PETITION_IP_RATE_LIMIT_BLOCK_SECONDS", 180, raising=False)
+    app_module.PETITION_SUBMISSION_ATTEMPTS.clear()
+    app_module.app.config["TESTING"] = True
+    with app_module.app.test_client() as client:
+        login_as(client, role="data_entry")
+        payload = {
+            "received_date": "2026-02-17",
+            "received_at": "cvo_apspdcl_tirupathi",
+            "petitioner_name": "Petitioner One",
+            "contact": "+919999999999",
+            "place": "Hyd",
+            "subject": "Test burst petition",
+            "petition_type": "bribe",
+            "source_of_petition": "media",
+            "remarks": "ok",
+            "target_cvo": "apspdcl",
+            "permission_request_type": "direct_enquiry",
+            "ereceipt_no": "ER-1001",
+        }
+        first_payload = dict(payload)
+        first_payload["ereceipt_file"] = _pdf("deo.pdf")
+        assert client.post("/petitions/new", data=first_payload, content_type="multipart/form-data").status_code == 302
+        second_payload = dict(payload)
+        second_payload["ereceipt_file"] = _pdf("deo.pdf")
+        second = client.post("/petitions/new", data=second_payload, content_type="multipart/form-data")
+        assert second.status_code == 429
+
+
+def test_petition_new_ip_limit_allows_parallel_users_until_ip_threshold(monkeypatch):
+    stub = RichModelsStub()
+    monkeypatch.setattr(app_module, "models", stub)
+    monkeypatch.setattr(app_module.config, "PETITION_USER_RATE_LIMIT_WINDOW_SECONDS", 300, raising=False)
+    monkeypatch.setattr(app_module.config, "PETITION_USER_RATE_LIMIT_MAX_SUBMISSIONS", 10, raising=False)
+    monkeypatch.setattr(app_module.config, "PETITION_USER_RATE_LIMIT_BLOCK_SECONDS", 300, raising=False)
+    monkeypatch.setattr(app_module.config, "PETITION_IP_RATE_LIMIT_WINDOW_SECONDS", 300, raising=False)
+    monkeypatch.setattr(app_module.config, "PETITION_IP_RATE_LIMIT_MAX_SUBMISSIONS", 2, raising=False)
+    monkeypatch.setattr(app_module.config, "PETITION_IP_RATE_LIMIT_BLOCK_SECONDS", 180, raising=False)
+    app_module.PETITION_SUBMISSION_ATTEMPTS.clear()
+    app_module.app.config["TESTING"] = True
+    base_payload = {
+        "received_date": "2026-02-17",
+        "received_at": "cvo_apspdcl_tirupathi",
+        "petitioner_name": "Petitioner One",
+        "contact": "+919999999999",
+        "place": "Hyd",
+        "subject": "Shared IP petition",
+        "petition_type": "bribe",
+        "source_of_petition": "media",
+        "remarks": "ok",
+        "target_cvo": "apspdcl",
+        "permission_request_type": "direct_enquiry",
+        "ereceipt_no": "ER-1002",
+    }
+    with app_module.app.test_client() as client_a:
+        login_as(client_a, user_id=11, role="data_entry", full_name="DEO One", cvo_office="apspdcl")
+        payload_a = dict(base_payload)
+        payload_a["ereceipt_file"] = _pdf("deo-a.pdf")
+        assert client_a.post("/petitions/new", data=payload_a, content_type="multipart/form-data").status_code == 302
+    with app_module.app.test_client() as client_b:
+        login_as(client_b, user_id=12, role="data_entry", full_name="DEO Two", cvo_office="apspdcl")
+        payload_b = dict(base_payload)
+        payload_b["ereceipt_file"] = _pdf("deo-b.pdf")
+        assert client_b.post("/petitions/new", data=payload_b, content_type="multipart/form-data").status_code == 302
+    with app_module.app.test_client() as client_c:
+        login_as(client_c, user_id=13, role="data_entry", full_name="DEO Three", cvo_office="apspdcl")
+        payload_c = dict(base_payload)
+        payload_c["ereceipt_file"] = _pdf("deo-c.pdf")
+        third = client_c.post("/petitions/new", data=payload_c, content_type="multipart/form-data")
+        assert third.status_code == 429
+
+
+def test_system_settings_page_and_save(monkeypatch):
+    stub = RichModelsStub()
+    stub.system_settings = {
+        "petition_user_rate_limit_max_submissions": "12",
+        "petition_ip_rate_limit_max_submissions": "75",
+    }
+    monkeypatch.setattr(app_module, "models", stub)
+    app_module.app.config["TESTING"] = True
+    with app_module.app.test_client() as client:
+        login_as(client, role="super_admin")
+        response = client.get("/system-settings")
+        assert response.status_code == 200
+        body = response.get_data(as_text=True)
+        assert "System Settings" in body
+        assert 'value="12"' in body
+        assert 'value="75"' in body
+
+        post_response = client.post(
+            "/system-settings",
+            data={
+                "petition_user_rate_limit_window_seconds": "420",
+                "petition_user_rate_limit_max_submissions": "14",
+                "petition_user_rate_limit_block_seconds": "360",
+                "petition_ip_rate_limit_window_seconds": "420",
+                "petition_ip_rate_limit_max_submissions": "90",
+                "petition_ip_rate_limit_block_seconds": "240",
+            },
+        )
+        assert post_response.status_code == 302
+        assert stub.system_settings["petition_user_rate_limit_max_submissions"] == "14"
+        assert stub.system_settings["petition_ip_rate_limit_max_submissions"] == "90"
+        assert any(call[0] == "upsert_system_settings" for call in stub.calls)
+
+
+def test_effective_system_settings_use_database_overrides(monkeypatch):
+    stub = RichModelsStub()
+    stub.system_settings = {
+        "petition_user_rate_limit_window_seconds": "480",
+        "petition_user_rate_limit_max_submissions": "15",
+        "petition_user_rate_limit_block_seconds": "420",
+        "petition_ip_rate_limit_window_seconds": "540",
+        "petition_ip_rate_limit_max_submissions": "95",
+        "petition_ip_rate_limit_block_seconds": "300",
+    }
+    monkeypatch.setattr(app_module, "models", stub)
+    monkeypatch.setattr(app_module.config, "PETITION_USER_RATE_LIMIT_MAX_SUBMISSIONS", 10, raising=False)
+    monkeypatch.setattr(app_module.config, "PETITION_IP_RATE_LIMIT_MAX_SUBMISSIONS", 60, raising=False)
+
+    with app_module.app.test_request_context("/petitions/new"):
+        effective = app_module.get_effective_system_settings()
+        assert effective["petition_user_rate_limit_max_submissions"] == 15
+        assert effective["petition_ip_rate_limit_max_submissions"] == 95
+        user_settings = app_module._petition_rate_limit_settings("user")
+        ip_settings = app_module._petition_rate_limit_settings("ip")
+        assert user_settings["window_seconds"] == 480
+        assert user_settings["max_submissions"] == 15
+        assert user_settings["block_seconds"] == 420
+        assert ip_settings["window_seconds"] == 540
+        assert ip_settings["max_submissions"] == 95
+        assert ip_settings["block_seconds"] == 300
+
+
+def test_inactive_authenticated_session_forces_relogin(monkeypatch):
+    stub = RichModelsStub()
+    monkeypatch.setattr(app_module, "models", stub)
+    app_module.app.config["TESTING"] = True
+    with app_module.app.test_client() as client:
+        login_as(client, role="super_admin")
+        with client.session_transaction() as sess:
+            sess["auth_last_seen_at"] = int(time.time()) - (app_module.config.SESSION_LIFETIME_MINUTES * 60) - 5
+        response = client.get("/users")
+        assert response.status_code == 302
+        assert response.headers["Location"].endswith("/login")
+
+
+def test_role_required_uses_refreshed_user_role(monkeypatch):
+    stub = RichModelsStub()
+    stub.get_user_by_id = lambda _uid: {
+        "id": _uid,
+        "username": "tester",
+        "full_name": "Tester",
+        "role": "data_entry",
+        "cvo_office": "apspdcl",
+        "phone": None,
+        "email": None,
+        "profile_photo": None,
+        "session_version": 1,
+        "is_active": True,
+    }
+    monkeypatch.setattr(app_module, "models", stub)
+    app_module.app.config["TESTING"] = True
+    with app_module.app.test_client() as client:
+        login_as(client, role="super_admin")
+        response = client.get("/users")
+        assert response.status_code == 302
+        assert response.headers["Location"].endswith("/dashboard")
 
 
 def test_user_and_upload_validation_paths(monkeypatch):
@@ -463,6 +736,76 @@ def test_user_and_upload_validation_paths(monkeypatch):
         ).status_code == 302
 
 
+def test_profile_password_change_forces_relogin(monkeypatch):
+    stub = RichModelsStub()
+    monkeypatch.setattr(app_module, "models", stub)
+    app_module.app.config["TESTING"] = True
+    with app_module.app.test_client() as client:
+        login_as(client, role="super_admin")
+        response = client.post(
+            "/profile",
+            data={
+                "full_name": "Test User",
+                "username": "tester",
+                "phone": "",
+                "email": "",
+                "current_password": "OldPass@9!",
+                "new_password": "NewPass@9!",
+                "confirm_password": "NewPass@9!",
+            },
+        )
+        assert response.status_code == 302
+        assert response.headers["Location"].endswith("/login")
+        with client.session_transaction() as sess:
+            assert "user_id" not in sess
+
+
+def test_profile_password_change_requires_current_password(monkeypatch):
+    stub = RichModelsStub()
+    monkeypatch.setattr(app_module, "models", stub)
+    app_module.app.config["TESTING"] = True
+    with app_module.app.test_client() as client:
+        login_as(client, role="super_admin")
+        response = client.post(
+            "/profile",
+            data={
+                "full_name": "Test User",
+                "username": "tester",
+                "phone": "",
+                "email": "",
+                "new_password": "NewPass@9!",
+                "confirm_password": "NewPass@9!",
+            },
+            follow_redirects=True,
+        )
+        assert response.status_code == 200
+        assert b"Current password is required" in response.data
+
+
+def test_profile_password_change_rejects_wrong_current_password(monkeypatch):
+    stub = RichModelsStub()
+    stub.authenticate_user = lambda _u, _p: None
+    monkeypatch.setattr(app_module, "models", stub)
+    app_module.app.config["TESTING"] = True
+    with app_module.app.test_client() as client:
+        login_as(client, role="super_admin")
+        response = client.post(
+            "/profile",
+            data={
+                "full_name": "Test User",
+                "username": "tester",
+                "phone": "",
+                "email": "",
+                "current_password": "WrongPass@9!",
+                "new_password": "NewPass@9!",
+                "confirm_password": "NewPass@9!",
+            },
+            follow_redirects=True,
+        )
+        assert response.status_code == 200
+        assert b"Current password is incorrect." in response.data
+
+
 def test_misc_auth_and_api_edge_paths(monkeypatch):
     monkeypatch.setenv("OTP_ENABLED", "0")
     stub = RichModelsStub()
@@ -479,6 +822,55 @@ def test_misc_auth_and_api_edge_paths(monkeypatch):
         login_as(client, role="po")
         assert client.get("/api/dashboard-drilldown").status_code == 200
         assert client.get("/logout").status_code == 302
+
+
+def test_safe_internal_redirect_target_rejects_external_urls():
+    with app_module.app.test_request_context('/login'):
+        assert app_module._safe_internal_redirect_target('https://evil.example/phish', 'dashboard') == '/dashboard'
+        assert app_module._safe_internal_redirect_target('//evil.example/phish', 'dashboard') == '/dashboard'
+        assert app_module._safe_internal_redirect_target('/petitions?status=all', 'dashboard') == '/petitions?status=all'
+
+
+def test_login_page_does_not_embed_captcha_answer_in_html():
+    app_module.LOGIN_CAPTCHA_CHALLENGES.clear()
+    app_module.LOGIN_CAPTCHA_USED_TOKENS.clear()
+    app_module.app.config["TESTING"] = True
+    with app_module.app.test_client() as client:
+        response = client.get("/login")
+        assert response.status_code == 200
+        html = response.get_data(as_text=True)
+        assert '/auth/login-captcha/' in html
+        assert '<img src="/auth/login-captcha/' in html
+
+
+def test_request_entity_too_large_rejects_external_referer(monkeypatch):
+    app_module.app.config["TESTING"] = True
+    with app_module.app.test_client() as client:
+        login_as(client, role="data_entry")
+        response = client.post(
+            "/petitions/new",
+            headers={"Referer": "https://evil.example/phish"},
+            environ_overrides={"CONTENT_LENGTH": str((app_module.config.MAX_UPLOAD_SIZE_MB * 1024 * 1024) + 1)},
+        )
+        assert response.status_code == 302
+        assert response.headers["Location"].endswith("/petitions")
+
+
+def test_login_captcha_token_is_single_use():
+    app_module.LOGIN_CAPTCHA_USED_TOKENS.clear()
+    app_module.LOGIN_CAPTCHA_CHALLENGES.clear()
+    _, captcha_token = app_module.generate_login_captcha("482753")
+    assert app_module.validate_login_captcha("482753", captcha_token) is True
+    assert app_module.validate_login_captcha("482753", captcha_token) is False
+
+
+def test_login_captcha_token_expires(monkeypatch):
+    app_module.LOGIN_CAPTCHA_USED_TOKENS.clear()
+    app_module.LOGIN_CAPTCHA_CHALLENGES.clear()
+    now_ts = 1_800_000_000
+    _, captcha_token = app_module.generate_login_captcha("482753", issued_at=now_ts - app_module.LOGIN_CAPTCHA_TTL_SECONDS - 1)
+    monkeypatch.setattr(app_module.time, "time", lambda: now_ts)
+    assert app_module.validate_login_captcha("482753", captcha_token) is False
 
 
 def test_petition_action_negative_matrix(monkeypatch):

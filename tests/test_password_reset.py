@@ -14,6 +14,7 @@ Covers:
 import importlib
 import os
 import sys
+import time
 
 import pytest
 
@@ -32,6 +33,7 @@ NORMAL_USER = {
     "phone": "9876543210",
     "email": "officer@test.com",
     "profile_photo": None,
+    "session_version": 1,
     "is_active": True,
     "must_change_password": True,
 }
@@ -45,6 +47,7 @@ SUPER_ADMIN = {
     "phone": "9000000001",
     "email": "admin@test.com",
     "profile_photo": None,
+    "session_version": 1,
     "is_active": True,
     "must_change_password": False,
 }
@@ -66,6 +69,13 @@ def make_stub(**overrides):
 
     stub.authenticate_user     = lambda u, p: NORMAL_USER
     stub.get_user_by_username  = lambda u: NORMAL_USER
+    stub.get_user_by_id        = lambda uid: {**SUPER_ADMIN, "id": uid, "session_version": 1}
+    stub.get_dashboard_stats   = lambda *a, **k: {}
+    stub.get_petitions_for_user = lambda *a, **k: []
+    stub.get_recent_petitions  = lambda *a, **k: []
+    stub._get_workflow_stage_stats = lambda *a, **k: {}
+    stub._get_sla_stats_for_petitions = lambda *a, **k: {}
+    stub._build_role_kpi_cards = lambda *a, **k: []
     stub.update_password_and_phone = lambda uid, pwd, phone: stub.calls.append(
         ("update_password_and_phone", uid, pwd, phone))
     stub.update_password_only  = lambda uid, pwd: stub.calls.append(
@@ -81,6 +91,10 @@ def client(monkeypatch):
     stub = make_stub()
     monkeypatch.setattr(app_module, "models", stub)
     app_module.app.config["TESTING"] = True
+    app_module.TEST_SERVER_SESSION_STORE.clear()
+    app_module.PETITION_SUBMISSION_ATTEMPTS.clear()
+    app_module.LOGIN_CAPTCHA_USED_TOKENS.clear()
+    app_module.LOGIN_CAPTCHA_CHALLENGES.clear()
     with app_module.app.test_client() as c:
         c.stub = stub
         yield c
@@ -88,6 +102,10 @@ def client(monkeypatch):
 
 def _set_session(client, **kw):
     with client.session_transaction() as s:
+        if "user_id" in kw:
+            now_ts = int(time.time())
+            kw.setdefault("auth_issued_at", now_ts)
+            kw.setdefault("auth_last_seen_at", now_ts)
         for k, v in kw.items():
             s[k] = v
 
@@ -98,6 +116,14 @@ def _get_session(client):
 
 
 # ─── helper: patch OTP helpers ────────────────────────────────────────────────
+
+def _captcha_form(answer="482753"):
+    _, token = app_module.generate_login_captcha(answer)
+    return {
+        "captcha_answer": answer,
+        "captcha_token": token,
+    }
+
 
 def patch_otp(monkeypatch, send_ok=True, verify_ok=True):
     monkeypatch.setattr(app_module, "_send_login_otp",
@@ -583,14 +609,11 @@ class TestLoginMustChangePassword:
     def test_must_change_password_user_redirected_to_setup(self, client, monkeypatch):
         monkeypatch.setattr(app_module.models, "authenticate_user",
                             lambda u, p: NORMAL_USER)
-        # Provide a valid captcha answer
-        _set_session(client, login_captcha_a=3, login_captcha_b=4,
-                     login_captcha_answer=7)
         r = client.post("/login", data={
             "username": "officer1",
             "password": "Nigaa@123",
             "login_action": "credentials",
-            "captcha_answer": "7",
+            **_captcha_form(),
         })
         assert r.status_code == 302
         assert "first-login-setup" in r.headers["Location"]
@@ -598,13 +621,11 @@ class TestLoginMustChangePassword:
     def test_must_change_password_sets_force_session(self, client, monkeypatch):
         monkeypatch.setattr(app_module.models, "authenticate_user",
                             lambda u, p: NORMAL_USER)
-        _set_session(client, login_captcha_a=2, login_captcha_b=3,
-                     login_captcha_answer=5)
         client.post("/login", data={
             "username": "officer1",
             "password": "Nigaa@123",
             "login_action": "credentials",
-            "captcha_answer": "5",
+            **_captcha_form(),
         })
         sess = _get_session(client)
         assert sess.get("force_change_user_id") == NORMAL_USER["id"]
@@ -616,13 +637,11 @@ class TestLoginMustChangePassword:
         monkeypatch.setattr(app_module.models, "authenticate_user",
                             lambda u, p: user_ok)
         monkeypatch.setattr(app_module, "_is_otp_login_enabled", lambda: False)
-        _set_session(client, login_captcha_a=1, login_captcha_b=2,
-                     login_captcha_answer=3)
         r = client.post("/login", data={
             "username": "officer1",
             "password": "Pass@1234",
             "login_action": "credentials",
-            "captcha_answer": "3",
+            **_captcha_form(),
         })
         # Should NOT redirect to first-login-setup
         assert "first-login-setup" not in r.headers.get("Location", "")
@@ -636,12 +655,11 @@ class TestLoginMustChangePassword:
                             lambda u, p: user_no_phone)
         monkeypatch.setattr(app_module, "_is_otp_login_enabled", lambda: True)
         monkeypatch.setattr(app_module, "_normalize_mobile_for_otp", lambda p: None)
-        _set_session(client, login_captcha_a=4, login_captcha_b=5, login_captcha_answer=9)
         r = client.post("/login", data={
             "username": "deo_apcpdcl",
             "password": "Nigaa@123",
             "login_action": "credentials",
-            "captcha_answer": "9",
+            **_captcha_form(),
         })
         assert r.status_code == 302
         assert "first-login-setup" in r.headers["Location"]
@@ -653,12 +671,11 @@ class TestLoginMustChangePassword:
                             lambda u, p: user_no_phone)
         monkeypatch.setattr(app_module, "_is_otp_login_enabled", lambda: True)
         monkeypatch.setattr(app_module, "_normalize_mobile_for_otp", lambda p: None)
-        _set_session(client, login_captcha_a=4, login_captcha_b=5, login_captcha_answer=9)
         client.post("/login", data={
             "username": "deo_apcpdcl",
             "password": "Nigaa@123",
             "login_action": "credentials",
-            "captcha_answer": "9",
+            **_captcha_form(),
         })
         sess = _get_session(client)
         assert sess.get("force_change_user_id") == NORMAL_USER["id"]
@@ -671,12 +688,11 @@ class TestLoginMustChangePassword:
                             lambda u, p: user_no_phone)
         monkeypatch.setattr(app_module, "_is_otp_login_enabled", lambda: True)
         monkeypatch.setattr(app_module, "_normalize_mobile_for_otp", lambda p: None)
-        _set_session(client, login_captcha_a=4, login_captcha_b=5, login_captcha_answer=9)
         r = client.post("/login", data={
             "username": "deo_apcpdcl",
             "password": "Nigaa@123",
             "login_action": "credentials",
-            "captcha_answer": "9",
+            **_captcha_form(),
         }, follow_redirects=True)
         # Must NOT see the old dead-end error on the login page
         assert b"Contact admin to update phone number" not in r.data
@@ -711,7 +727,16 @@ class TestLoginRequiredGuard:
         monkeypatch.setattr(app_module.models, "get_recent_petitions",
                             lambda *_a, **_k: [])
         _set_session(client, user_id=1, user_role="super_admin",
-                     full_name="Admin", username="admin")
+                     full_name="Admin", username="admin", session_version=1)
         r = client.get("/dashboard")
         # 200 or minor redirect for sub-routing is fine; NOT login redirect
         assert "/login" not in r.headers.get("Location", "")
+
+    def test_session_version_mismatch_forces_relogin(self, client, monkeypatch):
+        monkeypatch.setattr(app_module.models, "get_user_by_id",
+                            lambda _uid: {**SUPER_ADMIN, "session_version": 2})
+        _set_session(client, user_id=1, user_role="super_admin",
+                     full_name="Admin", username="admin", session_version=1)
+        r = client.get("/dashboard")
+        assert r.status_code == 302
+        assert "/login" in r.headers["Location"]

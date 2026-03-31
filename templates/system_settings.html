@@ -1,0 +1,46 @@
+{% extends "base.html" %}
+{% block title %}System Settings - Petition Tracker{% endblock %}
+{% block page_title %}System Settings{% endblock %}
+
+{% block content %}
+<div class="card form-mgmt-hero">
+    <div class="card-header">
+        <h2>System Settings</h2>
+    </div>
+    <div class="form-mgmt-hero-body">
+        <p>Manage production-safe petition submission throttling without editing server environment files.</p>
+        <div class="form-mgmt-guide">
+            <span><strong>Scope:</strong> These settings control only the petition submission protection added for audit item <code>NIG006</code>.</span>
+            <span><strong>Fallback:</strong> If no override is saved here, the application continues using the `.env` defaults.</span>
+        </div>
+    </div>
+</div>
+
+<div class="card form-mgmt-section">
+    <div class="card-header">
+        <h3>Petition Submission Rate Limits</h3>
+    </div>
+    <form method="POST" action="{{ url_for('system_settings') }}" class="form-mgmt-field-card form-mgmt-add-card">
+        <div class="form-mgmt-grid">
+            {% for row in setting_rows %}
+            <div class="form-group">
+                <label for="{{ row.key }}">{{ row.label }}</label>
+                <input
+                    id="{{ row.key }}"
+                    name="{{ row.key }}"
+                    type="number"
+                    min="{{ row.min }}"
+                    max="{{ row.max }}"
+                    value="{{ row.value }}"
+                    required
+                >
+                <small>{{ row.description }} Allowed range: {{ row.min }} to {{ row.max }}. Default: {{ row.default }}.</small>
+            </div>
+            {% endfor %}
+        </div>
+        <div class="form-mgmt-actions">
+            <button type="submit" class="btn btn-primary btn-sm">Save Settings</button>
+        </div>
+    </form>
+</div>
+{% endblock %}

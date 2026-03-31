@@ -2,7 +2,7 @@ import psycopg2
 import psycopg2.extras
 from config import Config
 from werkzeug.security import generate_password_hash, check_password_hash
-from datetime import datetime, date
+from datetime import datetime, date, timezone
 import json
 
 config = Config()
@@ -203,6 +203,10 @@ def ensure_schema_updates():
             ALTER TABLE users
             ADD COLUMN IF NOT EXISTS must_change_password BOOLEAN NOT NULL DEFAULT FALSE
         """)
+        cur.execute("""
+            ALTER TABLE users
+            ADD COLUMN IF NOT EXISTS session_version INTEGER NOT NULL DEFAULT 1
+        """)
 
         # Migration tracker — records one-time data migrations so they never
         # repeat across server restarts.
@@ -239,6 +243,47 @@ def ensure_schema_updates():
         cur.execute("CREATE INDEX IF NOT EXISTS idx_petitions_current_handler ON petitions(current_handler_id)")
         cur.execute("CREATE INDEX IF NOT EXISTS idx_petitions_type_source ON petitions(petition_type, source_of_petition)")
         cur.execute("CREATE INDEX IF NOT EXISTS idx_petitions_requires_permission ON petitions(requires_permission)")
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS rate_limit_counters (
+                event_name VARCHAR(80) NOT NULL,
+                scope_type VARCHAR(20) NOT NULL,
+                scope_key VARCHAR(255) NOT NULL,
+                attempt_epochs_json TEXT NOT NULL DEFAULT '[]',
+                blocked_until_epoch BIGINT NOT NULL DEFAULT 0,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                PRIMARY KEY (event_name, scope_type, scope_key)
+            )
+        """)
+        cur.execute("""
+            CREATE INDEX IF NOT EXISTS idx_rate_limit_counters_updated_at
+            ON rate_limit_counters (updated_at DESC)
+        """)
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS system_settings (
+                setting_key VARCHAR(120) PRIMARY KEY,
+                setting_value TEXT NOT NULL,
+                updated_by INTEGER REFERENCES users(id),
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS server_sessions (
+                session_id VARCHAR(128) PRIMARY KEY,
+                user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+                session_data_json TEXT NOT NULL DEFAULT '{}',
+                expires_at TIMESTAMP NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+        cur.execute("""
+            CREATE INDEX IF NOT EXISTS idx_server_sessions_user_id
+            ON server_sessions (user_id, updated_at DESC)
+        """)
+        cur.execute("""
+            CREATE INDEX IF NOT EXISTS idx_server_sessions_expires_at
+            ON server_sessions (expires_at)
+        """)
     except Exception:
         raise
     finally:
@@ -252,6 +297,119 @@ def get_db():
 
 def dict_cursor(conn):
     return conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+
+
+def consume_rate_limit(event_name, scope_entries):
+    """Atomically check and consume a rate-limit slot for each provided scope."""
+    conn = get_db()
+    try:
+        cur = dict_cursor(conn)
+        now_epoch = int(datetime.now(timezone.utc).timestamp())
+        normalized = []
+        retry_after = 0
+        blocked_scopes = []
+
+        for entry in scope_entries or []:
+            scope_type = str(entry.get('scope_type') or '').strip()
+            scope_key = str(entry.get('scope_key') or '').strip()
+            if not scope_type or not scope_key:
+                continue
+            window_seconds = max(30, int(entry.get('window_seconds') or 30))
+            max_submissions = max(1, int(entry.get('max_submissions') or 1))
+            block_seconds = max(30, int(entry.get('block_seconds') or 30))
+            cur.execute("""
+                SELECT attempt_epochs_json, blocked_until_epoch
+                FROM rate_limit_counters
+                WHERE event_name = %s AND scope_type = %s AND scope_key = %s
+                FOR UPDATE
+            """, (event_name, scope_type, scope_key))
+            row = cur.fetchone()
+            attempts = []
+            blocked_until = 0
+            if row:
+                try:
+                    attempts = [int(ts) for ts in json.loads(row.get('attempt_epochs_json') or '[]')]
+                except Exception:
+                    attempts = []
+                blocked_until = int(row.get('blocked_until_epoch') or 0)
+            window_start = now_epoch - window_seconds
+            attempts = [ts for ts in attempts if ts >= window_start]
+            if blocked_until > now_epoch:
+                retry_after = max(retry_after, blocked_until - now_epoch)
+                blocked_scopes.append(scope_type)
+            elif blocked_until:
+                blocked_until = 0
+            normalized.append({
+                'scope_type': scope_type,
+                'scope_key': scope_key,
+                'attempts': attempts,
+                'blocked_until': blocked_until,
+                'window_seconds': window_seconds,
+                'max_submissions': max_submissions,
+                'block_seconds': block_seconds,
+            })
+
+        if retry_after > 0:
+            for entry in normalized:
+                cur.execute("""
+                    INSERT INTO rate_limit_counters (
+                        event_name, scope_type, scope_key, attempt_epochs_json,
+                        blocked_until_epoch, updated_at
+                    ) VALUES (%s, %s, %s, %s, %s, CURRENT_TIMESTAMP)
+                    ON CONFLICT (event_name, scope_type, scope_key)
+                    DO UPDATE SET
+                        attempt_epochs_json = EXCLUDED.attempt_epochs_json,
+                        blocked_until_epoch = EXCLUDED.blocked_until_epoch,
+                        updated_at = CURRENT_TIMESTAMP
+                """, (
+                    event_name,
+                    entry['scope_type'],
+                    entry['scope_key'],
+                    json.dumps(entry['attempts']),
+                    entry['blocked_until'],
+                ))
+            conn.commit()
+            return {
+                'allowed': False,
+                'retry_after': int(retry_after),
+                'triggered_scopes': blocked_scopes,
+            }
+
+        triggered_scopes = []
+        for entry in normalized:
+            entry['attempts'].append(now_epoch)
+            if len(entry['attempts']) >= entry['max_submissions']:
+                entry['blocked_until'] = now_epoch + entry['block_seconds']
+                triggered_scopes.append(entry['scope_type'])
+            cur.execute("""
+                INSERT INTO rate_limit_counters (
+                    event_name, scope_type, scope_key, attempt_epochs_json,
+                    blocked_until_epoch, updated_at
+                ) VALUES (%s, %s, %s, %s, %s, CURRENT_TIMESTAMP)
+                ON CONFLICT (event_name, scope_type, scope_key)
+                DO UPDATE SET
+                    attempt_epochs_json = EXCLUDED.attempt_epochs_json,
+                    blocked_until_epoch = EXCLUDED.blocked_until_epoch,
+                    updated_at = CURRENT_TIMESTAMP
+            """, (
+                event_name,
+                entry['scope_type'],
+                entry['scope_key'],
+                json.dumps(entry['attempts']),
+                entry['blocked_until'],
+            ))
+
+        conn.commit()
+        return {
+            'allowed': True,
+            'retry_after': 0,
+            'triggered_scopes': triggered_scopes,
+        }
+    except Exception as e:
+        conn.rollback()
+        raise e
+    finally:
+        conn.close()
 
 # ========================================
 # USER OPERATIONS
@@ -448,7 +606,9 @@ def approve_password_reset_request(request_id, reviewer_id):
 
         cur.execute("""
             UPDATE users
-            SET password_hash = %s, updated_at = CURRENT_TIMESTAMP
+            SET password_hash = %s,
+                session_version = session_version + 1,
+                updated_at = CURRENT_TIMESTAMP
             WHERE id = %s
         """, (req['requested_password_hash'], req['user_id']))
         cur.execute("""
@@ -656,7 +816,7 @@ def set_user_password(user_id, password):
         cur = dict_cursor(conn)
         password_hash = generate_password_hash(password)
         cur.execute(
-            "UPDATE users SET password_hash = %s, updated_at = CURRENT_TIMESTAMP WHERE id = %s",
+            "UPDATE users SET password_hash = %s, session_version = session_version + 1, updated_at = CURRENT_TIMESTAMP WHERE id = %s",
             (password_hash, user_id)
         )
         conn.commit()
@@ -692,6 +852,7 @@ def update_password_and_phone(user_id, new_password, phone):
         cur.execute("""
             UPDATE users
             SET password_hash = %s, phone = %s,
+                session_version = session_version + 1,
                 must_change_password = FALSE,
                 updated_at = CURRENT_TIMESTAMP
             WHERE id = %s
@@ -713,6 +874,7 @@ def update_password_only(user_id, new_password):
         cur.execute("""
             UPDATE users
             SET password_hash = %s,
+                session_version = session_version + 1,
                 must_change_password = FALSE,
                 updated_at = CURRENT_TIMESTAMP
             WHERE id = %s
@@ -906,6 +1068,142 @@ def upsert_form_field_config(form_key, field_key, label, field_type, is_required
                 updated_by = EXCLUDED.updated_by,
                 updated_at = CURRENT_TIMESTAMP
         """, (form_key, field_key, label, field_type, is_required, options_json, updated_by))
+        conn.commit()
+    except Exception as e:
+        conn.rollback()
+        raise e
+    finally:
+        conn.close()
+
+
+def get_system_settings(prefix=None):
+    conn = get_db()
+    try:
+        cur = dict_cursor(conn)
+        if prefix:
+            cur.execute("""
+                SELECT setting_key, setting_value
+                FROM system_settings
+                WHERE setting_key LIKE %s
+            """, (f"{prefix}%",))
+        else:
+            cur.execute("""
+                SELECT setting_key, setting_value
+                FROM system_settings
+            """)
+        return {str(row['setting_key']): row.get('setting_value') for row in cur.fetchall()}
+    finally:
+        conn.close()
+
+
+def upsert_system_settings(settings, updated_by):
+    conn = get_db()
+    try:
+        cur = dict_cursor(conn)
+        for key, value in (settings or {}).items():
+            cur.execute("""
+                INSERT INTO system_settings (setting_key, setting_value, updated_by, updated_at)
+                VALUES (%s, %s, %s, CURRENT_TIMESTAMP)
+                ON CONFLICT (setting_key)
+                DO UPDATE SET
+                    setting_value = EXCLUDED.setting_value,
+                    updated_by = EXCLUDED.updated_by,
+                    updated_at = CURRENT_TIMESTAMP
+            """, (str(key), str(value), updated_by))
+        conn.commit()
+    except Exception as e:
+        conn.rollback()
+        raise e
+    finally:
+        conn.close()
+
+
+def get_server_session(session_id):
+    conn = get_db()
+    try:
+        cur = dict_cursor(conn)
+        cur.execute("""
+            SELECT session_id, user_id, session_data_json, expires_at
+            FROM server_sessions
+            WHERE session_id = %s
+        """, (session_id,))
+        row = cur.fetchone()
+        if not row:
+            return None
+
+        expires_at = row.get('expires_at')
+        if expires_at and expires_at <= datetime.now(timezone.utc).replace(tzinfo=None):
+            cur.execute("DELETE FROM server_sessions WHERE session_id = %s", (session_id,))
+            conn.commit()
+            return None
+
+        try:
+            data = json.loads(row.get('session_data_json') or '{}')
+        except Exception:
+            data = {}
+        return {
+            'session_id': row.get('session_id'),
+            'user_id': row.get('user_id'),
+            'data': data if isinstance(data, dict) else {},
+            'expires_at': expires_at,
+        }
+    finally:
+        conn.close()
+
+
+def save_server_session(session_id, data, user_id, expires_at):
+    conn = get_db()
+    try:
+        cur = dict_cursor(conn)
+        cur.execute("""
+            DELETE FROM server_sessions
+            WHERE expires_at <= CURRENT_TIMESTAMP
+        """)
+        cur.execute("""
+            INSERT INTO server_sessions (session_id, user_id, session_data_json, expires_at, updated_at)
+            VALUES (%s, %s, %s, %s, CURRENT_TIMESTAMP)
+            ON CONFLICT (session_id)
+            DO UPDATE SET
+                user_id = EXCLUDED.user_id,
+                session_data_json = EXCLUDED.session_data_json,
+                expires_at = EXCLUDED.expires_at,
+                updated_at = CURRENT_TIMESTAMP
+        """, (session_id, user_id, json.dumps(data or {}), expires_at))
+        conn.commit()
+    except Exception as e:
+        conn.rollback()
+        raise e
+    finally:
+        conn.close()
+
+
+def delete_server_session(session_id):
+    conn = get_db()
+    try:
+        cur = dict_cursor(conn)
+        cur.execute("DELETE FROM server_sessions WHERE session_id = %s", (session_id,))
+        conn.commit()
+    except Exception as e:
+        conn.rollback()
+        raise e
+    finally:
+        conn.close()
+
+
+def delete_user_server_sessions(user_id, exclude_session_id=None):
+    conn = get_db()
+    try:
+        cur = dict_cursor(conn)
+        if exclude_session_id:
+            cur.execute("""
+                DELETE FROM server_sessions
+                WHERE user_id = %s AND session_id <> %s
+            """, (user_id, exclude_session_id))
+        else:
+            cur.execute("""
+                DELETE FROM server_sessions
+                WHERE user_id = %s
+            """, (user_id,))
         conn.commit()
     except Exception as e:
         conn.rollback()
@@ -1244,6 +1542,23 @@ def get_help_resource_by_id(resource_id):
             FROM help_resources
             WHERE id = %s
         """, (resource_id,))
+        row = cur.fetchone()
+        return dict(row) if row else None
+    finally:
+        conn.close()
+
+
+def get_help_resource_by_file_name(file_name):
+    conn = get_db()
+    try:
+        cur = dict_cursor(conn)
+        cur.execute("""
+            SELECT id, title, resource_type, storage_kind, file_name, external_url,
+                   mime_type, is_active, display_order, created_at, updated_at, uploaded_by
+            FROM help_resources
+            WHERE file_name = %s
+            LIMIT 1
+        """, (file_name,))
         row = cur.fetchone()
         return dict(row) if row else None
     finally:
