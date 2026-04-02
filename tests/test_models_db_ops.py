@@ -1,6 +1,7 @@
 from datetime import datetime
 
 import models
+import pytest
 
 
 class CursorStub:
@@ -125,6 +126,30 @@ def test_user_management_db_functions(monkeypatch):
     conn, _ = bind_db(monkeypatch)
     models.map_inspector_to_cvo(2, 3)
     assert conn.commits == 1
+
+
+def test_password_update_functions_raise_when_user_missing(monkeypatch):
+    monkeypatch.setattr(models, "generate_password_hash", lambda pwd: f"h::{pwd}")
+
+    conn, _ = bind_db(monkeypatch, rowcount=0)
+    with pytest.raises(ValueError):
+        models.update_user(1, "Name", "po", password="secret123")
+    assert conn.rollbacks == 1
+
+    conn, _ = bind_db(monkeypatch, rowcount=0)
+    with pytest.raises(ValueError):
+        models.set_user_password(1, "secret123")
+    assert conn.rollbacks == 1
+
+    conn, _ = bind_db(monkeypatch, rowcount=0)
+    with pytest.raises(ValueError):
+        models.update_password_and_phone(7, "StrongPass@9", "9999999999")
+    assert conn.rollbacks == 1
+
+    conn, _ = bind_db(monkeypatch, rowcount=0)
+    with pytest.raises(ValueError):
+        models.update_password_only(7, "StrongPass@9")
+    assert conn.rollbacks == 1
 
 
 def test_form_config_and_petition_queries(monkeypatch):

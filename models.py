@@ -796,13 +796,18 @@ def update_user(user_id, full_name, role, cvo_office=None, assigned_cvo_id=None,
             password_hash = generate_password_hash(password)
             cur.execute("""
                 UPDATE users SET full_name=%s, role=%s, cvo_office=%s, assigned_cvo_id=%s, 
-                phone=%s, email=%s, password_hash=%s, updated_at=CURRENT_TIMESTAMP WHERE id=%s
+                phone=%s, email=%s, password_hash=%s,
+                session_version = session_version + 1,
+                must_change_password = FALSE,
+                updated_at=CURRENT_TIMESTAMP WHERE id=%s
             """, (full_name, role, cvo_office, assigned_cvo_id, phone, email, password_hash, user_id))
         else:
             cur.execute("""
                 UPDATE users SET full_name=%s, role=%s, cvo_office=%s, assigned_cvo_id=%s, 
                 phone=%s, email=%s, updated_at=CURRENT_TIMESTAMP WHERE id=%s
             """, (full_name, role, cvo_office, assigned_cvo_id, phone, email, user_id))
+        if cur.rowcount < 1:
+            raise ValueError('User not found.')
         conn.commit()
     except Exception as e:
         conn.rollback()
@@ -819,6 +824,8 @@ def set_user_password(user_id, password):
             "UPDATE users SET password_hash = %s, session_version = session_version + 1, updated_at = CURRENT_TIMESTAMP WHERE id = %s",
             (password_hash, user_id)
         )
+        if cur.rowcount < 1:
+            raise ValueError('User not found.')
         conn.commit()
     except Exception as e:
         conn.rollback()
@@ -857,6 +864,8 @@ def update_password_and_phone(user_id, new_password, phone):
                 updated_at = CURRENT_TIMESTAMP
             WHERE id = %s
         """, (password_hash, phone.strip(), user_id))
+        if cur.rowcount < 1:
+            raise ValueError('User not found.')
         conn.commit()
     except Exception as e:
         conn.rollback()
@@ -879,6 +888,8 @@ def update_password_only(user_id, new_password):
                 updated_at = CURRENT_TIMESTAMP
             WHERE id = %s
         """, (password_hash, user_id))
+        if cur.rowcount < 1:
+            raise ValueError('User not found.')
         conn.commit()
     except Exception as e:
         conn.rollback()
