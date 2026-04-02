@@ -1371,6 +1371,29 @@ def test_login_page_generated_captcha_survives_to_next_request(monkeypatch):
         assert "Invalid username or password." in html
 
 
+def test_login_page_reuses_existing_captcha_until_refresh_requested():
+    app_module.app.config["TESTING"] = True
+    with app_module.app.test_client() as client:
+        response = client.get("/login")
+        assert response.status_code == 200
+        with client.session_transaction() as sess:
+            challenges = dict(sess.get("login_captcha_challenges") or {})
+            assert len(challenges) == 1
+            first_token = next(reversed(challenges))
+        response = client.get("/login")
+        assert response.status_code == 200
+        with client.session_transaction() as sess:
+            challenges = dict(sess.get("login_captcha_challenges") or {})
+            assert len(challenges) == 1
+            assert next(reversed(challenges)) == first_token
+        response = client.get("/login?refresh_captcha=1")
+        assert response.status_code == 200
+        with client.session_transaction() as sess:
+            challenges = dict(sess.get("login_captcha_challenges") or {})
+            assert len(challenges) == 1
+            assert next(reversed(challenges)) != first_token
+
+
 def test_login_page_captcha_validates_even_if_challenge_store_is_cleared(monkeypatch):
     stub = RichModelsStub()
     monkeypatch.setattr(app_module, "models", stub)

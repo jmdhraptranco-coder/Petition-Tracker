@@ -153,12 +153,13 @@ class DatabaseSessionInterface(SessionInterface):
         if persist_expires is not None and getattr(persist_expires, 'tzinfo', None) is not None:
             persist_expires = persist_expires.astimezone(timezone.utc).replace(tzinfo=None)
         user_id = session_obj.get('user_id')
-        _save_server_session_record(
-            session_obj.sid,
-            dict(session_obj),
-            user_id,
-            persist_expires or (datetime.now(timezone.utc).replace(tzinfo=None) + app.permanent_session_lifetime),
-        )
+        if session_obj.modified or session_obj.new:
+            _save_server_session_record(
+                session_obj.sid,
+                dict(session_obj),
+                user_id,
+                persist_expires or (datetime.now(timezone.utc).replace(tzinfo=None) + app.permanent_session_lifetime),
+            )
 
         if session_obj.modified or session_obj.new or self.should_set_cookie(app, session_obj):
             response.set_cookie(
@@ -1115,7 +1116,32 @@ def reset_login_captcha():
     return generate_login_captcha()
 
 
-def get_login_captcha():
+def _get_existing_login_captcha():
+    now_ts = int(time.time())
+    _cleanup_used_login_captcha_tokens(now_ts)
+    used_tokens = _get_login_captcha_used_tokens_store()
+    challenges = _get_login_captcha_challenges_store()
+    for token, challenge in list(challenges.items()):
+        token = (token or '').strip()
+        if not token or token in used_tokens:
+            continue
+        issued_at = int((challenge or {}).get('issued_at') or 0)
+        image_b64 = ((challenge or {}).get('image_b64') or '').strip()
+        proof = ((challenge or {}).get('proof') or '').strip()
+        if issued_at <= 0 or issued_at > now_ts + 5:
+            continue
+        if now_ts - issued_at > LOGIN_CAPTCHA_TTL_SECONDS:
+            continue
+        if image_b64 and proof:
+            return _login_captcha_image_url(token), token
+    return None, None
+
+
+def get_login_captcha(reuse_existing=False):
+    if reuse_existing:
+        captcha_image, captcha_token = _get_existing_login_captcha()
+        if captcha_image and captcha_token:
+            return captcha_image, captcha_token
     return reset_login_captcha()
 
 
@@ -2928,12 +2954,18 @@ def login():
                 flash(msg, 'danger')
                 return redirect(url_for('login'))
 
+            activated_user = models.get_user_by_id(pending_user['id']) if pending_user else None
+            if not activated_user or not activated_user.get('is_active', True):
+                _clear_pending_otp()
+                reset_login_captcha()
+                flash('Your account is no longer available. Please login again.', 'warning')
+                return redirect(url_for('login'))
             _clear_legacy_login_captcha_session()
-            _activate_login_session(pending_user)
+            _activate_login_session(activated_user)
             _clear_pending_otp()
             _clear_login_failures()
             log_security_event('auth.login_success', severity='info', auth_factor='password+otp')
-            flash(f'Welcome, {pending_user["full_name"]}!', 'success')
+            flash(f'Welcome, {activated_user["full_name"]}!', 'success')
             return redirect(url_for('dashboard'))
 
         if not validate_login_captcha(
@@ -3016,6 +3048,8 @@ def login():
                     'phone': user.get('phone'),
                     'email': user.get('email'),
                     'profile_photo': user.get('profile_photo'),
+                    'session_version': int(user.get('session_version') or 1),
+                    'is_active': bool(user.get('is_active', True)),
                 }
                 session['otp_pending_mobile'] = mobile
                 _clear_login_failures()
@@ -3033,15 +3067,20 @@ def login():
         flash('Invalid username or password.', 'danger')
         reset_login_captcha()
 
-    captcha_image, captcha_token = get_login_captcha()
     otp_required = bool(session.get('otp_pending_user') and session.get('otp_pending_mobile'))
     otp_mobile_masked = _mask_mobile(session.get('otp_pending_mobile'))
+    captcha_image = ''
+    captcha_token = ''
+    captcha_proof = ''
+    if not otp_required:
+        captcha_image, captcha_token = get_login_captcha(reuse_existing=True)
+        captcha_proof = _login_captcha_proof(captcha_token)
     return render_template(
         'login.html',
         captcha_image=captcha_image,
         captcha_image_data=_login_captcha_image_data_url(captcha_token),
         captcha_token=captcha_token,
-        captcha_proof=_login_captcha_proof(captcha_token),
+        captcha_proof=captcha_proof,
         otp_required=otp_required,
         otp_mobile_masked=otp_mobile_masked,
     )

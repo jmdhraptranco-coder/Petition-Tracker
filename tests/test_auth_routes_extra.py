@@ -127,6 +127,36 @@ def test_login_route_otp_and_first_login_branches(monkeypatch):
         assert _login_post(client, "u3", "p").status_code == 302
 
 
+def test_otp_verify_uses_current_user_session_version(monkeypatch):
+    stub = AuthModelsStub()
+    stub.user = {
+        "id": 7,
+        "username": "otpuser",
+        "full_name": "OTP User",
+        "role": "po",
+        "phone": "919999999999",
+        "email": None,
+        "profile_photo": None,
+        "must_change_password": False,
+        "session_version": 5,
+        "is_active": True,
+    }
+    monkeypatch.setattr(app_module, "models", stub)
+    monkeypatch.setattr(app_module, "_verify_login_otp", lambda mobile, code: (True, None))
+    monkeypatch.setattr(stub, "get_user_by_id", lambda user_id: dict(stub.user) if user_id == 7 else None)
+    app_module.app.config["TESTING"] = True
+
+    with app_module.app.test_client() as client:
+        with client.session_transaction() as sess:
+            sess["otp_pending_user"] = {"id": 7, "full_name": "OTP User", "username": "otpuser", "role": "po"}
+            sess["otp_pending_mobile"] = "919999999999"
+        response = client.post("/login", data={"login_action": "verify_otp", "otp_code": "1234"})
+        assert response.status_code == 302
+        with client.session_transaction() as sess:
+            assert sess.get("user_id") == 7
+            assert sess.get("session_version") == 5
+
+
 def test_request_recovery_and_first_login_setup(monkeypatch):
     stub = AuthModelsStub()
     monkeypatch.setattr(app_module, "models", stub)
