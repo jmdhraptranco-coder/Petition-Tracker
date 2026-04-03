@@ -60,6 +60,7 @@ def test_login_flow_success_and_logout(client, monkeypatch):
         'id': 1, 'username': 'testuser', 'password_hash': 'h::password123',
         'full_name': 'Test User', 'role': 'po', 'is_active': True, 'phone': '1234567890'
     }
+    monkeypatch.setattr('app.config.OTP_LOGIN_ENABLED', False)
     monkeypatch.setattr('app.models.authenticate_user', lambda u, p: user_data)
     monkeypatch.setattr('app.models.get_user_by_id', lambda _uid: {
         **user_data,
