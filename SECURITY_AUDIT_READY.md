@@ -44,7 +44,6 @@ Primary implementation details are recorded in:
 - Current password required for self-service password changes.
 - Profile password change forces re-login.
 - Login throttling with temporary block behavior.
-- Optional OTP flow retained for configured deployments.
 
 ### CAPTCHA and Login Friction
 

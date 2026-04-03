@@ -3,6 +3,11 @@
 {% block page_title %}User Management{% endblock %}
 
 {% block content %}
+<style>
+#userControlGrid:not(.user-admin-grid--ready) .user-admin-card {
+    display: none;
+}
+</style>
 <div class="users-page">
     <div class="card">
         <div class="card-header">
@@ -293,6 +298,7 @@ function applyUserSelection() {
     const picker = document.getElementById('userPicker');
     const selectedUser = (picker && picker.value) ? picker.value : '';
     const prompt = document.getElementById('userSelectPrompt');
+    const grid = document.getElementById('userControlGrid');
     const cards = document.querySelectorAll('#userControlGrid .user-admin-card');
     cards.forEach(card => {
         const isSelected = selectedUser && card.dataset.userId === selectedUser;
@@ -305,6 +311,9 @@ function applyUserSelection() {
     });
     if (prompt) {
         prompt.style.display = selectedUser ? 'none' : '';
+    }
+    if (grid) {
+        grid.classList.add('user-admin-grid--ready');
     }
 }
 

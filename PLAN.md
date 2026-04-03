@@ -107,7 +107,6 @@ Remediation plan:
 1. Eliminate storage of user role, profile attributes, and security workflow state in client-side cookies.
 2. Move the following state server-side:
    - authenticated user context
-   - OTP pending state
    - forced first-login password-change state
    - password reset workflow state
    - CAPTCHA answer/challenge state
@@ -150,7 +149,6 @@ Remediation plan:
 3. Reject the change on mismatch with audit logging.
 4. Preserve exceptions only for dedicated recovery flows:
    - first-login forced reset
-   - forgot-password OTP reset
    - admin-issued reset to default
 5. Add user notification hooks for password changes if the deployment supports SMS or email alerts.
 
@@ -286,7 +284,7 @@ Remediation plan:
 2. Store CAPTCHA state only server-side.
 3. Ensure the challenge is not trivially extractable from page markup or cookie contents.
 4. Refresh the challenge after failed attempts and after successful authentication transitions.
-5. Consider whether CAPTCHA is still needed once stronger login throttling and OTP controls are in place; if retained, use it as a secondary friction layer, not the primary defense.
+5. Consider whether CAPTCHA is still needed once stronger login throttling controls are in place; if retained, use it as a secondary friction layer, not the primary defense.
 
 Validation evidence:
 

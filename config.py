@@ -92,6 +92,27 @@ class Config:
         self.PETITION_IP_RATE_LIMIT_WINDOW_SECONDS = int(os.environ.get('PETITION_IP_RATE_LIMIT_WINDOW_SECONDS', '300'))
         self.PETITION_IP_RATE_LIMIT_MAX_SUBMISSIONS = int(os.environ.get('PETITION_IP_RATE_LIMIT_MAX_SUBMISSIONS', '60'))
         self.PETITION_IP_RATE_LIMIT_BLOCK_SECONDS = int(os.environ.get('PETITION_IP_RATE_LIMIT_BLOCK_SECONDS', '180'))
+        self.OTP_SEND_URL = (os.environ.get('OTP_SEND_URL') or '').strip()
+        self.OTP_VERIFY_URL = (os.environ.get('OTP_VERIFY_URL') or '').strip()
+        self.OTP_AUTH_USERNAME = (os.environ.get('OTP_AUTH_USERNAME') or '').strip()
+        self.OTP_AUTH_PASSWORD = (os.environ.get('OTP_AUTH_PASSWORD') or '').strip()
+        self.OTP_BASIC_AUTH_USERNAME = (os.environ.get('OTP_BASIC_AUTH_USERNAME') or '').strip()
+        self.OTP_BASIC_AUTH_PASSWORD = (os.environ.get('OTP_BASIC_AUTH_PASSWORD') or '').strip()
+        self.OTP_SERVICE_USER_ID = (os.environ.get('OTP_SERVICE_USER_ID') or '').strip()
+        self.OTP_TYPE = (os.environ.get('OTP_TYPE') or 'otp').strip() or 'otp'
+        self.OTP_APP_NAME = (os.environ.get('OTP_APP_NAME') or '').strip()
+        self.OTP_MESSAGE_TEXT = (os.environ.get('OTP_MESSAGE_TEXT') or 'Nigaa login OTP is :').strip() or 'Nigaa login OTP is :'
+        self.OTP_HTTP_TIMEOUT_SECONDS = int(os.environ.get('OTP_HTTP_TIMEOUT_SECONDS', '15'))
+        self.OTP_SESSION_TTL_SECONDS = int(os.environ.get('OTP_SESSION_TTL_SECONDS', '300'))
+        self.OTP_RESEND_COOLDOWN_SECONDS = int(os.environ.get('OTP_RESEND_COOLDOWN_SECONDS', '30'))
+        self.OTP_MAX_VERIFY_ATTEMPTS = int(os.environ.get('OTP_MAX_VERIFY_ATTEMPTS', '5'))
+        self.OTP_LOGIN_ENABLED = bool(
+            self.OTP_SEND_URL
+            and self.OTP_VERIFY_URL
+            and self.OTP_BASIC_AUTH_USERNAME
+            and self.OTP_BASIC_AUTH_PASSWORD
+            and self.OTP_SERVICE_USER_ID
+        )
 
         if self.IS_PRODUCTION:
             self._validate_production_settings()

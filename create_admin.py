@@ -32,7 +32,14 @@ def create_admin():
         cur.execute("SELECT id FROM users WHERE username = %s", (username,))
         if cur.fetchone():
             cur.execute(
-                "UPDATE users SET password_hash = %s, full_name = %s WHERE username = %s",
+                """
+                UPDATE users
+                SET password_hash = %s,
+                    full_name = %s,
+                    session_version = COALESCE(session_version, 1) + 1,
+                    updated_at = CURRENT_TIMESTAMP
+                WHERE username = %s
+                """,
                 (password_hash, full_name, username)
             )
             print(f"\nUser '{username}' updated successfully!")

@@ -1,11 +1,34 @@
 import psycopg2
 import psycopg2.extras
+import psycopg2.pool
+import psycopg2.extensions
 from config import Config
 from werkzeug.security import generate_password_hash, check_password_hash
 from datetime import datetime, date, timezone
 import json
 
 config = Config()
+_DB_POOL = None
+
+
+class _PooledConnection:
+    def __init__(self, pool, conn):
+        self._pool = pool
+        self._conn = conn
+
+    def close(self):
+        conn = self._conn
+        if conn is None:
+            return
+        self._conn = None
+        try:
+            if not conn.closed and conn.status != psycopg2.extensions.STATUS_READY:
+                conn.rollback()
+        finally:
+            self._pool.putconn(conn, close=bool(conn.closed))
+
+    def __getattr__(self, name):
+        return getattr(self._conn, name)
 
 
 def _cvo_role_for_target(target_cvo):
@@ -137,27 +160,6 @@ def ensure_schema_updates():
             ADD COLUMN IF NOT EXISTS profile_photo VARCHAR(255)
         """)
         cur.execute("""
-            CREATE TABLE IF NOT EXISTS user_signup_requests (
-                id SERIAL PRIMARY KEY,
-                username VARCHAR(100) NOT NULL,
-                password_hash VARCHAR(255) NOT NULL,
-                full_name VARCHAR(255) NOT NULL,
-                requested_role VARCHAR(50) NOT NULL,
-                cvo_office VARCHAR(30),
-                phone VARCHAR(30),
-                email VARCHAR(255),
-                status VARCHAR(20) NOT NULL DEFAULT 'pending',
-                decision_notes TEXT,
-                reviewed_by INTEGER REFERENCES users(id),
-                reviewed_at TIMESTAMP,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-            )
-        """)
-        cur.execute("""
-            CREATE INDEX IF NOT EXISTS idx_signup_requests_status_created
-            ON user_signup_requests (status, created_at DESC)
-        """)
-        cur.execute("""
             CREATE TABLE IF NOT EXISTS password_reset_requests (
                 id SERIAL PRIMARY KEY,
                 user_id INTEGER NOT NULL REFERENCES users(id),
@@ -217,21 +219,14 @@ def ensure_schema_updates():
             )
         """)
 
-        # ONE-TIME: reset every existing user's password to the system default
-        # and force them to change it on next login.
         cur.execute(
-            "SELECT 1 FROM schema_migrations WHERE name = 'set_default_passwords_v1'"
+            "SELECT 1 FROM schema_migrations WHERE name = 'remove_unused_signup_requests_v1'"
         )
         if not cur.fetchone():
-            _default_hash = generate_password_hash('Nigaa@123')
-            cur.execute("""
-                UPDATE users
-                SET password_hash       = %s,
-                    must_change_password = TRUE,
-                    updated_at           = CURRENT_TIMESTAMP
-            """, (_default_hash,))
+            cur.execute("DROP INDEX IF EXISTS idx_signup_requests_status_created")
+            cur.execute("DROP TABLE IF EXISTS user_signup_requests")
             cur.execute(
-                "INSERT INTO schema_migrations (name) VALUES ('set_default_passwords_v1')"
+                "INSERT INTO schema_migrations (name) VALUES ('remove_unused_signup_requests_v1')"
             )
 
         # Dashboard / listing performance indexes
@@ -291,9 +286,16 @@ def ensure_schema_updates():
 
 def get_db():
     """Get database connection"""
-    conn = psycopg2.connect(**config.get_psycopg2_kwargs())
+    global _DB_POOL
+    if _DB_POOL is None:
+        _DB_POOL = psycopg2.pool.ThreadedConnectionPool(
+            1,
+            10,
+            **config.get_psycopg2_kwargs(),
+        )
+    conn = _DB_POOL.getconn()
     conn.autocommit = False
-    return conn
+    return _PooledConnection(_DB_POOL, conn)
 
 def dict_cursor(conn):
     return conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
@@ -433,105 +435,6 @@ def create_user(username, password, full_name, role, cvo_office=None, assigned_c
         raise e
     finally:
         conn.close()
-
-def create_signup_request(username, password, full_name, requested_role, cvo_office=None, phone=None, email=None):
-    conn = get_db()
-    try:
-        cur = dict_cursor(conn)
-        password_hash = generate_password_hash(password)
-        cur.execute("""
-            INSERT INTO user_signup_requests
-                (username, password_hash, full_name, requested_role, cvo_office, phone, email)
-            VALUES (%s, %s, %s, %s, %s, %s, %s)
-            RETURNING id
-        """, (username, password_hash, full_name, requested_role, cvo_office, phone, email))
-        request_id = cur.fetchone()['id']
-        conn.commit()
-        return request_id
-    except Exception as e:
-        conn.rollback()
-        raise e
-    finally:
-        conn.close()
-
-
-def get_pending_signup_requests():
-    conn = get_db()
-    try:
-        cur = dict_cursor(conn)
-        cur.execute("""
-            SELECT id, username, full_name, requested_role, cvo_office, phone, email, status, created_at
-            FROM user_signup_requests
-            WHERE status = 'pending'
-            ORDER BY created_at ASC
-        """)
-        return [dict(row) for row in cur.fetchall()]
-    finally:
-        conn.close()
-
-
-def approve_signup_request(request_id, reviewer_id):
-    conn = get_db()
-    try:
-        cur = dict_cursor(conn)
-        cur.execute("SELECT * FROM user_signup_requests WHERE id = %s FOR UPDATE", (request_id,))
-        req = cur.fetchone()
-        if not req:
-            raise ValueError('Signup request not found.')
-        req = dict(req)
-        if req.get('status') != 'pending':
-            raise ValueError('Signup request is already processed.')
-
-        cur.execute("""
-            INSERT INTO users (username, password_hash, full_name, role, cvo_office, assigned_cvo_id, phone, email)
-            VALUES (%s, %s, %s, %s, %s, NULL, %s, %s)
-            RETURNING id
-        """, (
-            req.get('username'),
-            req.get('password_hash'),
-            req.get('full_name'),
-            req.get('requested_role'),
-            req.get('cvo_office'),
-            req.get('phone'),
-            req.get('email'),
-        ))
-        user_id = cur.fetchone()['id']
-        cur.execute("""
-            UPDATE user_signup_requests
-            SET status = 'approved', reviewed_by = %s, reviewed_at = CURRENT_TIMESTAMP
-            WHERE id = %s
-        """, (reviewer_id, request_id))
-        conn.commit()
-        return user_id
-    except Exception as e:
-        conn.rollback()
-        raise e
-    finally:
-        conn.close()
-
-
-def reject_signup_request(request_id, reviewer_id, decision_notes=None):
-    conn = get_db()
-    try:
-        cur = dict_cursor(conn)
-        cur.execute("SELECT status FROM user_signup_requests WHERE id = %s", (request_id,))
-        row = cur.fetchone()
-        if not row:
-            raise ValueError('Signup request not found.')
-        if row.get('status') != 'pending':
-            raise ValueError('Signup request is already processed.')
-        cur.execute("""
-            UPDATE user_signup_requests
-            SET status = 'rejected', decision_notes = %s, reviewed_by = %s, reviewed_at = CURRENT_TIMESTAMP
-            WHERE id = %s
-        """, ((decision_notes or '').strip() or None, reviewer_id, request_id))
-        conn.commit()
-    except Exception as e:
-        conn.rollback()
-        raise e
-    finally:
-        conn.close()
-
 
 def authenticate_user(username, password):
     conn = get_db()
@@ -875,7 +778,7 @@ def update_password_and_phone(user_id, new_password, phone):
 
 
 def update_password_only(user_id, new_password):
-    """Forgot-password OTP recovery: update password, clear must_change_password flag."""
+    """Forgot-password recovery: update password and clear must_change_password."""
     conn = get_db()
     try:
         cur = dict_cursor(conn)

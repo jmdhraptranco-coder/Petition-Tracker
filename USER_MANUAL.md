@@ -22,7 +22,7 @@
 ## 2. Required Screenshots List
 
 1. Login page
-2. OTP verification screen
+2. Password reset screen
 3. Password recovery request screen
 4. Main dashboard with sidebar and top bar
 5. Dashboard filters panel
@@ -100,7 +100,7 @@ This manual is intended for:
 
 ### Key Capabilities
 
-- Secure login with CAPTCHA and optional OTP verification
+- Secure login with CAPTCHA
 - Role-based access to petitions and workflow actions
 - Petition registration and tracking from receipt to closure
 - Permission-based and direct enquiry routing
@@ -194,7 +194,6 @@ Nigaa Petition Tracker is a browser-based web application. Users access it throu
 2. The login page appears.
 3. Enter your username and password.
 4. Solve the CAPTCHA security check.
-5. If OTP login is enabled in your environment, enter the OTP sent to your registered mobile number.
 
 ### Login Instructions
 
@@ -202,7 +201,6 @@ Nigaa Petition Tracker is a browser-based web application. Users access it throu
 2. In the `Password` field, enter your password.
 3. In `Security Verification`, solve the displayed sum.
 4. Click `Verify & Sign In`.
-5. If prompted, enter the OTP and click `Verify OTP`.
 
 [Screenshot: Login Page]  
 Highlight:
@@ -219,7 +217,7 @@ Enter your credentials, solve the CAPTCHA, and sign in.
 For first-time users:
 
 1. Confirm your username and initial password with the system administrator.
-2. Ensure your registered phone number is correct if OTP is enabled.
+2. Ensure your registered phone number is correct for recovery.
 3. Sign in and open `My Profile`.
 4. Update your password, phone number, email address, and profile photo if needed.
 
@@ -803,8 +801,8 @@ Tips:
 | Upload exceeds 10 MB limit | File is larger than allowed size | Compress or replace the file |
 | Please provide a valid phone number | Phone format failed validation | Correct the number and submit again |
 | Please provide a valid email address | Email format failed validation | Correct the email and submit again |
-| OTP session expired. Please login again. | OTP verification window ended | Return to login and restart |
-| Contact admin to update phone number | OTP is enabled but the account lacks a usable phone number | Ask admin to update your profile |
+| Recovery session expired. Please login again. | Recovery window ended | Return to login and restart |
+| Contact admin to update phone number | The account lacks a usable recovery phone number | Ask admin to update your profile |
 | Only PO can approve permission | Wrong user role attempted PO action | Log in with the correct role or reassign the task |
 | Permission is compulsory. PO approval required before assigning inspector | Case needs approval before field assignment | Wait for PO approval first |
 
@@ -816,7 +814,7 @@ Tips:
 
 - Confirm your username and password
 - Check the CAPTCHA answer
-- If OTP is enabled, verify that your phone number is correct in the system
+- Verify that your phone number is correct in the system
 - If repeated failures occur, wait for lockout expiry or contact admin
 
 ### My petition is not visible
@@ -836,11 +834,11 @@ Tips:
 - Some fields change based on source, identity type, role, or workflow stage
 - If the issue is persistent, ask the Super Admin to review Form Management configuration
 
-### OTP is not received
+### Recovery is not available
 
 - Confirm the registered phone number
-- Use `Resend OTP`
-- If still not received, contact the administrator because the OTP gateway may be unavailable
+- Restart the recovery flow
+- If it still fails, contact the administrator
 
 ---
 
@@ -930,7 +928,7 @@ When requesting support, provide:
 | Screen Name | Purpose | Highlight Elements | Suggested Filename |
 |---|---|---|---|
 | Login Page | Show system sign-in flow | Username, Password, CAPTCHA, Sign In | `01-login-page.png` |
-| OTP Verification | Show second-factor login | Mobile verification, OTP field, Verify OTP | `02-otp-verification.png` |
+| Password Reset | Allow account recovery | Username check and password reset form | `02-password-reset.png` |
 | Dashboard | Show landing workspace | Sidebar, KPI cards, charts, recent petitions | `03-dashboard-overview.png` |
 | Dashboard Filters | Explain data filtering | From date, To date, filter options, Apply | `04-dashboard-filters.png` |
 | Petitions List | Show petition browsing | Mode pills, status filter, table, View | `05-petitions-list.png` |

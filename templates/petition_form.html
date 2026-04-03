@@ -286,6 +286,8 @@
     }
 
     let suggestionReq = null;
+    let suggestionFetchController = null;
+    const suggestionCache = new Map();
     const loadPetitionerSuggestions = async () => {
         if (!petitionerNameInput || !petitionerNameSuggestions || !petitionerIdentityType) return;
         if (petitionerIdentityType.value !== 'identified') return;
@@ -298,15 +300,31 @@
             clearTimeout(suggestionReq);
         }
         suggestionReq = setTimeout(async () => {
+            const cacheKey = q.toLowerCase();
+            if (suggestionCache.has(cacheKey)) {
+                petitionerNameSuggestions.innerHTML = suggestionCache.get(cacheKey);
+                return;
+            }
+            if (suggestionFetchController) {
+                suggestionFetchController.abort();
+            }
+            suggestionFetchController = new AbortController();
             try {
-                const res = await fetch(`{{ url_for('api_petitioner_suggestions') }}?q=${encodeURIComponent(q)}`);
+                const res = await fetch(`{{ url_for('api_petitioner_suggestions') }}?q=${encodeURIComponent(q)}`, {
+                    signal: suggestionFetchController.signal
+                });
                 const payload = await res.json();
                 const items = Array.isArray(payload.items) ? payload.items : [];
-                petitionerNameSuggestions.innerHTML = items.map((it) => `<option value="${String(it.name || '').replace(/"/g, '&quot;')}"></option>`).join('');
+                const optionsHtml = items.map((it) => `<option value="${String(it.name || '').replace(/"/g, '&quot;')}"></option>`).join('');
+                suggestionCache.set(cacheKey, optionsHtml);
+                petitionerNameSuggestions.innerHTML = optionsHtml;
             } catch (_) {
+                if (suggestionFetchController && suggestionFetchController.signal.aborted) {
+                    return;
+                }
                 petitionerNameSuggestions.innerHTML = '';
             }
-        }, 120);
+        }, 180);
     };
     if (petitionerNameInput) {
         petitionerNameInput.addEventListener('input', loadPetitionerSuggestions);

@@ -22,7 +22,6 @@ This model covers the main security-sensitive surfaces in the Nigaa application:
 3. Web application to file storage
 - Uploaded content must be validated and access-controlled.
 
-4. Web application to external OTP integration
 - Outbound dependency requiring URL and transport controls.
 
 ## Primary Assets
@@ -30,7 +29,7 @@ This model covers the main security-sensitive surfaces in the Nigaa application:
 - authenticated session state
 - user accounts and roles
 - petition records and attached files
-- password reset / OTP state
+- password reset state
 - admin settings and workflow privileges
 - security logs and audit trails
 

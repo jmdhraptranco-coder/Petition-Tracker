@@ -74,11 +74,6 @@ class ValidationStub:
     def get_inspector_mappings(self):
         return [{"id": 1}]
 
-    def get_pending_signup_requests(self):
-        if "get_pending_signup_requests" in self.fail_names:
-            raise Exception("signup fail")
-        return []
-
     def get_pending_password_reset_requests(self):
         if "get_pending_password_reset_requests" in self.fail_names:
             raise Exception("reset fail")
@@ -89,6 +84,7 @@ def test_petition_new_extra_validation_and_failure_paths(monkeypatch):
     stub = ValidationStub()
     monkeypatch.setattr(app_module, "models", stub)
     app_module.app.config["TESTING"] = True
+    app_module.PETITION_SUBMISSION_ATTEMPTS.clear()
 
     with app_module.app.test_client() as client:
         login_as(client, role="data_entry", cvo_office="apspdcl")
@@ -140,6 +136,7 @@ def test_import_and_admin_validation_branches(monkeypatch):
     stub = ValidationStub()
     monkeypatch.setattr(app_module, "models", stub)
     app_module.app.config["TESTING"] = True
+    app_module.PETITION_SUBMISSION_ATTEMPTS.clear()
 
     with app_module.app.test_client() as client:
         login_as(client, role="super_admin")
@@ -230,5 +227,5 @@ def test_import_and_admin_validation_branches(monkeypatch):
         bad_range = {k: str(int(v["max"]) + 1) for k, v in app_module.SYSTEM_SETTING_DEFINITIONS.items()}
         assert client.post("/system-settings", data=bad_range).status_code == 302
 
-        stub.fail_names.update({"get_pending_signup_requests", "get_pending_password_reset_requests"})
+        stub.fail_names.update({"get_pending_password_reset_requests"})
         assert client.get("/users").status_code == 200

@@ -21,9 +21,8 @@ Close remaining audit-readiness gaps through evidence, governance, and operation
 | G1 | CI/SCA execution evidence not attached to release trail | CI workflow exists but execution evidence may be missing in audit packet | Run `security-ci.yml` on release branch; archive run URLs, logs, artifacts, and approver sign-off | DevOps | CI run link, artifact bundle, release ticket reference | High | Open |
 | G2 | Dependency lock governance not formalized | `requirements-lock.txt` exists; SOP now documented in repo | Publish lock refresh SOP (monthly + emergency CVE path) and enforce PR check for lock drift | Engineering Lead | SOP doc, 2 approved change tickets, PR check screenshot | High | In Progress |
 | G3 | Structured security logging not operationalized enterprise-wide | Policy doc exists | Route security events to central logging/SIEM and validate parsing for `auth`, `access`, `csrf`, `workflow` events | SecOps/Infra | Log pipeline config, indexed sample events, parser validation output | High | Open |
-| G4 | Alerting coverage for security events not evidenced | Baseline controls exist | Configure alerts for brute-force spikes, OTP failures, CSRF failures, repeated forbidden access, suspicious upload attempts | SecOps | Alert rules export + triggered test alert screenshots | High | Open |
+| G4 | Alerting coverage for security events not evidenced | Baseline controls exist | Configure alerts for brute-force spikes, CSRF failures, repeated forbidden access, suspicious upload attempts | SecOps | Alert rules export + triggered test alert screenshots | High | Open |
 | G5 | Retention and immutability controls not evidenced | Not yet mapped in audit bundle | Enforce retention (minimum per policy), access controls, and immutable/archive storage where required | Compliance/SecOps | Retention policy export, RBAC matrix, storage immutability proof | High | Open |
-| G6 | OTP transport and integration risk acceptance evidence needed | OTP integration enabled; transport posture depends on network | If internal HTTP is retained, document formal risk acceptance; otherwise migrate gateway path to TLS | Security Architect + Infra | Risk acceptance memo or TLS migration evidence and test logs | High | Open |
 | G7 | Secrets management evidence for production not attached | Env-based config present | Move production secrets to vault/secret manager, enforce rotation and break-glass process | DevOps/SecOps | Secret manager policy screenshots, last rotation ticket, access audit log | High | Open |
 | G8 | Threat model traceability missing from final audit pack | OWASP traceability exists; threat model now added in repo | Add lightweight threat model for auth, uploads, petition workflow transitions, and admin actions | AppSec | Threat model document, review sign-off, mitigation mapping | Medium | Closed (Repo Evidence) |
 | G9 | IR playbook linkage to app-specific events not evidenced | Security monitoring policy exists; app event mapping now added in repo | Map each key event type to incident severity, responder role, and SLA | SecOps | IR runbook extract, escalation matrix, tabletop drill evidence | Medium | In Progress |
@@ -45,7 +44,6 @@ Close remaining audit-readiness gaps through evidence, governance, and operation
 - Dependency lock governance SOP and recent execution proof.
 - Centralized security logging evidence and alerting test proof.
 - Retention and access-control evidence for security logs.
-- OTP transport security evidence (or approved exception).
 - OWASP traceability + threat model + IR mapping.
 
 ## Change Control Statement

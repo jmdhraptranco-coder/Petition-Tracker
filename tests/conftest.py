@@ -64,8 +64,6 @@ def login_as(client, user_id=1, role="super_admin", full_name="Test User", cvo_o
             cvo_office = "apepdcl"
     with client.session_transaction() as sess:
         now_ts = int(time.time())
-        sess.pop("otp_pending_user", None)
-        sess.pop("otp_pending_mobile", None)
         sess.pop("force_change_user_id", None)
         sess.pop("force_change_username", None)
         sess.pop("force_change_role", None)

@@ -99,8 +99,6 @@ Implemented:
 - Password complexity checks now enforced (`app.py:738`).
 - Brute-force login throttling/temporary block (`app.py:809`, `app.py:1415`).
 - Session rotation on login (`session.clear()`) in `app.py:1091`.
-- Optional OTP flow present; now opt-in and env-driven (`app.py:963`, `app.py:987`).
-- OTP no longer has hardcoded credentials/URLs defaults (updated in `app.py:987` and `.env.example`).
 
 Remaining gaps:
 - Login throttling is in-memory and per-process (not durable across restarts or multi-instance deployment).
@@ -136,14 +134,10 @@ Audit action:
 ## A10: Server-Side Request Forgery (SSRF) - `Partial`
 
 Implemented:
-- OTP outbound HTTP has explicit timeout (`app.py:995`, `app.py:1012`).
-- OTP endpoints now environment-driven (no baked internal host defaults) in `app.py:987`.
 
 Remaining gaps:
-- No outbound URL allowlist/validation for OTP URLs.
 
 Audit action:
-- Restrict OTP URLs to allowlisted trusted hostnames/schemes in config validation.
 
 ## Quick Audit Readiness Checklist
 
@@ -153,7 +147,6 @@ Audit action:
 - [x] File upload validation and path safety checks in place.
 - [x] Petition-level object authorization added.
 - [x] Password complexity policy enforced.
-- [x] OTP secrets removed from code defaults.
 - [ ] Replace raw exception flashes with sanitized messaging.
 - [ ] Add scoped authorization for `/api/inspectors/<cvo_id>`.
 - [ ] Add dependency SCA evidence + pinned lock strategy.

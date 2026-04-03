@@ -69,8 +69,6 @@ def test_login_flow_success_and_logout(client, monkeypatch):
         'session_version': 1,
         'must_change_password': False,
     })
-    monkeypatch.setattr('app._is_otp_login_enabled', lambda: False)
-
     with client:
         captcha_token = issue_login_captcha(client, "482753")
 

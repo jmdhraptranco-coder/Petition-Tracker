@@ -105,9 +105,6 @@ class RichModelsStub:
     def get_inspector_mappings(self):
         return [{"id": 1}]
 
-    def get_pending_signup_requests(self):
-        return []
-
     def get_pending_reset_requests(self):
         return []
 
@@ -214,7 +211,7 @@ def _post_login(client, username="u", password="p"):
 def test_auth_dashboard_and_core_views(monkeypatch):
     stub = RichModelsStub()
     monkeypatch.setattr(app_module, "models", stub)
-    monkeypatch.setattr(app_module, "_is_otp_login_enabled", lambda: False)
+    monkeypatch.setattr(app_module.config, "OTP_LOGIN_ENABLED", False)
     app_module.app.config["TESTING"] = True
     with app_module.app.test_client() as client:
         root_response = client.get("/")
@@ -251,6 +248,7 @@ def test_auth_dashboard_and_core_views(monkeypatch):
 def test_login_session_cookie_is_opaque(monkeypatch):
     stub = RichModelsStub()
     monkeypatch.setattr(app_module, "models", stub)
+    monkeypatch.setattr(app_module.config, "OTP_LOGIN_ENABLED", False)
     app_module.app.config["TESTING"] = True
     app_module.TEST_SERVER_SESSION_STORE.clear()
     with app_module.app.test_client() as client:
@@ -470,6 +468,43 @@ def test_inactive_help_resource_file_is_hidden_from_non_admin(monkeypatch):
         login_as(client, role="data_entry")
         response = client.get("/help-resources/files/manual.pdf")
         assert response.status_code == 404
+
+
+def test_help_resource_svg_is_forced_download(monkeypatch):
+    stub = RichModelsStub()
+    stub.get_help_resource_by_file_name = lambda _filename: {
+        "id": 45,
+        "file_name": "diagram.svg",
+        "mime_type": "image/svg+xml",
+        "is_active": True,
+    }
+    monkeypatch.setattr(app_module, "models", stub)
+    monkeypatch.setattr(app_module, "_uploaded_file_exists", lambda *_a, **_k: True)
+    sent = {}
+    monkeypatch.setattr(
+        app_module,
+        "send_from_directory",
+        lambda directory, filename, as_attachment=False: sent.update(
+            {"directory": directory, "filename": filename, "as_attachment": as_attachment}
+        ) or app_module.Response("ok", status=200),
+    )
+    app_module.app.config["TESTING"] = True
+    with app_module.app.test_client() as client:
+        login_as(client, role="po")
+        response = client.get("/help-resources/files/diagram.svg")
+        assert response.status_code == 200
+        assert sent["filename"] == "diagram.svg"
+        assert sent["as_attachment"] is True
+
+
+def test_validate_help_resource_upload_rejects_svg():
+    upload = io.BytesIO(b"<svg></svg>")
+    upload.filename = "diagram.svg"
+    ok, stored_name, mime_type, error = app_module.validate_help_resource_upload(upload)
+    assert ok is False
+    assert stored_name is None
+    assert mime_type is None
+    assert "not supported" in error.lower()
 
 
 def test_petition_new_validation_matrix(monkeypatch):
@@ -1021,7 +1056,7 @@ def test_user_and_upload_validation_paths(monkeypatch):
         ).status_code == 302
 
 
-def test_profile_password_change_forces_relogin(monkeypatch):
+def test_profile_password_change_refreshes_session(monkeypatch):
     stub = RichModelsStub()
     monkeypatch.setattr(app_module, "models", stub)
     app_module.app.config["TESTING"] = True
@@ -1040,9 +1075,9 @@ def test_profile_password_change_forces_relogin(monkeypatch):
             },
         )
         assert response.status_code == 302
-        assert response.headers["Location"].endswith("/login")
+        assert response.headers["Location"].endswith("/profile")
         with client.session_transaction() as sess:
-            assert "user_id" not in sess
+            assert sess.get("user_id") == 1
 
 
 def test_profile_password_change_requires_current_password(monkeypatch):
@@ -1138,20 +1173,16 @@ def test_help_page_admin_upload_toggle_and_external_url(monkeypatch):
         assert any(name == "create_help_resource" for name, _ in stub.calls)
 
 
-def test_signup_reset_approval_and_rejection_routes(monkeypatch):
+def test_password_reset_approval_and_rejection_routes(monkeypatch):
     stub = RichModelsStub()
     monkeypatch.setattr(app_module, "models", stub)
     app_module.app.config["TESTING"] = True
     with app_module.app.test_client() as client:
         login_as(client, role="super_admin")
-        assert client.post("/users/signup-requests/4/approve").status_code == 302
-        assert client.post("/users/signup-requests/4/reject", data={"decision_notes": "no"}).status_code == 302
         assert client.post("/users/password-reset-requests/6/approve").status_code == 302
         assert client.post("/users/password-reset-requests/6/reject", data={"decision_notes": "reject"}).status_code == 302
 
         call_names = [name for name, _ in stub.calls]
-        assert "approve_signup_request" in call_names
-        assert "reject_signup_request" in call_names
         assert "approve_password_reset_request" in call_names
         assert "reject_password_reset_request" in call_names
 
@@ -1292,9 +1323,9 @@ def test_api_inspectors_forbidden_and_profile_photo_missing(monkeypatch):
 
 
 def test_misc_auth_and_api_edge_paths(monkeypatch):
-    monkeypatch.setenv("OTP_ENABLED", "0")
     stub = RichModelsStub()
     monkeypatch.setattr(app_module, "models", stub)
+    monkeypatch.setattr(app_module.config, "OTP_LOGIN_ENABLED", False)
     app_module.app.config["TESTING"] = True
     with app_module.app.test_client() as client:
         stub.user = None

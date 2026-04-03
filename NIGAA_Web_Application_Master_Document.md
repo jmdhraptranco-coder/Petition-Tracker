@@ -371,7 +371,7 @@ Roles: `CMD APSPDCL`, `CMD APEPDCL`, `CMD APCPDCL`
 
 | Step | Action | Role |
 |------|--------|------|
-| 1 | Log in with credentials + CAPTCHA (+ OTP if enabled) | Any authorized user |
+| 1 | Log in with credentials + CAPTCHA | Any authorized user |
 | 2 | Open **New Petition** from sidebar | Data Entry / Super Admin |
 | 3 | Enter received date, office, e-receipt details | Data Entry |
 | 4 | Select target CVO/DSP and permission request type | Data Entry |
@@ -508,8 +508,8 @@ Roles: `CMD APSPDCL`, `CMD APEPDCL`, `CMD APCPDCL`
 **Solution:**
 1. On the login page, click **Forgot Password**
 2. Enter your username and your desired new password
-3. If OTP is enabled, verify via OTP sent to your registered mobile
-4. If OTP is not available, the request is sent to the Super Admin for approval
+3. Continue to password reset after username validation
+4. If recovery is not available, the request is sent to the Super Admin for approval
 5. Wait for admin to approve the password reset request
 6. Once approved, log in with your new password
 
@@ -523,8 +523,8 @@ Roles: `CMD APSPDCL`, `CMD APEPDCL`, `CMD APCPDCL`
 |---|---|
 | Wrong username or password | Re-enter correct credentials |
 | CAPTCHA answer incorrect | Solve the displayed sum accurately |
-| OTP not received | Check registered phone number, click **Resend OTP**, or contact admin |
-| OTP session expired | Return to login page and restart the process |
+| Recovery not available | Check your username details or contact admin |
+| Recovery session expired | Return to login page and restart the process |
 | Account deactivated | Contact Super Admin to reactivate your account |
 | Account locked after repeated failures | Wait for lockout expiry or contact admin |
 
@@ -590,7 +590,7 @@ Roles: `CMD APSPDCL`, `CMD APEPDCL`, `CMD APCPDCL`
 |---|---|
 | Forced password change prompt | All new accounts require a mandatory password change on first login. Enter your new password and registered phone number |
 | Default password not working | The default password is set by the admin. Contact Super Admin to confirm |
-| Phone number missing for OTP | Contact Super Admin to update your phone number in the system |
+| Phone number missing for recovery | Contact Super Admin to update your phone number in the system |
 
 ---
 
@@ -624,7 +624,7 @@ Roles: `CMD APSPDCL`, `CMD APEPDCL`, `CMD APCPDCL`
 ### Security & Compliance
 
 - **Before:** Paper-based records vulnerable to loss, unauthorized access, and tampering.
-- **After:** Role-based access control, CAPTCHA-protected login, optional OTP two-factor authentication, CSRF protection, session-based security, and structured security event logging.
+- **After:** Role-based access control, CAPTCHA-protected login, CSRF protection, session-based security, and structured security event logging.
 
 ---
 
@@ -636,7 +636,7 @@ Roles: `CMD APSPDCL`, `CMD APEPDCL`, `CMD APCPDCL`
 | Database | PostgreSQL 13+ |
 | Frontend | HTML5, CSS3, JavaScript |
 | Authentication | Session-based with Werkzeug password hashing |
-| OTP Integration | Configurable OTP gateway (SMS-based) |
+| Password Recovery | Username-based reset workflow |
 | Internationalization | English and Telugu (i18n) |
 | Deployment | Waitress WSGI server, reverse proxy recommended |
 | Security CI | GitHub Actions (lint, tests, pip-audit, dependency check) |
@@ -710,7 +710,6 @@ Roles: `CMD APSPDCL`, `CMD APEPDCL`, `CMD APCPDCL`
 | E-Receipt | Electronic receipt reference number and scanned document |
 | E-Office File No | Official file number for downstream office processing |
 | CAPTCHA | Security verification challenge on login |
-| OTP | One-Time Password for two-factor authentication |
 | CSRF | Cross-Site Request Forgery (security protection) |
 | Direct Enquiry | Route where CVO/DSP proceeds without PO permission |
 | Permission Based | Route where PO approval is required before enquiry |

@@ -117,13 +117,6 @@ PORT=5000
 UPLOAD_BASE_DIR=/var/app/uploads
 MAX_UPLOAD_SIZE_MB=10
 
-# OTP login (enabled by default)
-OTP_LOGIN_ENABLED=1
-OTP_SEND_URL=https://<otp-gateway>/sendOTP
-OTP_VERIFY_URL=https://<otp-gateway>/verifyOTP
-OTP_AUTH_USERNAME=<otp-user>
-OTP_AUTH_PASSWORD=<otp-password>
-OTP_SERVICE_USER_ID=<otp-service-id>
 ```
 
 ### 5. Create Super Admin User

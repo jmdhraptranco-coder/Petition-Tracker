@@ -958,31 +958,16 @@ document.addEventListener('click', (event) => {
     }
 });
 
-async function loadDashboardAnalytics() {
-    const params = new URLSearchParams(window.location.search);
-    try {
-        const res = await fetch(`{{ url_for('api_dashboard_analytics') }}?${params.toString()}`);
-        const payload = await res.json();
-        if (!payload || !payload.analytics) return;
-        analyticsData = payload.analytics;
-        const summary = payload.summary || {};
-        const setText = (id, value) => {
-            const el = document.getElementById(id);
-            if (el) el.textContent = String(value ?? 0);
-        };
-        setText('dashSummaryTotal', summary.total_visible || 0);
-        setText('dashSummaryActive', summary.active || 0);
-        setText('dashSummaryLodged', summary.lodged || 0);
-        setText('dashSummaryClosed', summary.closed || 0);
-        setText('dashSummarySlaWithin', summary.sla_within || 0);
-        setText('dashSummarySlaBreached', summary.sla_breached || 0);
-        initAnalyticsDashboard();
-    } catch (_) {
-        initAnalyticsDashboard();
+function scheduleDashboardAnalyticsInit() {
+    const run = () => initAnalyticsDashboard();
+    if (window.requestIdleCallback) {
+        window.requestIdleCallback(run, { timeout: 600 });
+        return;
     }
+    window.setTimeout(run, 40);
 }
 
-loadDashboardAnalytics();
+scheduleDashboardAnalyticsInit();
 
 window.addEventListener('resize', () => {
     clearTimeout(dashboardResizeTimer);
@@ -992,6 +977,5 @@ window.addEventListener('resize', () => {
 });
 </script>
 {% endblock %}
-
 
 

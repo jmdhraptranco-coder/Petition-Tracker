@@ -387,15 +387,35 @@ def test_schema_and_connection_helpers(monkeypatch):
         def __init__(self):
             self.autocommit = None
             self.args = None
+            self.closed = False
+            self.status = models.psycopg2.extensions.STATUS_READY
 
         def cursor(self, cursor_factory=None):
             self.args = cursor_factory
             return "CUR"
 
+        def rollback(self):
+            return None
+
     conn2 = _ConnForCursor()
-    monkeypatch.setattr(models.psycopg2, "connect", lambda **_k: conn2)
+    class _PoolStub:
+        def __init__(self, conn):
+            self.conn = conn
+            self.returned = None
+
+        def getconn(self):
+            return self.conn
+
+        def putconn(self, conn, close=False):
+            self.returned = (conn, close)
+
+    pool_stub = _PoolStub(conn2)
+    monkeypatch.setattr(models, "_DB_POOL", pool_stub)
     got = models.get_db()
-    assert got is conn2 and got.autocommit is False
+    assert got.autocommit is False
+    assert got.cursor() == "CUR"
+    got.close()
+    assert pool_stub.returned == (conn2, False)
 
     sentinel = object()
     monkeypatch.setattr(models, "dict_cursor", original_dict_cursor)

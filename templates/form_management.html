@@ -3,6 +3,13 @@
 {% block page_title %}Form Management{% endblock %}
 
 {% block content %}
+<style>
+.form-mgmt-shell:not(.form-mgmt-shell--ready) .js-fm-card,
+.form-mgmt-shell:not(.form-mgmt-shell--ready) .form-mgmt-section[data-fm-section] {
+    display: none;
+}
+</style>
+<div class="form-mgmt-shell" id="formMgmtShell">
 <div class="card form-mgmt-hero">
     <div class="card-header">
         <h2>Form Management</h2>
@@ -162,9 +169,11 @@
         <small class="form-mgmt-add-hint">Field key format: lowercase letters, numbers, and underscore only (example: <code>vigilance_note</code>).</small>
     </form>
 </div>
+ </div>
 
 <script>
 (() => {
+    const shell = document.getElementById('formMgmtShell');
     const formSelect = document.getElementById('fmFormSelect');
     const fieldSelect = document.getElementById('fmFieldSelect');
     const prompt = document.getElementById('fmFieldPrompt');
@@ -206,6 +215,9 @@
 
         if (prompt) {
             prompt.style.display = (selectedForm && selectedField) ? 'none' : '';
+        }
+        if (shell) {
+            shell.classList.add('form-mgmt-shell--ready');
         }
     };
 

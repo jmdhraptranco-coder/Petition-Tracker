@@ -437,7 +437,6 @@ html[data-theme='dark'] .lp-tt-moon { color: #d0ddff; }
 }
 .lp-btn-outline:hover { background: rgba(245,166,35,0.08); color: var(--gold); border-color: rgba(245,166,35,0.25); }
 .lp-btn-row { display: flex; gap: 8px; margin-top: 10px; }
-.lp-otp-resend-note { margin-top: 8px; color: var(--text-dim); font-size: 0.86rem; }
 
 /* Secondary link */
 .lp-link {
@@ -907,10 +906,14 @@ html[data-theme='light'] .lp-card-footer { color: #8aaad0; }
 
         <!-- Tabs -->
         <div class="lp-tabs" role="tablist" aria-label="Login options">
-          <button type="button" class="lp-tab active" data-login-tab="secure"
+          <button type="button" class="lp-tab {% if active_login_tab != 'recovery' and active_login_tab != 'otp' %}active{% endif %}" data-login-tab="secure"
                   onclick="showLoginTab('secure')" data-i18n="login.tab_secure">Secure Login</button>
-          <button type="button" class="lp-tab" data-login-tab="recovery"
+          <button type="button" class="lp-tab {% if active_login_tab == 'recovery' %}active{% endif %}" data-login-tab="recovery"
                   onclick="showLoginTab('recovery')" data-i18n="login.tab_recovery">Password Recovery</button>
+          {% if pending_login_otp %}
+          <button type="button" class="lp-tab {% if active_login_tab == 'otp' %}active{% endif %}" data-login-tab="otp"
+                  onclick="showLoginTab('otp')">OTP Verification</button>
+          {% endif %}
         </div>
 
         <!-- Flash messages -->
@@ -929,53 +932,8 @@ html[data-theme='light'] .lp-card-footer { color: #8aaad0; }
         {% endif %}
         {% endwith %}
 
-        <!-- ── OTP Form ── -->
-        {% if otp_required %}
-        <form method="POST" action="{{ url_for('login') }}" data-login-panel="secure">
-          <input type="hidden" name="login_action" value="verify_otp">
-          <div class="lp-field">
-            <label data-i18n="login.mobile_verification">Mobile Verification</label>
-            <div class="lp-input-wrap">
-              <input type="text" value="{{ otp_mobile_masked }}" readonly>
-              <span class="lp-input-icon">
-                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 16.92v3a2 2 0 01-2.18 2 19.79 19.79 0 01-8.63-3.07A19.5 19.5 0 013.07 9.81a19.79 19.79 0 01-3.07-8.67A2 2 0 012 .9h3a2 2 0 012 1.72 12.84 12.84 0 00.7 2.81 2 2 0 01-.45 2.11L6.91 8.27a16 16 0 006.29 6.29l1.63-1.63a2 2 0 012.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0122 16.92z"/></svg>
-              </span>
-            </div>
-            <div class="lp-field-help" data-i18n="login.otp_help">Enter the OTP sent to your registered mobile.</div>
-          </div>
-          <div class="lp-field">
-            <label for="otp_code" data-i18n="login.otp">OTP Code</label>
-            <div class="lp-input-wrap">
-              <input type="text" id="otp_code" name="otp_code" required inputmode="numeric"
-                     pattern="[0-9]+" maxlength="10" placeholder="Enter OTP"
-                     data-i18n-placeholder="login.ph_otp">
-              <span class="lp-input-icon">
-                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M11 11V7a1 1 0 012 0v4"/></svg>
-              </span>
-            </div>
-          </div>
-          <button type="submit" class="lp-btn-primary" data-i18n="login.verify_otp">
-            Verify OTP
-            <span class="lp-btn-arrow">
-              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
-            </span>
-          </button>
-          <div class="lp-btn-row">
-            <button type="submit" name="login_action" value="resend_otp"
-                    class="lp-btn-outline" id="loginResendOtpBtn"
-                    {% if otp_resend_wait_seconds|default(0) > 0 %}disabled{% endif %}
-                    data-i18n="login.resend_otp">Resend OTP</button>
-            <a href="{{ url_for('login', reset_otp='1') }}"
-               class="lp-btn-outline" data-i18n="login.change_login">Change Login</a>
-          </div>
-          <div class="lp-otp-resend-note" id="loginOtpResendNote" {% if otp_resend_wait_seconds|default(0) <= 0 %}hidden{% endif %}>
-            Resend available in <span id="loginOtpCountdown">{{ otp_resend_wait_seconds|default(0) }}</span>s
-          </div>
-        </form>
-
-        <!-- ── Secure Login Form ── -->
-        {% else %}
-        <form method="POST" action="{{ url_for('login') }}" data-login-panel="secure">
+        <form method="POST" action="{{ url_for('login') }}" data-login-panel="secure"
+              {% if active_login_tab == 'recovery' or active_login_tab == 'otp' %}style="display:none;"{% endif %}>
           <input type="hidden" name="login_action" value="credentials">
           <div class="lp-field">
             <label for="username" data-i18n="login.username">Username</label>
@@ -983,7 +941,7 @@ html[data-theme='light'] .lp-card-footer { color: #8aaad0; }
               <input type="text" id="username" name="username" required autofocus
                      placeholder="Enter your username"
                      data-i18n-placeholder="login.ph_username"
-                     value="{{ request.form.get('username', '') }}">
+                     value="{{ pending_login_otp.username if pending_login_otp else request.form.get('username', '') }}">
               <span class="lp-input-icon">
                 <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
               </span>
@@ -1036,11 +994,10 @@ html[data-theme='light'] .lp-card-footer { color: #8aaad0; }
             </a>
           </div>
         </form>
-        {% endif %}
 
         <!-- ── Password Recovery Form ── -->
         <form method="POST" action="{{ url_for('request_recovery') }}"
-              data-login-panel="recovery" style="display:none;">
+              data-login-panel="recovery" {% if active_login_tab != 'recovery' %}style="display:none;"{% endif %}>
           <div class="lp-field">
             <label for="recovery_username" data-i18n="login.username">Username</label>
             <div class="lp-input-wrap">
@@ -1084,6 +1041,53 @@ html[data-theme='light'] .lp-card-footer { color: #8aaad0; }
             </a>
           </div>
         </form>
+
+        {% if pending_login_otp %}
+        <form method="POST" action="{{ url_for('login') }}"
+              data-login-panel="otp" {% if active_login_tab != 'otp' %}style="display:none;"{% endif %}>
+          <input type="hidden" name="login_action" value="verify_otp">
+          <div class="lp-field">
+            <label for="otp_username">Username</label>
+            <div class="lp-input-wrap">
+              <input type="text" id="otp_username" value="{{ pending_login_otp.username }}" readonly>
+              <span class="lp-input-icon">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+              </span>
+            </div>
+          </div>
+          <div class="lp-field">
+            <label for="otp_code">One-Time Password</label>
+            <div class="lp-input-wrap">
+              <input type="text" id="otp_code" name="otp_code" required
+                     inputmode="numeric" pattern="[0-9]{4,8}" maxlength="8"
+                     placeholder="Enter OTP">
+              <span class="lp-input-icon">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 1v6"/><path d="M8 3h8"/><rect x="4" y="8" width="16" height="13" rx="2"/><path d="M9 14h6"/><path d="M9 18h6"/></svg>
+              </span>
+            </div>
+          </div>
+          <p class="lp-terms">
+            OTP was sent to <strong>{{ pending_login_otp.masked_phone }}</strong>.
+          </p>
+          <button type="submit" class="lp-btn-primary">
+            Verify OTP
+            <span class="lp-btn-arrow">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
+            </span>
+          </button>
+          <div class="lp-secondary-row" style="display:flex; gap:12px; flex-wrap:wrap;">
+            <button type="submit" class="lp-link" name="otp_action" value="resend" id="loginResendOtpBtn" {% if otp_resend_seconds_remaining > 0 %}disabled{% endif %}>
+              Resend OTP
+            </button>
+            <button type="submit" class="lp-link" name="otp_action" value="cancel">
+              Cancel
+            </button>
+          </div>
+          <p class="lp-terms" id="loginOtpResendNote" {% if otp_resend_seconds_remaining <= 0 %}hidden{% endif %}>
+            You can request a fresh OTP in <span id="loginOtpCountdown">{{ otp_resend_seconds_remaining }}</span>s.
+          </p>
+        </form>
+        {% endif %}
 
         <div class="lp-divider"></div>
         <div class="lp-card-footer">
@@ -1154,7 +1158,7 @@ document.querySelectorAll('.lp-lang-btn').forEach(function(btn) {
 });
 
 document.addEventListener('DOMContentLoaded', function() {
-  showLoginTab('secure');
+  showLoginTab('{{ active_login_tab or "secure" }}');
   // Set active lang pill
   var savedLang = localStorage.getItem('ui_lang') || 'en';
   document.querySelectorAll('.lp-lang-btn').forEach(function(b) {

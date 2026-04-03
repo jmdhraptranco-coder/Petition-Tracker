@@ -85,7 +85,7 @@ Final audit closure still requires:
   - phone
   - email
   - profile information
-  - OTP/reset workflow state
+  - reset workflow state
   stays on the server side.
 - Public anonymous pages do not create session records unless state is actually needed.
 

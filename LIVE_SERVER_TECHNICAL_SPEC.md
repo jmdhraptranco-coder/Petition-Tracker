@@ -49,7 +49,7 @@ Important runtime behavior:
 
 Primary modules:
 - Authentication and login
-- OTP-based recovery / verification integration
+- Password recovery integration
 - Petition creation and workflow tracking
 - Petition bulk import from Excel
 - Enquiry report submission and review
@@ -148,22 +148,7 @@ Branding variables:
 - `BRAND_LOGO_FILE`
 - `BRAND_LOGO_FALLBACK`
 
-OTP integration variables:
-- `OTP_LOGIN_ENABLED`
-- `OTP_SEND_URL`
-- `OTP_VERIFY_URL`
-- `OTP_AUTH_USERNAME`
-- `OTP_AUTH_PASSWORD`
-- `OTP_SERVICE_USER_ID`
-- `OTP_TYPE`
-- `OTP_APP_NAME`
-- `OTP_MESSAGE_TEXT`
-- `OTP_HTTP_TIMEOUT_SEC`
-- `OTP_ALLOW_HTTP_INTERNAL`
-- `OTP_HTTP_ALLOWED_HOSTS`
-- `OTP_HTTP_EXCEPTION_TICKET`
-- `OTP_HTTP_EXCEPTION_APPROVED_BY`
-- `OTP_HTTP_EXCEPTION_REASON`
+Password recovery settings now use the main application configuration.
 
 Current repo-local DB pattern observed in `.env`:
 - `DB_NAME=postgres`
@@ -453,7 +438,7 @@ Go-live recommendations:
 - Restrict DB access by IP/network ACL
 - Restrict upload directory OS permissions
 - Schedule DB and file backups
-- Monitor OTP gateway connectivity if OTP is enabled
+- Monitor application availability and password recovery flow
 
 ## 9. Production Deployment Procedure
 
@@ -483,7 +468,7 @@ Before go-live, verify:
 - User management screens load
 - Dashboard APIs return data
 - Help-center uploads/downloads work
-- OTP integration works if enabled
+- Password recovery flow works
 - Backups are configured for DB and uploads
 
 ## 11. Operational Risks / Known Notes

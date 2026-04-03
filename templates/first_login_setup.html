@@ -248,7 +248,7 @@
       {% if is_super_admin %}
       Super Admin accounts must also register a recovery mobile number so password reset stays secure.
       {% else %}
-      Your mobile number will be used for OTP-based login and password recovery. Please ensure
+      Your mobile number will be used for account recovery and verification. Please ensure
       it is accurate and active.
       {% endif %}
     </div>
@@ -314,7 +314,7 @@
           {% if is_super_admin %}
           Used for secure password recovery and account verification.
           {% else %}
-          Used for OTP verification on future logins and password recovery.
+          Used for account verification and password recovery.
           {% endif %}
         </div>
       </div>
