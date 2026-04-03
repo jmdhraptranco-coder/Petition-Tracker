@@ -2958,7 +2958,7 @@ def login():
                     return redirect(url_for('login'))
                 _clear_login_failures()
                 flash(f'OTP sent to {_mask_phone_number(user.get("phone"))}. Enter it to finish logging in.', 'success')
-                return redirect(url_for('login'))
+                return _render_login_page(active_tab='otp')
 
             _clear_legacy_login_captcha_session()
             _activate_login_session(user)
