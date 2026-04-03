@@ -2433,6 +2433,9 @@ def _begin_login_otp_challenge(user):
     session['otp_pending_attempts'] = 0
     if transaction_id:
         session['otp_pending_transaction_id'] = transaction_id
+    # Make the session cookie persistent so iOS Safari doesn't discard it
+    # when the user switches to the SMS app to read the OTP and returns.
+    session.permanent = True
     log_security_event('auth.login_otp_sent', severity='info', target_user_id=user['id'])
     return True, provider_message
 
