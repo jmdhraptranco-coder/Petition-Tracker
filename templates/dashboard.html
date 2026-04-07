@@ -975,6 +975,25 @@ window.addEventListener('resize', () => {
         initAnalyticsDashboard();
     }, 180);
 });
+
+// Auto-submit the filter form when either date input changes so the user
+// doesn't have to click Apply after picking a date.
+(function () {
+    const form = document.querySelector('.dashboard-filter-inline');
+    const fromDate = document.getElementById('dashboardFromDate');
+    const toDate   = document.getElementById('dashboardToDate');
+    if (!form || !fromDate || !toDate) return;
+
+    function submitOnDateChange() {
+        // Reset to page 1 so the new filter starts from the beginning.
+        const pageInput = form.querySelector('input[name="page"]');
+        if (pageInput) pageInput.value = '1';
+        form.submit();
+    }
+
+    fromDate.addEventListener('change', submitOnDateChange);
+    toDate.addEventListener('change', submitOnDateChange);
+}());
 </script>
 {% endblock %}
 

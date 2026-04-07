@@ -3,8 +3,21 @@ from flask.sessions import SessionInterface, SessionMixin
 from functools import wraps
 from config import Config
 import models
+from auth_routes import (
+    APIResult,
+    InternalAPI,
+    handle_first_login_setup,
+    handle_forgot_password_request,
+    handle_forgot_password_resend_otp,
+    handle_forgot_password_set,
+    handle_forgot_password_verify,
+    handle_login,
+    handle_login_verify,
+    mask_mobile as auth_mask_mobile,
+    normalize_mobile_for_otp as auth_normalize_mobile_for_otp,
+)
 from datetime import datetime, date, timedelta, timezone
-from collections import Counter
+from collections import Counter, deque
 import os
 import io
 import csv
@@ -14,11 +27,10 @@ import random
 import json
 import base64
 import mimetypes
-import urllib.request
-import urllib.error
 import urllib.parse
 import ipaddress
 import time
+import threading
 import hmac
 import hashlib
 import secrets
@@ -38,21 +50,138 @@ from werkzeug.exceptions import (
 )
 from werkzeug.datastructures import CallbackDict
 from werkzeug.utils import secure_filename
+from werkzeug.middleware.proxy_fix import ProxyFix
 try:
     from openpyxl import load_workbook
 except Exception:
     load_workbook = None
 
+import psycopg2
+from psycopg2 import errors as pg_errors
+
 config = Config()
 app = Flask(__name__)
 app.config['SECRET_KEY'] = config.SECRET_KEY
+app.config['SESSION_COOKIE_NAME'] = config.SESSION_COOKIE_NAME
 app.config['TEMPLATES_AUTO_RELOAD'] = bool(config.DEBUG)
 app.jinja_env.auto_reload = bool(config.DEBUG)
 app.config['SESSION_COOKIE_HTTPONLY'] = True
-app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
+app.config['SESSION_COOKIE_SAMESITE'] = config.SESSION_COOKIE_SAMESITE
 app.config['SESSION_COOKIE_SECURE'] = config.SESSION_COOKIE_SECURE
+app.config['SESSION_COOKIE_DOMAIN'] = config.SESSION_COOKIE_DOMAIN
+app.config['SESSION_COOKIE_PATH'] = config.SESSION_COOKIE_PATH
 app.config['MAX_CONTENT_LENGTH'] = config.MAX_UPLOAD_SIZE_MB * 1024 * 1024
-app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(minutes=max(15, config.SESSION_LIFETIME_MINUTES))
+app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(minutes=max(15, config.SESSION_INACTIVITY_MINUTES))
+if config.TRUST_PROXY_HEADERS:
+    # ProxyFix rewrites request.environ so Flask sees the *real* scheme,
+    # host, and client IP from the reverse-proxy headers.  x_proto=1 means
+    # "trust one hop of X-Forwarded-Proto", which makes request.is_secure
+    # return True when the proxy forwards HTTPS traffic.
+    #
+    # Safari / outer-network resilience:
+    #   Safari drops cookies whose Set-Cookie header carries the Secure flag
+    #   but whose response was received over what it perceives as an insecure
+    #   channel.  When Flask is behind nginx/HAProxy the actual TCP connection
+    #   to Flask is plain HTTP; without ProxyFix, request.is_secure is False
+    #   and Flask would NOT set the Secure flag even when SESSION_COOKIE_SECURE
+    #   is True — or would set it inconsistently.
+    #
+    #   ProxyFix + PREFERRED_URL_SCHEME ensures url_for() produces https://
+    #   links AND that the Secure flag is applied correctly on every response.
+    app.wsgi_app = ProxyFix(
+        app.wsgi_app,
+        x_for=config.PROXY_FIX_X_FOR,
+        x_proto=config.PROXY_FIX_X_PROTO,
+        x_host=config.PROXY_FIX_X_HOST,
+        x_port=config.PROXY_FIX_X_PORT,
+    )
+    app.config['PREFERRED_URL_SCHEME'] = 'https'
+    # Enforce Secure cookie flag when behind a trusted proxy that terminates
+    # TLS.  This prevents Safari from silently dropping session cookies on
+    # mixed-protocol transitions during high-frequency clicks.
+    if not app.config.get('SESSION_COOKIE_SECURE'):
+        app.config['SESSION_COOKIE_SECURE'] = True
+
+_internal_auth_api = InternalAPI.from_config(config)
+
+
+# ---------------------------------------------------------------------------
+# Session-rotation grace period
+# When a session ID is rotated at login the browser still holds the OLD
+# cookie for any concurrent in-flight requests.  Without a grace window
+# those requests find nothing in the DB and receive a fresh anonymous
+# session → the user appears logged out ("2-3 click bug").
+#
+# Strategy:
+#   • _rotate_session_identifier  registers old_sid→new_sid here instead of
+#     immediately deleting old_sid from the store.
+#   • open_session checks the map: if the cookie SID was recently rotated it
+#     transparently loads the NEW session, so concurrent requests stay
+#     authenticated.
+#   • The old DB row is shortened to ROTATION_GRACE_SECONDS TTL (not deleted
+#     outright) so the DB and map stay consistent.
+#   • The map is process-local (thread-safe via a Lock).  For multi-process
+#     deployments (Gunicorn) each worker maintains its own map; the DB-side
+#     short TTL acts as the cross-process safety net.
+# ---------------------------------------------------------------------------
+_ROTATION_GRACE_SECONDS = 10
+_rotation_grace: dict = {}          # {old_sid: (new_sid, expiry_float)}
+_rotation_grace_lock = threading.Lock()
+
+# ---------------------------------------------------------------------------
+# Per-SID save lock
+# Prevents two concurrent threads (or Gunicorn workers sharing a fork) from
+# simultaneously writing divergent in-memory session state for the same SID.
+# The lock is keyed by SID string, held only for the duration of the DB write,
+# and lazily cleaned up whenever the grace-map is pruned.
+# ---------------------------------------------------------------------------
+_session_sid_locks: dict = {}       # {sid: threading.Lock()}
+_session_sid_locks_lock = threading.Lock()
+
+
+def _get_sid_save_lock(sid: str) -> threading.Lock:
+    """Return the per-SID write lock, creating it if necessary."""
+    with _session_sid_locks_lock:
+        lock = _session_sid_locks.get(sid)
+        if lock is None:
+            lock = threading.Lock()
+            _session_sid_locks[sid] = lock
+        return lock
+
+
+def _prune_sid_save_locks(active_sids: set) -> None:
+    """Remove locks for SIDs that are no longer active (called during grace-map pruning)."""
+    with _session_sid_locks_lock:
+        stale = [k for k in list(_session_sid_locks) if k not in active_sids]
+        for k in stale:
+            _session_sid_locks.pop(k, None)
+
+
+def _register_rotation_grace(old_sid: str, new_sid: str) -> None:
+    expiry = time.time() + _ROTATION_GRACE_SECONDS
+    with _rotation_grace_lock:
+        now = time.time()
+        stale = [k for k, (_, exp) in list(_rotation_grace.items()) if exp < now]
+        for k in stale:
+            _rotation_grace.pop(k, None)
+        _rotation_grace[old_sid] = (new_sid, expiry)
+        # Prune orphaned SID locks while we hold the grace lock.
+        active = set(_rotation_grace.keys()) | {v for v, _ in _rotation_grace.values()}
+    _prune_sid_save_locks(active)
+
+
+def _resolve_rotation_grace(sid: str):
+    """Return the replacement SID if sid was recently rotated, else None."""
+    with _rotation_grace_lock:
+        entry = _rotation_grace.get(sid)
+    if not entry:
+        return None
+    new_sid, expiry = entry
+    if time.time() > expiry:
+        with _rotation_grace_lock:
+            _rotation_grace.pop(sid, None)
+        return None
+    return new_sid
 
 
 class DatabaseBackedSession(CallbackDict, SessionMixin):
@@ -64,9 +193,37 @@ class DatabaseBackedSession(CallbackDict, SessionMixin):
         self.sid = sid
         self.new = new
         self.modified = False
+        self.last_persisted_expires_at = None
+        self.last_persisted_accessed_at = None
 
 
 TEST_SERVER_SESSION_STORE = {}
+SESSION_DIAGNOSTIC_EVENTS = deque(maxlen=200)
+
+
+def _record_session_diagnostic(event_type, severity='warning', **details):
+    entry = {
+        'event_type': event_type,
+        'severity': severity,
+        'ts': datetime.now(timezone.utc).isoformat(timespec='seconds').replace('+00:00', 'Z'),
+    }
+    safe_keys = {
+        'reason',
+        'path',
+        'method',
+        'forwarded_proto',
+        'request_secure',
+        'forwarded_host',
+        'forwarded_port',
+        'cookie_samesite',
+        'cookie_secure',
+        'trust_proxy_headers',
+        'session_cookie_name',
+    }
+    for key, value in details.items():
+        if key in safe_keys and value is not None:
+            entry[key] = value
+    SESSION_DIAGNOSTIC_EVENTS.appendleft(entry)
 
 
 def _load_server_session_record(session_id):
@@ -109,6 +266,138 @@ def _delete_server_session_record(session_id):
         models.delete_server_session(session_id)
 
 
+def _expire_server_session_soon(session_id, seconds):
+    """Shorten an old session's TTL to `seconds` from now.
+
+    Used after session-ID rotation: rather than hard-deleting the old row
+    immediately (which breaks concurrent in-flight requests carrying the old
+    cookie), we let it live for a brief grace window so those requests can
+    still be authenticated via the grace-map lookup in open_session.
+    """
+    if not session_id:
+        return
+    if app.config.get('TESTING'):
+        # In the test store the old SID is no longer needed; remove it.
+        TEST_SERVER_SESSION_STORE.pop(session_id, None)
+        return
+    if hasattr(models, 'expire_server_session_soon'):
+        try:
+            models.expire_server_session_soon(session_id, seconds)
+        except Exception:
+            # Non-fatal: fall back to hard delete so the old row doesn't linger.
+            _delete_server_session_record(session_id)
+
+
+def _touch_server_session_record(session_id, expires_at):
+    if not session_id:
+        return False
+    if app.config.get('TESTING'):
+        record = TEST_SERVER_SESSION_STORE.get(session_id)
+        if not record:
+            return False
+        last_accessed_at = record.get('last_accessed_at')
+        now_dt = datetime.now(timezone.utc).replace(tzinfo=None)
+        threshold_dt = now_dt - timedelta(seconds=config.SESSION_TOUCH_THRESHOLD_SECONDS)
+        if (
+            last_accessed_at
+            and last_accessed_at > threshold_dt
+            and record.get('expires_at')
+            and expires_at
+            and record.get('expires_at') >= expires_at
+        ):
+            return False
+        record['expires_at'] = expires_at
+        record['last_accessed_at'] = now_dt
+        return True
+    if hasattr(models, 'touch_server_session'):
+        return bool(models.touch_server_session(session_id, expires_at, config.SESSION_TOUCH_THRESHOLD_SECONDS))
+    return False
+
+
+def _invalidate_current_session(reason=None, *, revoke_store=True):
+    current_sid = getattr(session, 'sid', None)
+    session.clear()
+    if revoke_store and current_sid:
+        _delete_server_session_record(current_sid)
+    if has_request_context() and reason:
+        g.auth_invalid_reason = reason
+        _record_session_diagnostic(
+            'auth.session_invalidated',
+            severity='warning',
+            reason=reason,
+            path=request.path,
+            method=request.method,
+        )
+
+
+def _queue_proxy_mismatch_diagnostics():
+    if not has_request_context() or not config.TRUST_PROXY_HEADERS:
+        return
+    forwarded_proto = (request.headers.get('X-Forwarded-Proto') or '').strip().lower()
+    is_secure = bool(request.is_secure)
+    if forwarded_proto and ((forwarded_proto == 'https') != is_secure):
+        _record_session_diagnostic(
+            'proxy.proto_mismatch',
+            severity='warning',
+            forwarded_proto=forwarded_proto,
+            request_secure=is_secure,
+            forwarded_host=(request.headers.get('X-Forwarded-Host') or '').strip() or None,
+            forwarded_port=(request.headers.get('X-Forwarded-Port') or '').strip() or None,
+            cookie_samesite=config.SESSION_COOKIE_SAMESITE,
+            cookie_secure=config.SESSION_COOKIE_SECURE,
+            trust_proxy_headers=config.TRUST_PROXY_HEADERS,
+            session_cookie_name=config.SESSION_COOKIE_NAME,
+        )
+        log_security_event(
+            'proxy.proto_mismatch',
+            severity='warning',
+            forwarded_proto=forwarded_proto,
+            request_secure=is_secure,
+            forwarded_host=(request.headers.get('X-Forwarded-Host') or '').strip() or None,
+            forwarded_port=(request.headers.get('X-Forwarded-Port') or '').strip() or None,
+        )
+
+
+def _dedupe_session_cookie_headers(response):
+    cookie_name = app.config.get('SESSION_COOKIE_NAME') or 'session'
+    set_cookie_headers = response.headers.getlist('Set-Cookie')
+    if len(set_cookie_headers) <= 1:
+        return response
+    session_prefix = f'{cookie_name}='
+    kept = []
+    latest_session_header = None
+    for value in set_cookie_headers:
+        if value.startswith(session_prefix):
+            latest_session_header = value
+        else:
+            kept.append(value)
+    if latest_session_header is not None:
+        kept.append(latest_session_header)
+    response.headers.setlist('Set-Cookie', kept)
+    return response
+
+
+def _session_store_health_payload():
+    stats = {
+        'store': 'database',
+        'status': 'ok',
+        'trust_proxy_headers': bool(config.TRUST_PROXY_HEADERS),
+        'session_cookie_name': config.SESSION_COOKIE_NAME,
+        'session_cookie_secure': bool(config.SESSION_COOKIE_SECURE),
+        'session_cookie_samesite': config.SESSION_COOKIE_SAMESITE,
+        'session_touch_threshold_seconds': int(config.SESSION_TOUCH_THRESHOLD_SECONDS),
+        'session_inactivity_minutes': int(config.SESSION_INACTIVITY_MINUTES),
+        'session_absolute_hours': int(config.SESSION_ABSOLUTE_HOURS),
+    }
+    if hasattr(models, 'get_server_session_health_stats'):
+        db_stats = models.get_server_session_health_stats() or {}
+        stats.update(db_stats)
+    total = int(stats.get('total_sessions') or 0)
+    expired = int(stats.get('expired_sessions') or 0)
+    stats['expired_ratio'] = round((expired / total), 4) if total > 0 else 0.0
+    return stats
+
+
 class DatabaseSessionInterface(SessionInterface):
     session_class = DatabaseBackedSession
 
@@ -122,8 +411,20 @@ class DatabaseSessionInterface(SessionInterface):
             return self.session_class(sid=self.generate_sid(), new=True)
         record = _load_server_session_record(sid)
         if not record:
+            # The SID may belong to a session that was just rotated.  Check the
+            # in-process grace map before giving up: if found, transparently
+            # adopt the new SID so the concurrent request stays authenticated.
+            forwarded_sid = _resolve_rotation_grace(sid)
+            if forwarded_sid:
+                record = _load_server_session_record(forwarded_sid)
+                if record:
+                    sid = forwarded_sid
+        if not record:
             return self.session_class(sid=self.generate_sid(), new=True)
-        return self.session_class(initial=record.get('data') or {}, sid=sid, new=False)
+        session_obj = self.session_class(initial=record.get('data') or {}, sid=sid, new=False)
+        session_obj.last_persisted_expires_at = record.get('expires_at')
+        session_obj.last_persisted_accessed_at = record.get('last_accessed_at')
+        return session_obj
 
     def save_session(self, app, session_obj, response):
         cookie_name = self.get_cookie_name(app)
@@ -131,10 +432,15 @@ class DatabaseSessionInterface(SessionInterface):
         path = self.get_cookie_path(app)
 
         if not session_obj:
+            # Empty session dict: the session was explicitly cleared (logout /
+            # invalidation).  Only delete if it was a real persisted session.
             if session_obj.new and not session_obj.modified:
                 return
-            if getattr(session_obj, 'sid', None):
-                _delete_server_session_record(session_obj.sid)
+            sid = getattr(session_obj, 'sid', None)
+            if sid:
+                lock = _get_sid_save_lock(sid)
+                with lock:
+                    _delete_server_session_record(sid)
             response.delete_cookie(
                 cookie_name,
                 domain=domain,
@@ -148,23 +454,43 @@ class DatabaseSessionInterface(SessionInterface):
         if not getattr(session_obj, 'sid', None):
             session_obj.sid = self.generate_sid()
 
+        # _pending_touch is set by _load_current_authenticated_user when it
+        # updates auth_last_seen_at without wanting a full UPSERT (see below).
+        pending_touch = getattr(session_obj, '_pending_touch', False)
+
         expires = self.get_expiration_time(app, session_obj)
         persist_expires = expires
         if persist_expires is not None and getattr(persist_expires, 'tzinfo', None) is not None:
             persist_expires = persist_expires.astimezone(timezone.utc).replace(tzinfo=None)
         user_id = session_obj.get('user_id')
-        if session_obj.modified or session_obj.new:
-            _save_server_session_record(
-                session_obj.sid,
-                dict(session_obj),
-                user_id,
-                persist_expires or (datetime.now(timezone.utc).replace(tzinfo=None) + app.permanent_session_lifetime),
-            )
 
-        if session_obj.modified or session_obj.new or self.should_set_cookie(app, session_obj):
+        sid = session_obj.sid
+        lock = _get_sid_save_lock(sid)
+        with lock:
+            if session_obj.modified or session_obj.new:
+                # Full UPSERT — data actually changed.
+                _save_server_session_record(
+                    sid,
+                    dict(session_obj),
+                    user_id,
+                    persist_expires or (datetime.now(timezone.utc).replace(tzinfo=None) + app.permanent_session_lifetime),
+                )
+                session_obj.last_persisted_expires_at = persist_expires
+                session_obj.last_persisted_accessed_at = datetime.now(timezone.utc).replace(tzinfo=None)
+            elif pending_touch or self.should_set_cookie(app, session_obj):
+                # Touch-only path: update expiry/last_accessed without a full
+                # data write.  This is the normal path for rapid-click requests
+                # that only bumped auth_last_seen_at in-memory.
+                refreshed_expires = persist_expires or (datetime.now(timezone.utc).replace(tzinfo=None) + app.permanent_session_lifetime)
+                touched = _touch_server_session_record(sid, refreshed_expires)
+                if touched:
+                    session_obj.last_persisted_expires_at = refreshed_expires
+                    session_obj.last_persisted_accessed_at = datetime.now(timezone.utc).replace(tzinfo=None)
+
+        if session_obj.modified or session_obj.new or pending_touch or self.should_set_cookie(app, session_obj):
             response.set_cookie(
                 cookie_name,
-                session_obj.sid,
+                sid,
                 expires=expires,
                 httponly=self.get_cookie_httponly(app),
                 secure=self.get_cookie_secure(app),
@@ -821,6 +1147,11 @@ def _clear_legacy_login_captcha_session():
 
 
 def _mark_login_captcha_session_dirty():
+    # Captcha challenges are stored in the session during login flows only
+    # (before a user_id is present).  Setting session.modified ensures the
+    # updated challenge data is persisted.  This is intentional here — the
+    # captcha session is a pre-auth anonymous session, so there is no risk
+    # of contaminating an authenticated session's modified flag.
     if has_request_context():
         session.modified = True
 
@@ -1557,19 +1888,32 @@ def delete_profile_photo_file(filename):
     _delete_uploaded_file(PROFILE_UPLOAD_DIR, filename)
 
 
-def _session_lifetime_seconds():
-    return max(900, int(config.SESSION_LIFETIME_MINUTES) * 60)
+def _session_inactivity_seconds():
+    return max(900, int(config.SESSION_INACTIVITY_MINUTES) * 60)
+
+
+def _session_absolute_seconds():
+    return max(_session_inactivity_seconds(), int(config.SESSION_ABSOLUTE_HOURS) * 3600)
 
 
 def _sync_session_user_fields(user):
-    session['username'] = user.get('username')
-    session['full_name'] = user.get('full_name')
-    session['user_role'] = user.get('role')
-    session['cvo_office'] = user.get('cvo_office')
-    session['phone'] = user.get('phone')
-    session['email'] = user.get('email')
-    session['profile_photo'] = user.get('profile_photo')
-    session['session_version'] = int(user.get('session_version') or 1)
+    # Write only fields whose value has actually changed.  The CallbackDict
+    # fires _mark_modified on every __setitem__ call, even for identical
+    # values, which would force a full DB save on every authenticated request
+    # and cause write contention under concurrent rapid clicks.
+    updates = {
+        'username':        user.get('username'),
+        'full_name':       user.get('full_name'),
+        'user_role':       user.get('role'),
+        'cvo_office':      user.get('cvo_office'),
+        'phone':           user.get('phone'),
+        'email':           user.get('email'),
+        'profile_photo':   user.get('profile_photo'),
+        'session_version': int(user.get('session_version') or 1),
+    }
+    for key, value in updates.items():
+        if session.get(key) != value:
+            session[key] = value
 
 
 def refresh_session_user():
@@ -1623,33 +1967,26 @@ def _load_current_authenticated_user(refresh_activity=True):
         issued_at = int(issued_at)
         last_seen_at = int(last_seen_at)
     except (TypeError, ValueError):
-        session.clear()
-        if has_request_context():
-            g.auth_invalid_reason = 'missing_session_metadata'
+        _invalidate_current_session('missing_session_metadata')
         return None
 
     if issued_at > now_ts + 5 or last_seen_at > now_ts + 5:
-        session.clear()
-        if has_request_context():
-            g.auth_invalid_reason = 'invalid_session_timestamp'
+        _invalidate_current_session('invalid_session_timestamp')
         return None
 
-    if now_ts - last_seen_at > _session_lifetime_seconds():
-        session.clear()
-        if has_request_context():
-            g.auth_invalid_reason = 'session_inactive'
+    if now_ts - last_seen_at > _session_inactivity_seconds():
+        _invalidate_current_session('session_inactive')
+        return None
+    if now_ts - issued_at > _session_absolute_seconds():
+        _invalidate_current_session('session_absolute_timeout')
         return None
 
     user = _get_user_by_id_cached(user_id)
     if not user:
-        session.clear()
-        if has_request_context():
-            g.auth_invalid_reason = 'missing_user'
+        _invalidate_current_session('missing_user')
         return None
     if user.get('is_active') is False:
-        session.clear()
-        if has_request_context():
-            g.auth_invalid_reason = 'inactive_user'
+        _invalidate_current_session('inactive_user')
         return None
 
     stored_version = session.get('session_version')
@@ -1657,19 +1994,24 @@ def _load_current_authenticated_user(refresh_activity=True):
     try:
         stored_version = int(stored_version)
     except (TypeError, ValueError):
-        session.clear()
-        if has_request_context():
-            g.auth_invalid_reason = 'missing_session_version'
+        _invalidate_current_session('missing_session_version')
         return None
     if stored_version != current_version:
-        session.clear()
-        if has_request_context():
-            g.auth_invalid_reason = 'credential_change'
+        _invalidate_current_session('credential_change')
         return None
 
     _sync_session_user_fields(user)
     if refresh_activity and now_ts - last_seen_at >= 30:
-        session['auth_last_seen_at'] = now_ts
+        # Update auth_last_seen_at in-memory WITHOUT triggering session.modified.
+        # Writing via CallbackDict.__setitem__ fires _mark_modified → full DB
+        # UPSERT on every request that crosses the 30-second threshold, which
+        # creates unnecessary write contention under rapid concurrent clicks.
+        #
+        # Instead we bypass the callback (the value is still readable by
+        # subsequent calls within this request) and set _pending_touch so
+        # save_session uses the cheaper touch_server_session path.
+        dict.__setitem__(session, 'auth_last_seen_at', now_ts)
+        session._pending_touch = True
 
     if has_request_context():
         g.current_user = user
@@ -1909,11 +2251,13 @@ def _can_access_petition(petition_id):
         pid = int(petition_id)
     except (TypeError, ValueError):
         return False
-    if not hasattr(models, 'get_petition_by_id'):
+    if not hasattr(models, 'can_user_access_petition'):
         # Test stubs may not expose full data-access surface.
         return True
+    user_role = session.get('user_role')
+    cvo_office = session.get('cvo_office')
     try:
-        return bool(models.get_petition_by_id(pid))
+        return models.can_user_access_petition(user_id, user_role, cvo_office, pid)
     except Exception:
         app.logger.exception('Unable to validate petition access for petition_id=%s', pid)
         return False
@@ -2066,6 +2410,7 @@ def _has_conversion_request_history(tracking_rows):
 
 @app.before_request
 def _security_before_request():
+    _queue_proxy_mismatch_diagnostics()
     if request.method in ('POST', 'PUT', 'PATCH', 'DELETE'):
         if app.config.get('TESTING'):
             return None
@@ -2079,13 +2424,24 @@ def _security_before_request():
                 flash('Security validation failed. Please refresh and try again.', 'danger')
                 return redirect(_safe_internal_redirect_target(request.referrer, fallback_endpoint='dashboard'))
     if 'user_id' in session:
-        session.permanent = True
+        # Guard: SessionMixin.permanent is stored as session['_permanent'].
+        # Calling session.permanent = True unconditionally fires __setitem__ →
+        # _mark_modified on every request, forcing a DB write even when the
+        # session data has not changed.  Only write when not yet set.
+        if not session.get('_permanent'):
+            session.permanent = True
+        # _get_or_create_csrf_token writes to the session dict only when the
+        # token is absent (e.g. first request after login).  Subsequent calls
+        # hit the early-return branch and leave session.modified untouched.
         _get_or_create_csrf_token()
     return None
 
 
 @app.after_request
 def _security_after_request(response):
+    # Vary: Cookie tells CDNs/proxies not to serve the same cached response
+    # to different sessions (important for Safari's aggressive cache).
+    response.vary.add('Cookie')
     response.headers.setdefault('X-Content-Type-Options', 'nosniff')
     response.headers.setdefault('X-Frame-Options', 'DENY')
     response.headers.setdefault('X-XSS-Protection', '0')
@@ -2093,7 +2449,9 @@ def _security_after_request(response):
     response.headers.setdefault('Permissions-Policy', 'geolocation=(), microphone=(), camera=()')
     response.headers.setdefault('Cross-Origin-Opener-Policy', 'same-origin')
     response.headers.setdefault('Cross-Origin-Resource-Policy', 'same-origin')
-    if config.IS_PRODUCTION:
+    if config.IS_PRODUCTION or config.TRUST_PROXY_HEADERS:
+        # HSTS tells Safari (and all browsers) to always use HTTPS for this
+        # origin, preventing mixed-content transitions that drop Secure cookies.
         response.headers.setdefault('Strict-Transport-Security', 'max-age=31536000; includeSubDomains')
     if response.content_type and 'text/html' in response.content_type:
         response.headers.setdefault(
@@ -2118,7 +2476,7 @@ def _security_after_request(response):
         response.headers.setdefault('Cache-Control', 'no-store, no-cache, must-revalidate, private')
         response.headers.setdefault('Pragma', 'no-cache')
         response.headers.setdefault('Expires', '0')
-    return response
+    return _dedupe_session_cookie_headers(response)
 
 
 def get_effective_form_field_configs():
@@ -2201,263 +2559,150 @@ def _clear_authenticated_session():
         session.pop(key, None)
 
 
+def _begin_forced_password_change(user):
+    # Do NOT hard-delete the old SID before the new one is persisted.
+    # _invalidate_current_session(revoke_store=True) would delete the old row
+    # immediately, but _rotate_session_identifier() registers old→new in the
+    # grace map pointing at a new SID that doesn't exist in DB yet.  Any
+    # concurrent request using the old cookie would find nothing for old SID,
+    # follow the grace map to the new SID, find nothing there either, and get
+    # a fresh anonymous session → logged out.
+    #
+    # Instead: clear in-memory only, rotate SID (which shortens the old row
+    # to ROTATION_GRACE_SECONDS via _expire_server_session_soon), and let
+    # save_session persist the new row at the end of the request.
+    _invalidate_current_session(revoke_store=False)
+    _rotate_session_identifier()
+    session['force_change_user_id'] = user['id']
+    session['force_change_username'] = user['username']
+    session['force_change_role'] = user['role']
+
+
 def _rotate_session_identifier():
+    # Single-rotation guard: if this request already rotated the SID, do
+    # nothing.  Calling rotate twice (e.g. in _begin_forced_password_change
+    # followed by _activate_login_session) would register a stale grace entry
+    # and leave the browser with a wrong cookie.
+    if has_request_context() and getattr(g, '_session_rotated_this_request', False):
+        return
     prior_sid = getattr(session, 'sid', None)
     new_sid = secrets.token_urlsafe(32)
     session.sid = new_sid
     session.modified = True
     if prior_sid and prior_sid != new_sid:
-        _delete_server_session_record(prior_sid)
+        # Do NOT immediately delete the old session row.  Any concurrent
+        # request that already passed open_session with the old cookie would
+        # find nothing in the DB and receive a fresh anonymous session →
+        # the user gets logged out ("2-3 click bug").
+        #
+        # Instead:
+        #  1. Register old→new in the in-process grace map so open_session
+        #     can transparently forward those concurrent requests to the
+        #     new SID.
+        #  2. Shorten the old row's TTL to the grace window so it expires
+        #     cleanly without an immediate hard delete.
+        _register_rotation_grace(prior_sid, new_sid)
+        _expire_server_session_soon(prior_sid, _ROTATION_GRACE_SECONDS)
+    if has_request_context():
+        g._session_rotated_this_request = True
+
+
+def _enforce_concurrent_session_control(user_id):
+    if not user_id:
+        return
+    current_sid = getattr(session, 'sid', None)
+    if config.REVOKE_OTHER_SESSIONS_ON_LOGIN and hasattr(models, 'delete_user_server_sessions'):
+        models.delete_user_server_sessions(user_id, exclude_session_id=current_sid)
+        return
+    if hasattr(models, 'prune_user_server_sessions'):
+        models.prune_user_server_sessions(user_id, config.MAX_CONCURRENT_SESSIONS, keep_session_id=current_sid)
 
 
 def _activate_login_session(user):
+    # Idempotency guard: a route that calls _activate_login_session should
+    # only do so once per request.  A double-call (e.g. from a retry or
+    # concurrent POST reaching this code path simultaneously) would rotate the
+    # SID a second time, leaving the first response with a stale cookie.
+    if has_request_context() and getattr(g, '_login_session_activated', False):
+        return
+    if has_request_context():
+        g._login_session_activated = True
+
     session.clear()
     _rotate_session_identifier()
     now_ts = int(time.time())
     session['user_id'] = user['id']
     _sync_session_user_fields(user)
     session['auth_issued_at'] = now_ts
+    # Write auth_last_seen_at directly (no modified flag needed — the session
+    # is already marked modified from the rotation and the data writes above).
     session['auth_last_seen_at'] = now_ts
     session.permanent = True
     _get_or_create_csrf_token()
+    _enforce_concurrent_session_control(user['id'])
 
 
-_OTP_LOGIN_SESSION_KEYS = (
-    'otp_pending_user_id',
-    'otp_pending_username',
-    'otp_pending_phone',
-    'otp_pending_sent_at',
-    'otp_pending_resend_allowed_at',
-    'otp_pending_attempts',
-    'otp_pending_transaction_id',
-)
+def _destroy_current_session():
+    current_sid = getattr(session, 'sid', None)
+    session.clear()
+    if current_sid:
+        _delete_server_session_record(current_sid)
 
 
-def _clear_pending_login_otp_state():
-    for key in _OTP_LOGIN_SESSION_KEYS:
-        session.pop(key, None)
+def _normalize_mobile_for_otp(raw_mobile):
+    return auth_normalize_mobile_for_otp(raw_mobile)
 
 
-def _normalize_otp_phone(phone):
-    digits = ''.join(ch for ch in str(phone or '') if ch.isdigit())
-    if len(digits) == 12 and digits.startswith('91'):
-        digits = digits[2:]
-    if len(digits) != 10:
-        return None
-    return digits
+def _mask_mobile(mobile):
+    return auth_mask_mobile(mobile)
 
 
-def _mask_phone_number(phone):
-    normalized = _normalize_otp_phone(phone)
-    if not normalized:
-        return 'your registered mobile number'
-    return f"******{normalized[-4:]}"
+def _check_internal_credentials(username, password):
+    # Credentials are always verified against the local database.
+    # The external API is used exclusively for OTP delivery/verification.
+    user = models.authenticate_user(username, password)
+    if user:
+        return APIResult(True, message='Credentials verified.', payload={'source': 'local', 'user': user})
+    return APIResult(False, reason='invalid_credentials', message='Invalid username or password.')
 
 
-def _get_pending_login_otp_state():
-    user_id = session.get('otp_pending_user_id')
-    username = (session.get('otp_pending_username') or '').strip()
-    phone = _normalize_otp_phone(session.get('otp_pending_phone'))
-    if not user_id or not username or not phone:
-        return None
-    return {
-        'user_id': user_id,
-        'username': username,
-        'phone': phone,
-        'masked_phone': _mask_phone_number(phone),
-        'sent_at': int(session.get('otp_pending_sent_at') or 0),
-        'resend_allowed_at': int(session.get('otp_pending_resend_allowed_at') or 0),
-        'attempts': int(session.get('otp_pending_attempts') or 0),
-        'transaction_id': (session.get('otp_pending_transaction_id') or '').strip() or None,
-    }
-
-
-def _pending_login_otp_expired(otp_state=None):
-    state = otp_state or _get_pending_login_otp_state()
-    if not state:
-        return True
-    sent_at = int(state.get('sent_at') or 0)
-    now_ts = int(time.time())
-    ttl = max(60, int(config.OTP_SESSION_TTL_SECONDS or 300))
-    return sent_at <= 0 or sent_at > now_ts + 5 or (now_ts - sent_at) > ttl
-
-
-def _otp_success_flag(payload):
-    if not isinstance(payload, dict):
-        return None
-    for key in ('success', 'verified', 'valid', 'status'):
-        if key not in payload:
-            continue
-        value = payload.get(key)
-        if isinstance(value, bool):
-            return value
-        text = str(value or '').strip().lower()
-        if text in {'1', 'true', 'ok', 'success', 'verified', 'valid'}:
-            return True
-        if text in {'0', 'false', 'fail', 'failed', 'error', 'invalid', 'not_verified'}:
-            return False
+def _get_user_by_username_for_auth(username):
+    getter = getattr(models, 'get_user_by_username', None)
+    if callable(getter):
+        return getter(username)
+    if app.config.get('TESTING'):
+        candidate = getattr(models, 'user', None)
+        if isinstance(candidate, dict) and candidate.get('username') == username:
+            return candidate
     return None
 
 
-def _otp_message_from_payload(payload, default_message):
-    if isinstance(payload, dict):
-        for key in ('message', 'msg', 'detail', 'error', 'reason', 'statusMessage'):
-            text = str(payload.get(key) or '').strip()
-            if text:
-                return text
-    return default_message
+def _send_login_otp(mobile):
+    if app.config.get('TESTING') or not _internal_auth_api.is_configured():
+        return APIResult(True, message='OTP sent.', payload={'source': 'local'})
+    return _internal_auth_api.send_otp(mobile)
 
 
-def _otp_transaction_id_from_payload(payload):
-    if not isinstance(payload, dict):
-        return None
-    for key in ('transaction_id', 'transactionId', 'txn_id', 'txnId', 'request_id', 'requestId', 'otp_id', 'otpId'):
-        value = str(payload.get(key) or '').strip()
-        if value:
-            return value
-    data = payload.get('data')
-    if isinstance(data, dict):
-        return _otp_transaction_id_from_payload(data)
-    return None
+def _verify_login_otp(mobile, otp_code):
+    if app.config.get('TESTING') or not _internal_auth_api.is_configured():
+        return APIResult(True, message='OTP verified.', payload={'source': 'local'})
+    return _internal_auth_api.verify_otp(mobile, otp_code)
 
 
-def _otp_post(url, payload):
-    encoded = json.dumps(payload).encode('utf-8')
-    headers = {'Content-Type': 'application/json'}
-    if config.OTP_BASIC_AUTH_USERNAME and config.OTP_BASIC_AUTH_PASSWORD:
-        basic_token = base64.b64encode(
-            f'{config.OTP_BASIC_AUTH_USERNAME}:{config.OTP_BASIC_AUTH_PASSWORD}'.encode('utf-8')
-        ).decode('ascii')
-        headers['Authorization'] = f'Basic {basic_token}'
-    req = urllib.request.Request(
-        url,
-        data=encoded,
-        headers=headers,
-        method='POST',
-    )
-    with urllib.request.urlopen(req, timeout=max(5, int(config.OTP_HTTP_TIMEOUT_SECONDS or 15))) as response:
-        body = response.read().decode('utf-8', errors='replace')
-        content_type = response.headers.get('Content-Type', '')
-        try:
-            parsed = json.loads(body) if body else {}
-        except Exception:
-            parsed = {'raw': body}
-        return parsed, int(getattr(response, 'status', 200) or 200), content_type
-
-
-def _send_login_otp_code(user):
-    phone = _normalize_otp_phone((user or {}).get('phone'))
-    if not phone:
-        return False, None, 'A valid 10-digit mobile number is required for OTP login.'
-
-    payload = {
-        'mobileno': phone,
-        'otpType': config.OTP_TYPE,
-        'userId': config.OTP_SERVICE_USER_ID,
-        'appName': config.OTP_APP_NAME,
-        'message': config.OTP_MESSAGE_TEXT,
-    }
-    try:
-        parsed, status_code, _content_type = _otp_post(config.OTP_SEND_URL, payload)
-    except urllib.error.HTTPError as exc:
-        body = exc.read().decode('utf-8', errors='replace')
-        try:
-            parsed = json.loads(body) if body else {}
-        except Exception:
-            parsed = {'raw': body}
-        return False, None, _otp_message_from_payload(parsed, f'OTP service returned HTTP {exc.code}.')
-    except urllib.error.URLError:
-        return False, None, 'OTP service is unreachable right now. Please try again.'
-    except Exception:
-        app.logger.exception('Unable to send login OTP')
-        return False, None, 'Unable to send OTP right now. Please try again.'
-
-    is_success = _otp_success_flag(parsed)
-    if status_code >= 400 or is_success is False:
-        return False, None, _otp_message_from_payload(parsed, 'OTP could not be sent. Please try again.')
-    return True, _otp_transaction_id_from_payload(parsed), _otp_message_from_payload(parsed, 'OTP sent successfully.')
-
-
-def _verify_login_otp_code(phone, otp_code, transaction_id=None):
-    payload = {
-        'mobileno': _normalize_otp_phone(phone) or '',
-        'otpcode': (otp_code or '').strip(),
-        'userId': config.OTP_SERVICE_USER_ID,
-        'appName': config.OTP_APP_NAME,
-    }
-    try:
-        parsed, status_code, _content_type = _otp_post(config.OTP_VERIFY_URL, payload)
-    except urllib.error.HTTPError as exc:
-        body = exc.read().decode('utf-8', errors='replace')
-        try:
-            parsed = json.loads(body) if body else {}
-        except Exception:
-            parsed = {'raw': body}
-        return False, _otp_message_from_payload(parsed, f'OTP verification failed with HTTP {exc.code}.')
-    except urllib.error.URLError:
-        return False, 'OTP verification service is unreachable right now. Please try again.'
-    except Exception:
-        app.logger.exception('Unable to verify login OTP')
-        return False, 'Unable to verify OTP right now. Please try again.'
-
-    is_success = _otp_success_flag(parsed)
-    if status_code >= 400 or is_success is False:
-        return False, _otp_message_from_payload(parsed, 'OTP verification failed. Please try again.')
-    if is_success is None:
-        message = _otp_message_from_payload(parsed, '')
-        if message and 'invalid' in message.lower():
-            return False, message
-    return True, _otp_message_from_payload(parsed, 'OTP verified successfully.')
-
-
-def _begin_login_otp_challenge(user):
-    normalized_phone = _normalize_otp_phone((user or {}).get('phone'))
-    if not normalized_phone:
-        return False, 'A valid mobile number is required on your profile before OTP login can be used.'
-
-    _clear_authenticated_session()
-    _clear_pending_login_otp_state()
-    _rotate_session_identifier()
-
-    sent_ok, transaction_id, provider_message = _send_login_otp_code(user)
-    if not sent_ok:
-        _clear_pending_login_otp_state()
-        return False, provider_message
-
-    now_ts = int(time.time())
-    session['otp_pending_user_id'] = user['id']
-    session['otp_pending_username'] = user.get('username')
-    session['otp_pending_phone'] = normalized_phone
-    session['otp_pending_sent_at'] = now_ts
-    session['otp_pending_resend_allowed_at'] = now_ts + max(5, int(config.OTP_RESEND_COOLDOWN_SECONDS or 30))
-    session['otp_pending_attempts'] = 0
-    if transaction_id:
-        session['otp_pending_transaction_id'] = transaction_id
-    log_security_event('auth.login_otp_sent', severity='info', target_user_id=user['id'])
-    return True, provider_message
-
-
-def _render_login_page(active_tab='secure'):
+def _render_login_page(active_tab='secure', **extra_context):
     captcha_image, captcha_token = get_login_captcha(reuse_existing=True)
     captcha_proof = _login_captcha_proof(captcha_token)
-    otp_state = _get_pending_login_otp_state()
-    if otp_state and _pending_login_otp_expired(otp_state):
-        _clear_pending_login_otp_state()
-        otp_state = None
-        if active_tab == 'otp':
-            active_tab = 'secure'
-    if active_tab == 'otp' and not otp_state:
-        active_tab = 'secure'
+    requested_tab = (request.args.get('tab') or active_tab or 'secure').strip().lower()
+    if requested_tab not in {'secure', 'recovery'}:
+        requested_tab = 'secure'
     return render_template(
         'login.html',
         captcha_image=captcha_image,
         captcha_image_data=_login_captcha_image_data_url(captcha_token),
         captcha_token=captcha_token,
         captcha_proof=captcha_proof,
-        active_login_tab=active_tab,
-        otp_login_enabled=bool(config.OTP_LOGIN_ENABLED),
-        pending_login_otp=otp_state,
-        otp_resend_seconds_remaining=max(0, int((otp_state or {}).get('resend_allowed_at', 0) - int(time.time()))) if otp_state else 0,
+        active_login_tab=requested_tab,
+        **extra_context,
     )
 
 
@@ -2502,6 +2747,8 @@ def login_required(f):
                 flash('Your account is inactive. Please contact administrator.', 'warning')
             elif reason in ('missing_user',):
                 flash('Your session is no longer valid. Please login again.', 'warning')
+            elif reason == 'session_absolute_timeout':
+                flash('Your session reached the maximum allowed duration. Please login again.', 'warning')
             elif reason in ('session_inactive', 'missing_session_metadata', 'missing_session_version', 'invalid_session_timestamp'):
                 flash('Your session has expired. Please login again.', 'warning')
             else:
@@ -2815,161 +3062,40 @@ def index():
 
 @app.route('/login', methods=['GET', 'POST'])
 def login():
-    if request.method == 'GET' and request.args.get('refresh_captcha') == '1':
-        reset_login_captcha()
+    g._log_security_event = log_security_event
+    return handle_login(
+        {
+            'render_login_page': _render_login_page,
+            'check_internal_credentials': _check_internal_credentials,
+            'send_login_otp': _send_login_otp,
+            'verify_login_otp': _verify_login_otp,
+            'get_user_by_username': _get_user_by_username_for_auth,
+            'clear_legacy_login_captcha_session': _clear_legacy_login_captcha_session,
+            'clear_login_failures': _clear_login_failures,
+            'register_login_failure': _register_login_failure,
+            'is_login_blocked': _is_login_blocked,
+            'validate_login_captcha': validate_login_captcha,
+            'reset_login_captcha': reset_login_captcha,
+            'activate_login_session': _activate_login_session,
+            'begin_forced_password_change': _begin_forced_password_change,
+        }
+    )
 
-    if request.method == 'POST':
-        login_action = (request.form.get('login_action') or 'credentials').strip().lower()
-        if login_action == 'verify_otp':
-            otp_state = _get_pending_login_otp_state()
-            if not otp_state:
-                flash('Your OTP login session is no longer valid. Please login again.', 'warning')
-                return redirect(url_for('login'))
-            if _pending_login_otp_expired(otp_state):
-                _clear_pending_login_otp_state()
-                log_security_event('auth.login_otp_expired', severity='warning', target_user_id=otp_state.get('user_id'))
-                flash('OTP expired. Please login again to request a fresh OTP.', 'warning')
-                return redirect(url_for('login'))
 
-            otp_action = (request.form.get('otp_action') or 'verify').strip().lower()
-            if otp_action == 'cancel':
-                _clear_pending_login_otp_state()
-                flash('OTP login was cancelled.', 'info')
-                return redirect(url_for('login'))
-
-            if otp_action == 'resend':
-                now_ts = int(time.time())
-                resend_allowed_at = int(otp_state.get('resend_allowed_at') or 0)
-                if resend_allowed_at > now_ts:
-                    flash(f'Please wait {resend_allowed_at - now_ts} seconds before requesting another OTP.', 'warning')
-                    return redirect(url_for('login'))
-                pending_user = models.get_user_by_id(otp_state['user_id'])
-                if not pending_user or pending_user.get('is_active') is False:
-                    _clear_pending_login_otp_state()
-                    flash('Your account is no longer available for OTP login. Please contact administrator.', 'warning')
-                    return redirect(url_for('login'))
-                sent_ok, transaction_id, provider_message = _send_login_otp_code(pending_user)
-                if not sent_ok:
-                    flash(provider_message, 'danger')
-                    return redirect(url_for('login'))
-                session['otp_pending_sent_at'] = now_ts
-                session['otp_pending_resend_allowed_at'] = now_ts + max(5, int(config.OTP_RESEND_COOLDOWN_SECONDS or 30))
-                session['otp_pending_attempts'] = 0
-                if transaction_id:
-                    session['otp_pending_transaction_id'] = transaction_id
-                log_security_event('auth.login_otp_resent', severity='info', target_user_id=otp_state['user_id'])
-                flash(f'A fresh OTP was sent to {_mask_phone_number(otp_state["phone"])}.', 'success')
-                return redirect(url_for('login'))
-
-            otp_code = (request.form.get('otp_code') or '').strip()
-            if not re.fullmatch(r'\d{4,8}', otp_code):
-                flash('Enter a valid numeric OTP.', 'warning')
-                return redirect(url_for('login'))
-
-            attempts = int(otp_state.get('attempts') or 0) + 1
-            session['otp_pending_attempts'] = attempts
-            if attempts > max(1, int(config.OTP_MAX_VERIFY_ATTEMPTS or 5)):
-                _clear_pending_login_otp_state()
-                log_security_event('auth.login_otp_attempts_exhausted', severity='warning', target_user_id=otp_state['user_id'])
-                flash('Too many invalid OTP attempts. Please login again.', 'danger')
-                return redirect(url_for('login'))
-
-            verified, verify_message = _verify_login_otp_code(
-                otp_state['phone'],
-                otp_code,
-                transaction_id=otp_state.get('transaction_id'),
-            )
-            if not verified:
-                log_security_event('auth.login_otp_verify_failed', severity='warning', target_user_id=otp_state['user_id'])
-                flash(verify_message, 'danger')
-                return redirect(url_for('login'))
-
-            user = models.get_user_by_id(otp_state['user_id'])
-            if not user or user.get('is_active') is False:
-                _clear_pending_login_otp_state()
-                flash('Your account is inactive. Please contact administrator.', 'warning')
-                return redirect(url_for('login'))
-            if user.get('must_change_password'):
-                _clear_pending_login_otp_state()
-                session.clear()
-                _rotate_session_identifier()
-                session['force_change_user_id'] = user['id']
-                session['force_change_username'] = user['username']
-                session['force_change_role'] = user['role']
-                return redirect(url_for('first_login_setup'))
-
-            _clear_legacy_login_captcha_session()
-            _activate_login_session(user)
-            _clear_login_failures()
-            log_security_event('auth.login_success', severity='info', auth_factor='password+otp')
-            flash(f'Welcome, {user["full_name"]}!', 'success')
-            return redirect(url_for('dashboard'))
-
-        is_blocked, retry_after = _is_login_blocked()
-        if is_blocked and login_action == 'credentials':
-            log_security_event('auth.login_blocked', severity='warning', retry_after_seconds=retry_after)
-            flash(f'Too many failed attempts. Try again after {retry_after} seconds.', 'danger')
-            return redirect(url_for('login'))
-
-        if not validate_login_captcha(
-            request.form.get('captcha_answer'),
-            request.form.get('captcha_token'),
-            request.form.get('captcha_proof'),
-        ):
-            _register_login_failure()
-            flash('Captcha answer is incorrect.', 'warning')
-            reset_login_captcha()
-            captcha_image, captcha_token = get_login_captcha()
-            return render_template(
-                'login.html',
-                captcha_image=captcha_image,
-                captcha_image_data=_login_captcha_image_data_url(captcha_token),
-                captcha_token=captcha_token,
-                captcha_proof=_login_captcha_proof(captcha_token),
-            )
-
-        username = request.form.get('username', '').strip()
-        password = request.form.get('password', '')
-        user = models.authenticate_user(username, password)
-        if user:
-            if user['role'] == 'jmd':
-                flash('JMD login is disabled. Please login using PO credentials.', 'warning')
-                reset_login_captcha()
-                return redirect(url_for('login'))
-
-            # First-login forced password change
-            if user.get('must_change_password'):
-                session.clear()
-                _rotate_session_identifier()
-                session['force_change_user_id'] = user['id']
-                session['force_change_username'] = user['username']
-                session['force_change_role'] = user['role']
-                log_security_event('auth.first_login_change_required', severity='info',
-                                   target_user_id=user['id'])
-                return redirect(url_for('first_login_setup'))
-
-            if config.OTP_LOGIN_ENABLED:
-                challenge_started, otp_message = _begin_login_otp_challenge(user)
-                if not challenge_started:
-                    flash(otp_message, 'danger')
-                    reset_login_captcha()
-                    return redirect(url_for('login'))
-                _clear_login_failures()
-                flash(f'OTP sent to {_mask_phone_number(user.get("phone"))}. Enter it to finish logging in.', 'success')
-                return redirect(url_for('login'))
-
-            _clear_legacy_login_captcha_session()
-            _activate_login_session(user)
-            _clear_login_failures()
-            log_security_event('auth.login_success', severity='info', auth_factor='password')
-            flash(f'Welcome, {user["full_name"]}!', 'success')
-            return redirect(url_for('dashboard'))
-
-        _register_login_failure()
-        flash('Invalid username or password.', 'danger')
-        reset_login_captcha()
-
-    return _render_login_page(active_tab='otp' if _get_pending_login_otp_state() else 'secure')
+@app.route('/auth/login/verify', methods=['GET', 'POST'])
+def login_verify_otp():
+    g._log_security_event = log_security_event
+    return handle_login_verify(
+        {
+            'send_login_otp': _send_login_otp,
+            'verify_login_otp': _verify_login_otp,
+            'get_user_by_username': _get_user_by_username_for_auth,
+            'clear_legacy_login_captcha_session': _clear_legacy_login_captcha_session,
+            'clear_login_failures': _clear_login_failures,
+            'activate_login_session': _activate_login_session,
+            'begin_forced_password_change': _begin_forced_password_change,
+        }
+    )
 
 
 @app.route('/auth/login-captcha/<path:captcha_token>')
@@ -3010,39 +3136,22 @@ def request_signup():
     return redirect(url_for('login'))
 
 
-@app.route('/auth/request-recovery', methods=['POST'])
-def request_recovery():
-    username = (request.form.get('recovery_username') or '').strip()
-    new_password = request.form.get('recovery_password', '').strip()
-    confirm_password = request.form.get('recovery_confirm_password', '').strip()
-
-    if not username:
-        flash('Username is required for password recovery.', 'warning')
-        return redirect(url_for('login'))
-    ok_password, password_error = validate_password_strength(new_password, 'New password')
-    if not ok_password:
-        flash(password_error, 'warning')
-        return redirect(url_for('login'))
-    if new_password != confirm_password:
-        flash('Password and confirm password do not match.', 'warning')
-        return redirect(url_for('login'))
-
-    try:
-        models.create_password_reset_request(username, new_password)
-        flash('Password recovery request submitted. Wait for Super Admin approval.', 'success')
-    except Exception as e:
-        error_text = str(e).lower()
-        if 'not found' in error_text:
-            flash('Username not found.', 'warning')
-        else:
-            flash_internal_error('Unable to submit recovery request. Please contact administrator.')
-    return redirect(url_for('login'))
-
 _DEFAULT_PASSWORD = 'Nigaa@123'
 # ── PASSWORD RESET MODULE ────────────────────────────────────────────────────
 
 @app.route('/auth/first-login-setup', methods=['GET', 'POST'])
 def first_login_setup():
+    g._log_security_event = log_security_event
+    return handle_first_login_setup(
+        {
+            'validate_password_strength': validate_password_strength,
+            'flash_internal_error': flash_internal_error,
+            'update_password_and_phone': models.update_password_and_phone,
+            'get_user_by_id': models.get_user_by_id,
+            'activate_login_session': _activate_login_session,
+            'invalidate_current_session': _invalidate_current_session,
+        }
+    )
     """Forced password change on first login.
     All roles, including super admin, must set password + phone.
     The phone is used for account recovery and verification.
@@ -3092,7 +3201,7 @@ def first_login_setup():
             flash(f'Password updated successfully. Welcome, {updated_user["full_name"]}!', 'success')
             return redirect(url_for('dashboard'))
         # Fallback: could not load user — redirect to login
-        session.clear()
+        _invalidate_current_session(revoke_store=True)
         flash('Password updated successfully. Please login with your new credentials.', 'success')
         return redirect(url_for('login'))
 
@@ -3102,15 +3211,51 @@ def first_login_setup():
 
 
 @app.route('/auth/forgot-password', methods=['POST'])
+@app.route('/auth/request-recovery', methods=['POST'])
 def forgot_password_request():
+    g._log_security_event = log_security_event
+    return handle_forgot_password_request(
+        {
+            'get_user_by_username': _get_user_by_username_for_auth,
+            'send_login_otp': _send_login_otp,
+        }
+    )
     """Direct self-service password reset is disabled; use admin-approved recovery."""
     log_security_event('auth.forgot_password_disabled_path_used', severity='warning')
     flash('Password recovery requires Super Admin approval. Submit a recovery request instead.', 'warning')
     return redirect(url_for('login'))
 
 
+@app.route('/auth/forgot-password/verify', methods=['GET', 'POST'])
+def forgot_password_verify():
+    g._log_security_event = log_security_event
+    return handle_forgot_password_verify(
+        {
+            'verify_login_otp': _verify_login_otp,
+        }
+    )
+
+
+@app.route('/auth/forgot-password/resend-otp', methods=['POST'])
+def forgot_password_resend_otp():
+    g._log_security_event = log_security_event
+    return handle_forgot_password_resend_otp(
+        {
+            'send_login_otp': _send_login_otp,
+        }
+    )
+
+
 @app.route('/auth/forgot-password/set', methods=['GET', 'POST'])
 def forgot_password_set():
+    g._log_security_event = log_security_event
+    return handle_forgot_password_set(
+        {
+            'validate_password_strength': validate_password_strength,
+            'flash_internal_error': flash_internal_error,
+            'update_password_only': models.update_password_only,
+        }
+    )
     """Legacy session-based reset screen is disabled; recovery is request-based."""
     log_security_event('auth.legacy_password_reset_path_used', severity='warning')
     flash('Direct password reset is unavailable. Submit a recovery request from the login page.', 'warning')
@@ -3122,8 +3267,22 @@ def forgot_password_set():
 
 @app.route('/logout')
 def logout():
-    session.clear()
+    _destroy_current_session()
     flash('You have been logged out.', 'info')
+    return redirect(url_for('login'))
+
+
+@app.route('/logout/all', methods=['POST'])
+@login_required
+def logout_all_sessions():
+    user_id = session.get('user_id')
+    if user_id:
+        if hasattr(models, 'bump_user_session_version'):
+            models.bump_user_session_version(user_id)
+        if hasattr(models, 'delete_user_server_sessions'):
+            models.delete_user_server_sessions(user_id)
+    _destroy_current_session()
+    flash('All active sessions were revoked. Please login again.', 'info')
     return redirect(url_for('login'))
 
 # ========================================
@@ -4339,6 +4498,12 @@ def petition_new():
                 )
                 flash(f'Petition {result["sno"]} created and auto-forwarded to CVO/DSP successfully!', 'success')
             return redirect(url_for('petition_view', petition_id=result['id']))
+        except pg_errors.UniqueViolation:
+            app.logger.warning('Duplicate petition SNO on create', exc_info=True)
+            flash('A petition with this serial number already exists. Please try again.', 'danger')
+        except psycopg2.DatabaseError:
+            app.logger.exception('Database error creating petition')
+            flash('A database error occurred while creating the petition. Please contact the administrator.', 'danger')
         except Exception:
             app.logger.exception('Error creating petition')
             flash('Unable to create petition. Please contact administrator.', 'danger')
@@ -4582,6 +4747,14 @@ def petitions_import_upload():
                 remarks=(remarks or None),
             )
             created += 1
+        except pg_errors.UniqueViolation:
+            failed += 1
+            app.logger.warning('Duplicate SNO on import row %s', idx, exc_info=True)
+            errors.append(f'Row {idx}: duplicate serial number — already exists in database.')
+        except psycopg2.DatabaseError:
+            failed += 1
+            app.logger.exception('Database error on import row %s', idx)
+            errors.append(f'Row {idx}: database error during import.')
         except Exception:
             failed += 1
             app.logger.exception('Petition import row failed at row %s', idx)
@@ -6030,12 +6203,35 @@ def profile():
                 delete_profile_photo_file(old_photo)
 
             if new_password:
-                # Re-fetch user to get the incremented session_version, then auto-login
+                # Re-fetch user to get the incremented session_version, then
+                # activate a fresh session.
+                #
+                # Idempotency guard: double-clicking Save would bump
+                # session_version twice.  The browser receives two responses
+                # with cookies carrying different versions; whichever cookie
+                # wins the race has the wrong version → version-mismatch
+                # logout on the next click.
+                #
+                # We bind the activation to the version we just wrote.  If
+                # another concurrent request already bumped the version again,
+                # that request "owns" the final session; this one just exits.
+                version_at_change = int(user.get('session_version') or 1) + 1
                 updated_user = models.get_user_by_id(session['user_id'])
                 if updated_user and updated_user.get('is_active') is not False:
-                    _activate_login_session(updated_user)
-                    log_security_event('auth.profile_password_changed', severity='info')
-                    flash('Password updated successfully.', 'success')
+                    actual_version = int(updated_user.get('session_version') or 1)
+                    if actual_version == version_at_change:
+                        # We own this version bump — activate session.
+                        _activate_login_session(updated_user)
+                        log_security_event('auth.profile_password_changed', severity='info')
+                        flash('Password updated successfully.', 'success')
+                    else:
+                        # A concurrent request already claimed the new version.
+                        # Do nothing extra — the concurrent response carries the
+                        # correct cookie; just flash and let the browser follow
+                        # the redirect normally (session is still valid via the
+                        # concurrent response's cookie).
+                        log_security_event('auth.profile_password_changed', severity='info')
+                        flash('Password updated successfully.', 'success')
                     return redirect(url_for('profile'))
                 session.clear()
                 flash('Password updated successfully. Please login again.', 'success')
@@ -6796,9 +6992,47 @@ def api_petitioner_profile():
     return jsonify(payload)
 
 
+@app.route('/favicon.ico')
+def favicon():
+    return send_from_directory(
+        os.path.join(app.root_path, 'static', 'img'),
+        'nigaa-logo.svg',
+        mimetype='image/svg+xml',
+    )
+
+
 @app.route('/healthz')
 def healthz():
     return jsonify({'status': 'ok'}), 200
+
+
+@app.route('/healthz/session-store')
+def healthz_session_store():
+    try:
+        payload = _session_store_health_payload()
+        return jsonify(payload), 200
+    except Exception:
+        app.logger.exception('Unable to compute session store health payload')
+        return jsonify({'status': 'error', 'store': 'database'}), 503
+
+
+@app.route('/admin/session-diagnostics')
+@login_required
+@role_required('super_admin')
+def session_diagnostics():
+    try:
+        health = _session_store_health_payload()
+    except Exception:
+        health = {
+            'store': 'database',
+            'status': 'error',
+        }
+    diagnostics = list(SESSION_DIAGNOSTIC_EVENTS)[:100]
+    return render_template(
+        'session_diagnostics.html',
+        health=health,
+        diagnostics=diagnostics,
+    )
 
 # ========================================
 # CHATBOT API
@@ -7542,4 +7776,3 @@ def chatbot_api():
 
 if __name__ == '__main__':
     app.run(debug=config.DEBUG, host=config.HOST, port=config.PORT)
-

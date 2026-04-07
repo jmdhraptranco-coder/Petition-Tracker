@@ -449,6 +449,7 @@ def test_get_petitions_for_user_role_query_branches(monkeypatch):
     roles = [
         "super_admin",
         "data_entry",
+        "jmd",
         "po",
         "cmd_apspdcl",
         "cmd_apepdcl",
@@ -468,6 +469,40 @@ def test_get_petitions_for_user_role_query_branches(monkeypatch):
     conn, cur = bind_db(monkeypatch, fetchall_items=[[]])
     models.get_petitions_for_user(11, "po", status_filter="all", enquiry_mode="permission")
     assert len(cur.executed) >= 1
+
+
+def test_can_user_access_petition_role_branches(monkeypatch):
+    """Smoke-test that can_user_access_petition executes a query for every role."""
+    roles_cvo = [
+        ("super_admin", None),
+        ("data_entry", None),
+        ("jmd", None),
+        ("po", None),
+        ("inspector", None),
+        ("cmd_apspdcl", None),
+        ("cmd_apepdcl", None),
+        ("cmd_apcpdcl", None),
+        ("cgm_hr_transco", None),
+        ("cvo_apspdcl", "apspdcl"),
+        ("cvo_apepdcl", "apepdcl"),
+        ("cvo_apcpdcl", "apcpdcl"),
+        ("dsp", "headquarters"),
+    ]
+    for role, cvo_office in roles_cvo:
+        conn, cur = bind_db(monkeypatch, fetchone_items=[None])
+        result = models.can_user_access_petition(11, role, cvo_office, 42)
+        assert result is False  # fetchone returns None → no row found
+        assert conn.closed is True
+        assert len(cur.executed) >= 1
+
+    # Unknown role → False without querying.
+    result = models.can_user_access_petition(11, "unknown_role", None, 42)
+    assert result is False
+
+    # Returns True when fetchone finds a row.
+    conn, cur = bind_db(monkeypatch, fetchone_items=[{"1": 1}])
+    result = models.can_user_access_petition(11, "super_admin", None, 42)
+    assert result is True
 
 
 def test_get_all_petitions_query_branches(monkeypatch):

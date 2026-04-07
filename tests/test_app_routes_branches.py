@@ -211,7 +211,6 @@ def _post_login(client, username="u", password="p"):
 def test_auth_dashboard_and_core_views(monkeypatch):
     stub = RichModelsStub()
     monkeypatch.setattr(app_module, "models", stub)
-    monkeypatch.setattr(app_module.config, "OTP_LOGIN_ENABLED", False)
     app_module.app.config["TESTING"] = True
     with app_module.app.test_client() as client:
         root_response = client.get("/")
@@ -248,7 +247,6 @@ def test_auth_dashboard_and_core_views(monkeypatch):
 def test_login_session_cookie_is_opaque(monkeypatch):
     stub = RichModelsStub()
     monkeypatch.setattr(app_module, "models", stub)
-    monkeypatch.setattr(app_module.config, "OTP_LOGIN_ENABLED", False)
     app_module.app.config["TESTING"] = True
     app_module.TEST_SERVER_SESSION_STORE.clear()
     with app_module.app.test_client() as client:
@@ -1325,7 +1323,6 @@ def test_api_inspectors_forbidden_and_profile_photo_missing(monkeypatch):
 def test_misc_auth_and_api_edge_paths(monkeypatch):
     stub = RichModelsStub()
     monkeypatch.setattr(app_module, "models", stub)
-    monkeypatch.setattr(app_module.config, "OTP_LOGIN_ENABLED", False)
     app_module.app.config["TESTING"] = True
     with app_module.app.test_client() as client:
         stub.user = None

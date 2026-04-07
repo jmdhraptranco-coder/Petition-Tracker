@@ -118,7 +118,6 @@ def test_petitions_list_sorting_and_auth_edge_branches(monkeypatch):
     stub.get_sla_evaluation_rows = lambda petitions: [{"id": 1, "elapsed_days": 5}, {"id": 2, "elapsed_days": 9}, {"id": 3, "elapsed_days": 1}]
     stub.get_latest_enquiry_report_accident_details = lambda ids: {2: {"accident_type": "fatal", "deceased_category": "departmental", "departmental_type": "regular", "deceased_count": 1}}
     monkeypatch.setattr(app_module, "models", stub)
-    monkeypatch.setattr(app_module.config, "OTP_LOGIN_ENABLED", False)
     app_module.app.config["TESTING"] = True
     with app_module.app.test_client() as client:
         login_as(client, role="super_admin")
@@ -133,7 +132,6 @@ def test_petitions_list_sorting_and_auth_edge_branches(monkeypatch):
 def test_login_captcha_image_and_login_failure_edges(monkeypatch):
     stub = RouteModelsStub()
     monkeypatch.setattr(app_module, "models", stub)
-    monkeypatch.setattr(app_module.config, "OTP_LOGIN_ENABLED", False)
     app_module.app.config["TESTING"] = True
     real_time = __import__("time").time
     with app_module.app.test_client() as client:
@@ -151,13 +149,10 @@ def test_login_captcha_image_and_login_failure_edges(monkeypatch):
         assert response.status_code == 302
 
 
-def test_login_otp_flow_creates_session_only_after_otp_verification(monkeypatch):
+def test_login_success_creates_session_immediately(monkeypatch):
     stub = RouteModelsStub()
     stub.user = {"id": 5, "username": "u5", "full_name": "Login User", "role": "po", "phone": "9999999999", "email": None, "profile_photo": None, "must_change_password": False}
     monkeypatch.setattr(app_module, "models", stub)
-    monkeypatch.setattr(app_module.config, "OTP_LOGIN_ENABLED", True)
-    monkeypatch.setattr(app_module, "_send_login_otp_code", lambda user: (True, "txn-1", "sent"))
-    monkeypatch.setattr(app_module, "_verify_login_otp_code", lambda phone, otp_code, transaction_id=None: (otp_code == "654321", "bad otp"))
     app_module.app.config["TESTING"] = True
 
     with app_module.app.test_client() as client:
@@ -166,16 +161,7 @@ def test_login_otp_flow_creates_session_only_after_otp_verification(monkeypatch)
         assert response.status_code == 302
 
         with client.session_transaction() as sess:
-            assert sess.get("user_id") is None
-            assert sess.get("otp_pending_user_id") == 5
-            assert sess.get("otp_pending_transaction_id") == "txn-1"
-
-        verify = client.post("/login", data={"login_action": "verify_otp", "otp_code": "654321"})
-        assert verify.status_code == 302
-
-        with client.session_transaction() as sess:
             assert sess.get("user_id") == 5
-            assert sess.get("otp_pending_user_id") is None
 
 
 def test_legacy_signup_and_password_reset_routes_redirect_to_login(monkeypatch):

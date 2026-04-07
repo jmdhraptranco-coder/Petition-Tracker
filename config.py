@@ -80,42 +80,64 @@ class Config:
             resolved_storage_path = (app_root / storage_path).resolve()
         self.UPLOAD_BASE_DIR = str(resolved_storage_path)
         self.MAX_UPLOAD_SIZE_MB = int(os.environ.get('MAX_UPLOAD_SIZE_MB', '10'))
+        self.SESSION_COOKIE_NAME = (
+            os.environ.get('SESSION_COOKIE_NAME')
+            or ('__Host-nigaa_session' if self.IS_PRODUCTION and self.SESSION_COOKIE_SECURE else 'nigaa_session')
+        ).strip() or 'nigaa_session'
         self.SESSION_COOKIE_SECURE = _env_bool('SESSION_COOKIE_SECURE', self.IS_PRODUCTION)
+        self.SESSION_COOKIE_DOMAIN = (os.environ.get('SESSION_COOKIE_DOMAIN') or '').strip() or None
+        self.SESSION_COOKIE_PATH = (os.environ.get('SESSION_COOKIE_PATH') or '/').strip() or '/'
+        session_cookie_samesite = (os.environ.get('SESSION_COOKIE_SAMESITE', 'Lax') or 'Lax').strip().capitalize()
+        if session_cookie_samesite not in {'Lax', 'Strict'}:
+            raise RuntimeError("Invalid SESSION_COOKIE_SAMESITE value. Use Lax or Strict.")
+        self.SESSION_COOKIE_SAMESITE = session_cookie_samesite
         self.SESSION_LIFETIME_MINUTES = int(os.environ.get('SESSION_LIFETIME_MINUTES', '120'))
+        self.SESSION_INACTIVITY_MINUTES = int(
+            os.environ.get('SESSION_INACTIVITY_MINUTES', str(self.SESSION_LIFETIME_MINUTES))
+        )
+        self.SESSION_ABSOLUTE_HOURS = int(os.environ.get('SESSION_ABSOLUTE_HOURS', '24'))
+        self.SESSION_TOUCH_THRESHOLD_SECONDS = max(
+            30, int(os.environ.get('SESSION_TOUCH_THRESHOLD_SECONDS', '300'))
+        )
+        self.MAX_CONCURRENT_SESSIONS = max(1, int(os.environ.get('MAX_CONCURRENT_SESSIONS', '3')))
+        self.REVOKE_OTHER_SESSIONS_ON_LOGIN = _env_bool('REVOKE_OTHER_SESSIONS_ON_LOGIN', False)
         self.LOGIN_RATE_LIMIT_WINDOW_SECONDS = int(os.environ.get('LOGIN_RATE_LIMIT_WINDOW_SECONDS', '600'))
         self.LOGIN_RATE_LIMIT_MAX_ATTEMPTS = int(os.environ.get('LOGIN_RATE_LIMIT_MAX_ATTEMPTS', '8'))
         self.LOGIN_RATE_LIMIT_BLOCK_SECONDS = int(os.environ.get('LOGIN_RATE_LIMIT_BLOCK_SECONDS', '900'))
         self.TRUST_PROXY_HEADERS = os.environ.get('TRUST_PROXY_HEADERS', '0') == '1'
+        self.PROXY_FIX_X_FOR = max(0, int(os.environ.get('PROXY_FIX_X_FOR', '1')))
+        self.PROXY_FIX_X_PROTO = max(0, int(os.environ.get('PROXY_FIX_X_PROTO', '1')))
+        self.PROXY_FIX_X_HOST = max(0, int(os.environ.get('PROXY_FIX_X_HOST', '1')))
+        self.PROXY_FIX_X_PORT = max(0, int(os.environ.get('PROXY_FIX_X_PORT', '1')))
+        self.AUTH_API_BASE_URL = (os.environ.get('AUTH_API_BASE_URL') or '').strip() or None
+        self.AUTH_API_BASIC_USERNAME = (os.environ.get('AUTH_API_BASIC_USERNAME') or '').strip() or None
+        self.AUTH_API_BASIC_PASSWORD = os.environ.get('AUTH_API_BASIC_PASSWORD')
+        self.AUTH_API_VERIFY_TLS = _env_bool('AUTH_API_VERIFY_TLS', not self.IS_PRODUCTION)
+        self.AUTH_API_TIMEOUT_SECONDS = max(5, int(os.environ.get('AUTH_API_TIMEOUT_SECONDS', '60')))
+        self.AUTH_API_OTP_USER_ID = (os.environ.get('AUTH_API_OTP_USER_ID') or '').strip() or None
+        self.AUTH_API_APP_NAME = (os.environ.get('AUTH_API_APP_NAME') or 'ita').strip() or 'ita'
+        self.AUTH_API_OTP_MESSAGE = (os.environ.get('AUTH_API_OTP_MESSAGE') or 'IT Assets').strip() or 'IT Assets'
+        self.AUTH_API_OTP_TYPE = (os.environ.get('AUTH_API_OTP_TYPE') or 'otp').strip() or 'otp'
         self.PETITION_USER_RATE_LIMIT_WINDOW_SECONDS = int(os.environ.get('PETITION_USER_RATE_LIMIT_WINDOW_SECONDS', '300'))
         self.PETITION_USER_RATE_LIMIT_MAX_SUBMISSIONS = int(os.environ.get('PETITION_USER_RATE_LIMIT_MAX_SUBMISSIONS', '10'))
         self.PETITION_USER_RATE_LIMIT_BLOCK_SECONDS = int(os.environ.get('PETITION_USER_RATE_LIMIT_BLOCK_SECONDS', '300'))
         self.PETITION_IP_RATE_LIMIT_WINDOW_SECONDS = int(os.environ.get('PETITION_IP_RATE_LIMIT_WINDOW_SECONDS', '300'))
         self.PETITION_IP_RATE_LIMIT_MAX_SUBMISSIONS = int(os.environ.get('PETITION_IP_RATE_LIMIT_MAX_SUBMISSIONS', '60'))
         self.PETITION_IP_RATE_LIMIT_BLOCK_SECONDS = int(os.environ.get('PETITION_IP_RATE_LIMIT_BLOCK_SECONDS', '180'))
-        self.OTP_SEND_URL = (os.environ.get('OTP_SEND_URL') or '').strip()
-        self.OTP_VERIFY_URL = (os.environ.get('OTP_VERIFY_URL') or '').strip()
-        self.OTP_AUTH_USERNAME = (os.environ.get('OTP_AUTH_USERNAME') or '').strip()
-        self.OTP_AUTH_PASSWORD = (os.environ.get('OTP_AUTH_PASSWORD') or '').strip()
-        self.OTP_BASIC_AUTH_USERNAME = (os.environ.get('OTP_BASIC_AUTH_USERNAME') or '').strip()
-        self.OTP_BASIC_AUTH_PASSWORD = (os.environ.get('OTP_BASIC_AUTH_PASSWORD') or '').strip()
-        self.OTP_SERVICE_USER_ID = (os.environ.get('OTP_SERVICE_USER_ID') or '').strip()
-        self.OTP_TYPE = (os.environ.get('OTP_TYPE') or 'otp').strip() or 'otp'
-        self.OTP_APP_NAME = (os.environ.get('OTP_APP_NAME') or '').strip()
-        self.OTP_MESSAGE_TEXT = (os.environ.get('OTP_MESSAGE_TEXT') or 'Nigaa login OTP is :').strip() or 'Nigaa login OTP is :'
-        self.OTP_HTTP_TIMEOUT_SECONDS = int(os.environ.get('OTP_HTTP_TIMEOUT_SECONDS', '15'))
-        self.OTP_SESSION_TTL_SECONDS = int(os.environ.get('OTP_SESSION_TTL_SECONDS', '300'))
-        self.OTP_RESEND_COOLDOWN_SECONDS = int(os.environ.get('OTP_RESEND_COOLDOWN_SECONDS', '30'))
-        self.OTP_MAX_VERIFY_ATTEMPTS = int(os.environ.get('OTP_MAX_VERIFY_ATTEMPTS', '5'))
-        self.OTP_LOGIN_ENABLED = bool(
-            self.OTP_SEND_URL
-            and self.OTP_VERIFY_URL
-            and self.OTP_BASIC_AUTH_USERNAME
-            and self.OTP_BASIC_AUTH_PASSWORD
-            and self.OTP_SERVICE_USER_ID
-        )
-
         if self.IS_PRODUCTION:
             self._validate_production_settings()
+        self._validate_session_cookie_settings()
+
+    def _validate_session_cookie_settings(self):
+        if not self.SESSION_COOKIE_PATH.startswith('/'):
+            raise RuntimeError("SESSION_COOKIE_PATH must start with '/'.")
+        if self.SESSION_COOKIE_NAME.startswith('__Host-'):
+            if not self.SESSION_COOKIE_SECURE:
+                raise RuntimeError("__Host- cookies require SESSION_COOKIE_SECURE=1.")
+            if self.SESSION_COOKIE_DOMAIN:
+                raise RuntimeError("__Host- cookies must not set SESSION_COOKIE_DOMAIN.")
+            if self.SESSION_COOKIE_PATH != '/':
+                raise RuntimeError("__Host- cookies require SESSION_COOKIE_PATH=/.")
 
     def _validate_production_settings(self):
         missing = []

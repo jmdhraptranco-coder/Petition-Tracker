@@ -846,6 +846,13 @@ function initPetitionerProfiles() {
     const openProfile = async (petitionerName) => {
         const name = (petitionerName || '').trim();
         if (!name) return;
+        // Move the modal to <body> on first open so it is outside any stacking
+        // context created by ancestor elements (transforms, filters, etc.).
+        // This ensures it renders on top of other modals like the drilldown
+        // panel instead of being clipped beneath them.
+        if (modal.parentElement !== document.body) {
+            document.body.appendChild(modal);
+        }
         modal.style.display = 'block';
         modal.classList.add('open');
         if (titleEl) titleEl.textContent = `${i18n('petitioner.profile.title', 'Petitioner Profile')} - ${name}`;

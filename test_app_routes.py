@@ -1,12 +1,7 @@
-import os
-
-os.environ["SKIP_SCHEMA_UPDATES"] = "1"
-
 import pytest
 from flask import session
 from app import app as flask_app
 from tests.test_models_db_ops import CursorStub, ConnStub
-import app as app_module
 
 
 @pytest.fixture
@@ -31,27 +26,11 @@ def bind_db_for_app(monkeypatch, fetchone_items=None, fetchall_items=None, rowco
     return conn, cursor
 
 
-def issue_login_captcha(client, answer="482753"):
-    client.get('/login')
-    with client.session_transaction() as sess:
-        challenges = dict(sess.get('login_captcha_challenges') or {})
-        assert challenges
-        token = next(reversed(challenges))
-        challenge = dict(challenges[token])
-        challenge['answer_digest'] = app_module._login_captcha_answer_digest(token, answer)
-        challenge['image_b64'] = app_module.base64.b64encode(
-            app_module._build_login_captcha_bmp(answer)
-        ).decode('ascii')
-        challenges[token] = challenge
-        sess['login_captcha_challenges'] = challenges
-    return token
-
-
 def test_login_page_loads(client):
     """Test that the login page loads correctly."""
     response = client.get('/login')
     assert response.status_code == 200
-    assert b'Verify &amp; Sign In' in response.data
+    assert b'Sign In To Your Account' in response.data
 
 
 def test_login_flow_success_and_logout(client, monkeypatch):
@@ -60,31 +39,31 @@ def test_login_flow_success_and_logout(client, monkeypatch):
         'id': 1, 'username': 'testuser', 'password_hash': 'h::password123',
         'full_name': 'Test User', 'role': 'po', 'is_active': True, 'phone': '1234567890'
     }
-    monkeypatch.setattr('app.models.authenticate_user', lambda u, p: user_data)
-    monkeypatch.setattr('app.models.get_user_by_id', lambda _uid: {
-        **user_data,
-        'cvo_office': None,
-        'email': None,
-        'profile_photo': None,
-        'session_version': 1,
-        'must_change_password': False,
-    })
-    with client:
-        captcha_token = issue_login_captcha(client, "482753")
+    monkeypatch.setattr('models.check_password_hash', lambda h, p: h == f"h::{p}")
+    bind_db_for_app(monkeypatch, fetchone_items=[user_data])
+    monkeypatch.setattr('app._is_otp_login_enabled', lambda: False)
 
+    with client:
+        # Prime the session with a valid CSRF token and captcha
+        with client.session_transaction() as sess:
+            sess['login_captcha_a'] = 5
+            sess['login_captcha_b'] = 3
+            sess['login_captcha_answer'] = 8
+
+        # Attempt login
         response = client.post('/login', data={
             'username': 'testuser',
             'password': 'password123',
-            'captcha_answer': '482753',
-            'captcha_token': captcha_token,
-            'login_action': 'credentials',
-        }, follow_redirects=False)
+            'captcha_answer': '8'
+        }, follow_redirects=True)
 
-        assert response.status_code == 302
-        assert response.headers['Location'].endswith('/dashboard')
+        assert response.status_code == 200
+        assert b'Welcome, Test User!' in response.data
+        assert b'Dashboard' in response.data
         with client.session_transaction() as sess:
             assert sess.get('user_id') == 1
 
+        # Test logout
         response = client.get('/logout', follow_redirects=True)
         assert response.status_code == 200
         assert b'You have been logged out.' in response.data
@@ -97,11 +76,11 @@ def test_dashboard_requires_login(client):
     response = client.get('/dashboard', follow_redirects=True)
     assert response.status_code == 200
     assert b'Please login to access this page.' in response.data
-    assert b'Verify &amp; Sign In' in response.data
+    assert b'Sign In' in response.data
 
 
 def test_api_inspectors_unauthorized(client):
     """Test that a protected API endpoint returns 401 when not logged in."""
     response = client.get('/api/inspectors/1')
-    assert response.status_code == 302
-    assert response.headers['Location'].endswith('/login')
+    assert response.status_code == 401
+    assert response.json == {'message': 'Please login to access this page.'}

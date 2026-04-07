@@ -1,17 +1,16 @@
 {% extends "base.html" %}
-{% block title %}Login — Nigaa Vigilance Portal{% endblock %}
+{% block title %}Verify OTP — Nigaa Vigilance Portal{% endblock %}
 
 {% block fullpage %}
 <style>
 /* ============================================================
-   NIGAA LOGIN — LANDING PAGE DESIGN SYSTEM
+   NIGAA OTP VERIFY — matches login page design system
    ============================================================ */
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
-/* ── Hide all scrollbars globally on this page ── */
 html, body, .lp, .lp-card, .lp-card-wrap {
-  scrollbar-width: none !important;        /* Firefox */
-  -ms-overflow-style: none !important;     /* IE/Edge */
+  scrollbar-width: none !important;
+  -ms-overflow-style: none !important;
 }
 html::-webkit-scrollbar,
 body::-webkit-scrollbar,
@@ -39,13 +38,11 @@ body::-webkit-scrollbar,
   overflow: hidden;
 }
 
-/* ── Noise texture overlay (identical to landing) ── */
 .lp-noise {
   position: fixed; inset: 0; pointer-events: none; z-index: 9999;
   background: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.04'/%3E%3C/svg%3E");
 }
 
-/* ── Background radial glow (identical to landing) ── */
 .lp-bg-glow {
   position: fixed; inset: 0; z-index: 0; pointer-events: none;
   background:
@@ -54,7 +51,6 @@ body::-webkit-scrollbar,
     radial-gradient(ellipse 80% 80% at 50% 50%, rgba(10,22,40,1) 0%, var(--navy) 100%);
 }
 
-/* ── Floating gold particles (identical to landing) ── */
 .lp-particles { position: fixed; inset: 0; z-index: 1; pointer-events: none; overflow: hidden; }
 .lp-particle {
   position: absolute; width: 3px; height: 3px;
@@ -68,7 +64,6 @@ body::-webkit-scrollbar,
   100% { opacity: 0; transform: translateY(-10vh) scale(1.5); }
 }
 
-/* ── Nav (identical to landing) ── */
 .lp-nav {
   position: relative; z-index: 100;
   padding: 0.85rem 2.5rem;
@@ -111,7 +106,6 @@ body::-webkit-scrollbar,
 }
 .lp-nav-links a:hover { color: var(--gold); }
 
-/* Language toggle — strip base.css styles, apply login-page styles */
 .lp-navbar .lang-toggle {
   display: flex !important; gap: 5px !important; align-items: center !important;
   background: none !important; border: none !important; box-shadow: none !important;
@@ -119,7 +113,6 @@ body::-webkit-scrollbar,
   transform: none !important; position: static !important;
 }
 .lp-navbar .lang-toggle::before { display: none !important; }
-
 .lp-navbar .lang-pill,
 html[data-theme='dark'] .lp-navbar .lang-pill {
   padding: 6px 12px !important; border-radius: 8px !important;
@@ -137,7 +130,6 @@ html[data-theme='dark'] .lp-navbar .lang-pill:hover {
   color: #fff !important; background: rgba(255,255,255,0.13) !important;
   border-color: rgba(255,255,255,0.22) !important;
 }
-/* app.js sets .is-active on the active lang-pill */
 .lp-navbar .lang-pill.is-active,
 html[data-theme='dark'] .lp-navbar .lang-pill.is-active {
   color: var(--gold) !important;
@@ -145,7 +137,6 @@ html[data-theme='dark'] .lp-navbar .lang-pill.is-active {
   border-color: rgba(245,166,35,0.30) !important;
   opacity: 1 !important; transform: none !important;
 }
-/* Light theme */
 html[data-theme='light'] .lp-navbar .lang-toggle { background: none !important; }
 html[data-theme='light'] .lp-navbar .lang-pill {
   color: #4060a0 !important; background: rgba(255,255,255,0.75) !important;
@@ -159,7 +150,6 @@ html[data-theme='light'] .lp-navbar .lang-pill.is-active {
   border-color: rgba(199,130,0,0.30) !important;
 }
 
-/* Theme toggle — from landing (pill slider), fully overridden for this page */
 #lpThemeToggle {
   position: relative;
   width: 58px; height: 30px;
@@ -208,7 +198,6 @@ html[data-theme='dark'] #lpThemeToggle::before {
 html[data-theme='dark'] .lp-tt-sun  { color: #7a849d; }
 html[data-theme='dark'] .lp-tt-moon { color: #d0ddff; }
 
-/* Gold CTA button (from landing) */
 .lp-btn-launch {
   background: linear-gradient(135deg, var(--gold), var(--gold-dark));
   color: var(--navy); padding: 0.60rem 1.6rem; border-radius: 50px;
@@ -220,24 +209,17 @@ html[data-theme='dark'] .lp-tt-moon { color: #d0ddff; }
 }
 .lp-btn-launch:hover { transform: translateY(-2px); box-shadow: 0 8px 30px rgba(245,166,35,0.50); }
 
-/* ── Main body ─────────────────────────────────────────────── */
 .lp-main {
   flex: 1; display: flex;
   position: relative; z-index: 2;
   overflow: hidden;
 }
 
-/* ── Left: visual scene — full height SVG, no caption ── */
 .lp-scene {
   flex: 1; position: relative; overflow: hidden;
 }
-.lp-scene-svg-wrap {
-  position: absolute; inset: 0;
-}
-.lp-scene-svg {
-  width: 100%; height: 100%;
-}
-/* Subtle bottom fade so scene melts into the page edge cleanly */
+.lp-scene-svg-wrap { position: absolute; inset: 0; }
+.lp-scene-svg { width: 100%; height: 100%; }
 .lp-scene::after {
   content: '';
   position: absolute; bottom: 0; left: 0; right: 0; height: 120px;
@@ -246,16 +228,13 @@ html[data-theme='dark'] .lp-tt-moon { color: #d0ddff; }
 }
 
 @keyframes lpFadeUp { from{opacity:0;transform:translateY(24px)} to{opacity:1;transform:translateY(0)} }
-@keyframes lpBlink  { 0%,100%{opacity:1} 50%{opacity:0.3} }
 @keyframes spinTurbine { from{transform:rotate(0deg)} to{transform:rotate(360deg)} }
 
-/* ── Right: Login card ──────────────────────────────────────── */
 .lp-card-wrap {
   width: 480px; flex-shrink: 0;
   display: flex; align-items: center; justify-content: center;
   padding: 24px 28px;
   position: relative;
-  /* vertical separator */
   border-left: 1px solid rgba(245,166,35,0.08);
   background: rgba(10,22,40,0.55);
   backdrop-filter: blur(20px);
@@ -277,7 +256,16 @@ html[data-theme='dark'] .lp-tt-moon { color: #d0ddff; }
   to   { opacity:1; transform: translateX(0); }
 }
 
-/* Card header */
+/* OTP icon badge */
+.lp-otp-badge {
+  width: 52px; height: 52px; border-radius: 14px;
+  background: rgba(245,166,35,0.12);
+  border: 1px solid rgba(245,166,35,0.25);
+  display: flex; align-items: center; justify-content: center;
+  margin-bottom: 14px;
+  color: var(--gold);
+}
+
 .lp-card-title {
   display: flex; align-items: baseline; flex-wrap: wrap; gap: 0.32rem;
   font-family: 'DM Sans', sans-serif;
@@ -288,44 +276,40 @@ html[data-theme='dark'] .lp-tt-moon { color: #d0ddff; }
   margin-bottom: 5px;
   text-rendering: geometricPrecision;
 }
-.lp-card-title .welcome-word {
-  color: #f7f8fb;
-  text-shadow: 0 2px 12px rgba(255,255,255,0.08);
-}
+.lp-card-title .welcome-word { color: #f7f8fb; text-shadow: 0 2px 12px rgba(255,255,255,0.08); }
 .lp-card-title .gold {
   color: transparent;
   background: linear-gradient(180deg, #ffd36d 0%, #f5a623 46%, #c78200 100%);
-  -webkit-background-clip: text;
-  background-clip: text;
+  -webkit-background-clip: text; background-clip: text;
   text-shadow: 0 6px 22px rgba(245,166,35,0.22);
   letter-spacing: -0.03em;
 }
 .lp-card-sub { font-size: 0.78rem; color: var(--text-dim); margin-bottom: 13px; line-height: 1.4; }
+.lp-card-sub strong { color: var(--white); }
 
-/* Divider */
-.lp-divider {
-  height: 1px; background: rgba(245,166,35,0.10); margin: 10px 0;
-}
+.lp-divider { height: 1px; background: rgba(245,166,35,0.10); margin: 10px 0; }
 
-/* Tabs */
-.lp-tabs {
-  display: flex; gap: 4px; padding: 3px;
-  background: rgba(10,22,40,0.60);
-  border: 1px solid rgba(255,255,255,0.06);
-  border-radius: 10px; margin-bottom: 13px;
+/* OTP step indicator */
+.lp-step-row {
+  display: flex; align-items: center; gap: 6px;
+  margin-bottom: 13px;
 }
-.lp-tab {
-  flex: 1; padding: 7px 10px;
-  background: transparent; border: none;
-  color: var(--text-dim); font-size: 0.78rem; font-weight: 600;
-  border-radius: 7px; cursor: pointer; font-family: 'DM Sans', sans-serif;
-  transition: all 0.2s; letter-spacing: 0.3px;
+.lp-step {
+  display: flex; align-items: center; justify-content: center;
+  width: 22px; height: 22px; border-radius: 50%;
+  font-size: 0.68rem; font-weight: 700;
 }
-.lp-tab.active {
-  background: rgba(245,166,35,0.14);
-  color: var(--gold);
-  box-shadow: 0 0 0 1px rgba(245,166,35,0.22);
+.lp-step-done {
+  background: rgba(34,197,94,0.18); border: 1px solid rgba(34,197,94,0.35); color: #86efac;
 }
+.lp-step-active {
+  background: rgba(245,166,35,0.18); border: 1px solid rgba(245,166,35,0.35); color: var(--gold);
+}
+.lp-step-line { flex: 1; height: 1px; background: rgba(255,255,255,0.08); }
+.lp-step-label {
+  font-size: 0.68rem; color: var(--text-dim); letter-spacing: 0.5px;
+}
+.lp-step-label.active { color: var(--gold); font-weight: 600; }
 
 /* Flash messages */
 .lp-alert {
@@ -350,7 +334,7 @@ html[data-theme='dark'] .lp-tt-moon { color: #d0ddff; }
 .lp-field input {
   width: 100%; background: rgba(10,22,40,0.65);
   border: 1px solid rgba(255,255,255,0.10);
-  border-radius: 10px; padding: 10px 40px 10px 13px;
+  border-radius: 10px; padding: 10px 44px 10px 13px;
   color: var(--white); font-size: 0.88rem;
   font-family: 'DM Sans', sans-serif; outline: none;
   transition: border-color 0.25s, box-shadow 0.25s, background 0.25s;
@@ -361,50 +345,23 @@ html[data-theme='dark'] .lp-tt-moon { color: #d0ddff; }
   background: rgba(19,34,64,0.80);
   box-shadow: 0 0 0 3px rgba(245,166,35,0.10);
 }
-.lp-field input[readonly] { opacity: 0.55; cursor: default; }
+
+/* OTP digit input — larger, centred, monospace */
+.lp-otp-input {
+  text-align: center !important;
+  font-family: 'JetBrains Mono', monospace !important;
+  font-size: 1.6rem !important;
+  letter-spacing: 0.25em !important;
+  padding: 14px 13px !important;
+}
+
 .lp-input-icon {
   position: absolute; right: 13px; top: 50%; transform: translateY(-50%);
   color: var(--text-dim); display: flex; align-items: center; pointer-events: none;
 }
-.lp-input-icon.clickable { pointer-events: auto; cursor: pointer; transition: color 0.2s; }
-.lp-input-icon.clickable:hover { color: var(--gold); }
 .lp-field-help { font-size: 0.70rem; color: var(--text-dim); margin-top: 5px; opacity:0.70; }
 
-/* Captcha */
-.lp-captcha-row { display: grid; grid-template-columns: auto 1fr; gap: 10px; align-items: center; }
-.lp-captcha-box {
-  display: flex; align-items: center; gap: 8px;
-  background: rgba(10,22,40,0.85);
-  border: 1px solid rgba(245,166,35,0.28); border-radius: 10px;
-  padding: 11px 13px; white-space: nowrap;
-}
-.lp-captcha-text {
-  font-family: 'JetBrains Mono', monospace;
-  font-size: 1rem; font-weight: 700;
-  color: var(--gold); letter-spacing: 2px;
-}
-.lp-captcha-image {
-  display: block;
-  width: 150px;
-  max-width: 100%;
-  height: 50px;
-  border-radius: 10px;
-  user-select: none;
-  -webkit-user-drag: none;
-}
-.lp-captcha-refresh {
-  background: rgba(245,166,35,0.10); border: 1px solid rgba(245,166,35,0.22);
-  color: var(--gold); border-radius: 6px; padding: 4px 7px; font-size: 0.95rem;
-  cursor: pointer; text-decoration: none; transition: background 0.2s; line-height: 1;
-}
-.lp-captcha-refresh:hover { background: rgba(245,166,35,0.22); }
-
-/* Terms */
-.lp-terms { font-size: 0.72rem; color: var(--text-dim); margin-bottom: 10px; line-height: 1.4; }
-.lp-terms a { color: var(--gold); text-decoration: none; }
-.lp-terms a:hover { text-decoration: underline; }
-
-/* Primary button (gold, from landing) */
+/* Primary button */
 .lp-btn-primary {
   width: 100%; padding: 11px 20px;
   background: linear-gradient(135deg, var(--gold) 0%, var(--gold-dark) 100%);
@@ -415,6 +372,7 @@ html[data-theme='dark'] .lp-tt-moon { color: #d0ddff; }
   transition: transform 0.25s, box-shadow 0.25s;
   font-family: 'DM Sans', sans-serif;
   display: flex; align-items: center; justify-content: center; gap: 8px;
+  margin-top: 4px;
 }
 .lp-btn-primary:hover { transform: translateY(-2px); box-shadow: 0 8px 36px rgba(245,166,35,0.50); }
 .lp-btn-primary:active { transform: translateY(0); }
@@ -426,7 +384,7 @@ html[data-theme='dark'] .lp-tt-moon { color: #d0ddff; }
 
 /* Outline button */
 .lp-btn-outline {
-  flex: 1; padding: 11px;
+  flex: 1; padding: 10px;
   background: rgba(255,255,255,0.05);
   border: 1px solid rgba(255,255,255,0.12);
   border-radius: 50px; color: var(--text-dim);
@@ -435,20 +393,33 @@ html[data-theme='dark'] .lp-tt-moon { color: #d0ddff; }
   display: inline-flex; align-items: center; justify-content: center;
   font-family: 'DM Sans', sans-serif; transition: all 0.2s;
 }
-.lp-btn-outline:hover { background: rgba(245,166,35,0.08); color: var(--gold); border-color: rgba(245,166,35,0.25); }
+.lp-btn-outline:hover:not(:disabled) { background: rgba(245,166,35,0.08); color: var(--gold); border-color: rgba(245,166,35,0.25); }
+.lp-btn-outline:disabled { opacity: 0.45; cursor: not-allowed; }
 .lp-btn-row { display: flex; gap: 8px; margin-top: 10px; }
 
-/* Secondary link */
+/* Resend countdown badge */
+.lp-resend-timer {
+  display: inline-flex; align-items: center; gap: 5px;
+  font-size: 0.72rem; color: var(--text-dim);
+  background: rgba(245,166,35,0.07);
+  border: 1px solid rgba(245,166,35,0.14);
+  border-radius: 20px; padding: 4px 10px;
+  margin-top: 8px;
+  width: 100%; justify-content: center;
+  transition: opacity 0.3s;
+}
+.lp-resend-timer.hidden { display: none; }
+#lpResendSecs { color: var(--gold); font-weight: 700; font-variant-numeric: tabular-nums; }
+
+.lp-secondary-row {
+  display: flex; align-items: center; justify-content: center; margin-top: 10px;
+}
 .lp-link {
   font-size: 0.78rem; color: var(--gold); text-decoration: none; font-weight: 600;
   display: inline-flex; align-items: center; gap: 4px; transition: opacity 0.2s;
 }
 .lp-link:hover { opacity: 0.75; }
-.lp-secondary-row {
-  display: flex; align-items: center; justify-content: flex-end; margin-top: 8px;
-}
 
-/* Card footer */
 .lp-card-footer {
   text-align: center; margin-top: 10px;
   font-size: 0.72rem; color: rgba(136,153,176,0.55);
@@ -468,11 +439,6 @@ html[data-theme='dark'] .lp-tt-moon { color: #d0ddff; }
 }
 
 /* ── Light theme ── */
-/* ================================================================
-   LIGHT THEME — full overhaul matching the app's light palette
-   ================================================================ */
-
-/* Page background */
 html[data-theme='light'] .lp {
   background: linear-gradient(145deg, #eaf3ff 0%, #d9eaff 52%, #cde2ff 100%);
 }
@@ -483,8 +449,6 @@ html[data-theme='light'] .lp-bg-glow {
     radial-gradient(ellipse 80% 80% at 50% 50%, rgba(220,234,255,1) 0%, #cde2ff 100%);
 }
 html[data-theme='light'] .lp-particle { background: #4a7fd4; }
-
-/* Nav */
 html[data-theme='light'] .lp-nav {
   background: linear-gradient(90deg, rgba(224,237,255,0.97), rgba(204,225,250,0.96));
   border-bottom: 1px solid rgba(100,150,220,0.30);
@@ -494,128 +458,66 @@ html[data-theme='light'] .lp-nav-title { color: #1a3d8f; }
 html[data-theme='light'] .lp-nav-sub  { color: #5c78ab; }
 html[data-theme='light'] .lp-nav-links a { color: #4060a0; }
 html[data-theme='light'] .lp-nav-links a:hover { color: #C78200; }
-html[data-theme='light'] .lp-lang-btn {
-  color: #4060a0; background: rgba(255,255,255,0.70);
-  border-color: rgba(80,120,200,0.25);
-}
-html[data-theme='light'] .lp-lang-btn:hover { color: #1a3d8f; background: #fff; }
-html[data-theme='light'] .lp-lang-btn.lp-lang-active {
-  color: #C78200; background: rgba(245,166,35,0.12);
-  border-color: rgba(199,130,0,0.30);
-}
 html[data-theme='light'] .lp-btn-launch {
   background: linear-gradient(135deg, #F5A623, #C78200);
-  color: #fff;
-  box-shadow: 0 4px 16px rgba(199,130,0,0.30);
+  color: #fff; box-shadow: 0 4px 16px rgba(199,130,0,0.30);
 }
-
-/* Scene left panel — keep SVG as-is but lighten the overlay */
 html[data-theme='light'] .lp-scene::after {
   background: linear-gradient(to top, rgba(205,226,255,0.70), transparent);
 }
-
-/* Card wrap */
 html[data-theme='light'] .lp-card-wrap {
   background: rgba(240,247,255,0.70);
   border-left: 1px solid rgba(100,150,220,0.18);
   backdrop-filter: blur(20px);
 }
-
-/* Card */
 html[data-theme='light'] .lp-card {
   background: linear-gradient(180deg, rgba(255,255,255,0.98), rgba(246,250,255,0.97));
   border: 1px solid rgba(100,150,220,0.22);
   box-shadow: 0 20px 60px rgba(40,80,160,0.14), 0 0 0 1px rgba(100,150,220,0.10);
 }
-
-/* Card title & subtitle */
 html[data-theme='light'] .lp-card-title { color: #0f2557; }
 html[data-theme='light'] .lp-card-title .welcome-word {
-  color: #163468;
-  text-shadow: 0 1px 0 rgba(255,255,255,0.45);
+  color: #163468; text-shadow: 0 1px 0 rgba(255,255,255,0.45);
 }
 html[data-theme='light'] .lp-card-title .gold {
   color: transparent;
   background: linear-gradient(180deg, #b87400 0%, #9f6400 52%, #7a4900 100%);
-  -webkit-background-clip: text;
-  background-clip: text;
-  -webkit-text-stroke: 0.35px rgba(88, 52, 0, 0.16);
+  -webkit-background-clip: text; background-clip: text;
+  -webkit-text-stroke: 0.35px rgba(88,52,0,0.16);
   text-shadow: 0 1px 0 rgba(255,255,255,0.18), 0 3px 10px rgba(159,100,0,0.10);
 }
 html[data-theme='light'] .lp-card-sub { color: #5c78ab; }
-
-/* Tabs */
-html[data-theme='light'] .lp-tabs {
-  background: linear-gradient(180deg, #f0f5ff, #e6f0ff);
-  border: 1px solid #c8d8f0;
-}
-html[data-theme='light'] .lp-tab { color: #7a94c4; }
-html[data-theme='light'] .lp-tab.active {
-  background: #fff; color: #1a3d8f;
-  box-shadow: 0 1px 8px rgba(40,80,160,0.14);
-}
-
-/* Labels */
+html[data-theme='light'] .lp-card-sub strong { color: #0f2557; }
 html[data-theme='light'] .lp-field label { color: #3a568c; }
-
-/* Inputs */
 html[data-theme='light'] .lp-field input {
-  background: #fff;
-  border: 1.5px solid #c8d8f0;
-  color: #0f2557;
-  box-shadow: 0 1px 4px rgba(40,80,160,0.07);
+  background: #fff; border: 1.5px solid #c8d8f0;
+  color: #0f2557; box-shadow: 0 1px 4px rgba(40,80,160,0.07);
 }
-html[data-theme='light'] .lp-field input::placeholder { color: #aabbd8; }
 html[data-theme='light'] .lp-field input:focus {
-  border-color: #4a7fd4;
-  box-shadow: 0 0 0 3px rgba(74,127,212,0.12);
+  border-color: #4a7fd4; box-shadow: 0 0 0 3px rgba(74,127,212,0.12);
 }
 html[data-theme='light'] .lp-input-icon { color: #8aaad0; }
-html[data-theme='light'] .lp-input-icon.clickable:hover { color: #C78200; }
 html[data-theme='light'] .lp-field-help { color: #7a94c4; }
-
-/* Captcha */
-html[data-theme='light'] .lp-captcha-box {
-  background: #0f2557;
-  border-color: rgba(245,166,35,0.40);
-}
-
-@media (max-width: 640px) {
-  .lp-card-title {
-    font-size: 1.7rem;
-    gap: 0.24rem;
-  }
-}
-
-/* Terms */
-html[data-theme='light'] .lp-terms { color: #5c78ab; }
-html[data-theme='light'] .lp-terms a { color: #C78200; }
-
-/* Forgot / back links */
-html[data-theme='light'] .lp-link { color: #C78200; }
-
-/* Secondary outline buttons */
+html[data-theme='light'] .lp-divider { background: rgba(100,150,220,0.18); }
 html[data-theme='light'] .lp-btn-outline {
   background: #f0f5ff; border-color: #c8d8f0; color: #3a568c;
 }
-html[data-theme='light'] .lp-btn-outline:hover {
+html[data-theme='light'] .lp-btn-outline:hover:not(:disabled) {
   background: #e4edff; color: #0f2557; border-color: #a0bce0;
 }
-
-/* Divider */
-html[data-theme='light'] .lp-divider { background: rgba(100,150,220,0.18); }
-
-/* Footer */
+html[data-theme='light'] .lp-link { color: #C78200; }
 html[data-theme='light'] .lp-card-footer { color: #8aaad0; }
-
-/* Flash alerts stay the same — they're semantic colours */
-
-/* Responsive overrides for light */
-@media (max-width: 960px) {
-  html[data-theme='light'] .lp-card-wrap {
-    background: rgba(224,237,255,0.85);
-  }
+html[data-theme='light'] .lp-otp-badge {
+  background: rgba(199,130,0,0.10); border-color: rgba(199,130,0,0.25); color: #C78200;
 }
+html[data-theme='light'] .lp-step-done { background: rgba(22,163,74,0.12); border-color: rgba(22,163,74,0.28); color: #16a34a; }
+html[data-theme='light'] .lp-step-active { background: rgba(199,130,0,0.12); border-color: rgba(199,130,0,0.28); color: #C78200; }
+html[data-theme='light'] .lp-step-label.active { color: #C78200; }
+html[data-theme='light'] .lp-step-line { background: rgba(40,80,160,0.12); }
+html[data-theme='light'] .lp-resend-timer {
+  background: rgba(199,130,0,0.06); border-color: rgba(199,130,0,0.14); color: #5c78ab;
+}
+html[data-theme='light'] #lpResendSecs { color: #C78200; }
 </style>
 
 <!-- Noise + glow layers -->
@@ -627,8 +529,8 @@ html[data-theme='light'] .lp-card-footer { color: #8aaad0; }
 
 <div class="lp">
 
-  <!-- ══════════ NAV (identical to landing) ══════════ -->
-  <nav class="lp-nav">
+  <!-- ══════════ NAV ══════════ -->
+  <nav class="lp-nav lp-navbar">
     <a href="{{ url_for('index') }}" class="lp-nav-brand">
       <div class="lp-nav-shield">
         <img src="{{ url_for('static', filename=brand_logo_file) }}" alt="{{ brand_name }}"
@@ -643,18 +545,13 @@ html[data-theme='light'] .lp-card-footer { color: #8aaad0; }
     <div class="lp-nav-right">
       <nav class="lp-nav-links">
         <a href="{{ url_for('index') }}" data-i18n="nav.features">Features</a>
-        {% if session.get('user_id') %}
-        <a href="{{ url_for('dashboard') }}" data-i18n="nav.dashboard">Dashboard</a>
-        {% endif %}
       </nav>
 
-      <!-- Language pills — uses lang-toggle + lang-pill so app.js handles switching -->
       <div class="lp-lang-wrap lang-toggle" role="group" aria-label="Language switch">
         <button type="button" class="lp-lang-btn lang-pill" data-lang="en">EN</button>
         <button type="button" class="lp-lang-btn lang-pill" data-lang="te">TE</button>
       </div>
 
-      <!-- Theme toggle (pill slider, same as landing) -->
       <button id="lpThemeToggle" type="button" aria-label="Toggle theme" title="Toggle theme">
         <span class="lp-tt-icon lp-tt-sun" aria-hidden="true">
           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/></svg>
@@ -664,8 +561,8 @@ html[data-theme='light'] .lp-card-footer { color: #8aaad0; }
         </span>
       </button>
 
-      <a href="{{ url_for('index') }}" class="lp-btn-launch">
-        &#9654; <span data-i18n="common.home">Home</span>
+      <a href="{{ url_for('login') }}" class="lp-btn-launch">
+        ← <span>Back to Login</span>
       </a>
     </div>
   </nav>
@@ -673,7 +570,7 @@ html[data-theme='light'] .lp-card-footer { color: #8aaad0; }
   <!-- ══════════ MAIN ══════════ -->
   <div class="lp-main">
 
-    <!-- ── Left: Wind turbine scene ── -->
+    <!-- ── Left: Wind turbine scene (same as login) ── -->
     <div class="lp-scene">
       <div class="lp-scene-svg-wrap">
       <svg class="lp-scene-svg" viewBox="0 0 780 680" xmlns="http://www.w3.org/2000/svg" preserveAspectRatio="xMidYMid slice">
@@ -687,31 +584,22 @@ html[data-theme='light'] .lp-card-footer { color: #8aaad0; }
             <feMerge><feMergeNode in="cb"/><feMergeNode in="SourceGraphic"/></feMerge>
           </filter>
         </defs>
-
-        <!-- Background -->
         <rect width="780" height="680" fill="url(#scBg)"/>
-
-        <!-- Decorative rings (matching landing scan rings) -->
         <circle cx="300" cy="330" r="230" fill="none" stroke="rgba(245,166,35,0.06)" stroke-width="1.5"/>
         <circle cx="300" cy="330" r="170" fill="none" stroke="rgba(245,166,35,0.08)" stroke-width="1.2"/>
         <circle cx="300" cy="330" r="110" fill="none" stroke="rgba(245,166,35,0.10)" stroke-width="1"/>
-
-        <!-- Ground shadow -->
         <ellipse cx="290" cy="598" rx="270" ry="16" fill="rgba(0,0,0,0.30)"/>
-
-        <!-- ── Wind Turbine 1 — Large center ── -->
+        <!-- Wind Turbine 1 -->
         <g transform="translate(295,592)">
           <rect x="-6" y="-330" width="12" height="330" rx="5" fill="rgba(255,255,255,0.22)"/>
           <circle cx="0" cy="-330" r="9" fill="rgba(255,255,255,0.40)"/>
-          <!-- Spinning blades -->
           <g style="transform-origin:0px -330px; animation:spinTurbine 9s linear infinite;">
             <line x1="0" y1="-330" x2="0"   y2="-450" stroke="rgba(255,255,255,0.65)" stroke-width="7" stroke-linecap="round"/>
             <line x1="0" y1="-330" x2="104" y2="-278" stroke="rgba(255,255,255,0.65)" stroke-width="7" stroke-linecap="round"/>
             <line x1="0" y1="-330" x2="-104" y2="-278" stroke="rgba(255,255,255,0.65)" stroke-width="7" stroke-linecap="round"/>
           </g>
         </g>
-
-        <!-- ── Wind Turbine 2 — Small left ── -->
+        <!-- Wind Turbine 2 -->
         <g transform="translate(100,565)" opacity="0.72">
           <rect x="-4" y="-210" width="8" height="210" rx="4" fill="rgba(255,255,255,0.18)"/>
           <circle cx="0" cy="-210" r="6" fill="rgba(255,255,255,0.30)"/>
@@ -721,8 +609,7 @@ html[data-theme='light'] .lp-card-footer { color: #8aaad0; }
             <line x1="0" y1="-210" x2="-72" y2="-169" stroke="rgba(255,255,255,0.50)" stroke-width="5" stroke-linecap="round"/>
           </g>
         </g>
-
-        <!-- ── Wind Turbine 3 — Medium right ── -->
+        <!-- Wind Turbine 3 -->
         <g transform="translate(520,575)" opacity="0.52">
           <rect x="-4" y="-250" width="8" height="250" rx="4" fill="rgba(255,255,255,0.14)"/>
           <circle cx="0" cy="-250" r="6" fill="rgba(255,255,255,0.22)"/>
@@ -732,8 +619,7 @@ html[data-theme='light'] .lp-card-footer { color: #8aaad0; }
             <line x1="0" y1="-250" x2="-82" y2="-203" stroke="rgba(255,255,255,0.38)" stroke-width="5" stroke-linecap="round"/>
           </g>
         </g>
-
-        <!-- ── Solar panel — left ── -->
+        <!-- Solar panel left -->
         <g transform="translate(42,428)" opacity="0.88">
           <rect x="0" y="0" width="155" height="96" rx="4" fill="rgba(27,50,96,0.55)" stroke="rgba(255,255,255,0.22)" stroke-width="1.5"/>
           <line x1="0" y1="24" x2="155" y2="24" stroke="rgba(255,255,255,0.15)" stroke-width="1"/>
@@ -746,8 +632,7 @@ html[data-theme='light'] .lp-card-footer { color: #8aaad0; }
           <rect x="68" y="96" width="8" height="62" rx="3" fill="rgba(255,255,255,0.20)"/>
           <rect x="28" y="150" width="92" height="6" rx="3" fill="rgba(255,255,255,0.12)"/>
         </g>
-
-        <!-- ── Solar panel — right ── -->
+        <!-- Solar panel right -->
         <g transform="translate(390,452)" opacity="0.56">
           <rect x="0" y="0" width="116" height="73" rx="3" fill="rgba(27,50,96,0.45)" stroke="rgba(255,255,255,0.16)" stroke-width="1.2"/>
           <line x1="0" y1="18" x2="116" y2="18" stroke="rgba(255,255,255,0.12)" stroke-width="1"/>
@@ -758,29 +643,20 @@ html[data-theme='light'] .lp-card-footer { color: #8aaad0; }
           <line x1="87" y1="0" x2="87" y2="73" stroke="rgba(255,255,255,0.12)" stroke-width="1"/>
           <rect x="50" y="73" width="8" height="50" rx="3" fill="rgba(255,255,255,0.16)"/>
         </g>
-
-        <!-- ── Energy arc dashes ── -->
+        <!-- Energy arcs -->
         <path d="M 148 416 Q 210 370 295 390" stroke="rgba(245,166,35,0.20)" stroke-width="1.5" fill="none" stroke-dasharray="4 6"/>
         <path d="M 295 390 Q 385 358 458 486" stroke="rgba(245,166,35,0.15)" stroke-width="1.5" fill="none" stroke-dasharray="4 6"/>
-
-        <!-- ── Floating glowing dots (gold — matches landing particles) ── -->
+        <!-- Floating dots -->
         <circle cx="190" cy="175" r="4" fill="rgba(245,166,35,0.70)" filter="url(#scGlow)">
           <animate attributeName="cy" values="175;160;175" dur="3s" repeatCount="indefinite"/>
         </circle>
-        <circle cx="480" cy="215" r="3" fill="rgba(245,166,35,0.55)" filter="url(#scGlow)">
-          <animate attributeName="cy" values="215;202;215" dur="4.2s" repeatCount="indefinite"/>
+        <circle cx="460" cy="210" r="3" fill="rgba(245,166,35,0.50)" filter="url(#scGlow)">
+          <animate attributeName="cy" values="210;197;210" dur="4s" repeatCount="indefinite"/>
         </circle>
-        <circle cx="570" cy="310" r="3.5" fill="rgba(136,153,176,0.60)" filter="url(#scGlow)">
-          <animate attributeName="cy" values="310;298;310" dur="3.8s" repeatCount="indefinite"/>
-        </circle>
-        <circle cx="85" cy="255" r="2.5" fill="rgba(245,166,35,0.45)" filter="url(#scGlow)">
-          <animate attributeName="cy" values="255;245;255" dur="5s" repeatCount="indefinite"/>
-        </circle>
-        <circle cx="660" cy="180" r="3" fill="rgba(245,166,35,0.35)" filter="url(#scGlow)">
+        <circle cx="610" cy="180" r="2.5" fill="rgba(245,166,35,0.40)" filter="url(#scGlow)">
           <animate attributeName="cy" values="180;168;180" dur="4.5s" repeatCount="indefinite"/>
         </circle>
-
-        <!-- ── Subtle clouds ── -->
+        <!-- Clouds -->
         <g opacity="0.12">
           <ellipse cx="430" cy="118" rx="58" ry="20" fill="#fff"/>
           <ellipse cx="402" cy="126" rx="38" ry="17" fill="#fff"/>
@@ -791,49 +667,22 @@ html[data-theme='light'] .lp-card-footer { color: #8aaad0; }
           <ellipse cx="130" cy="96" rx="30" ry="13" fill="#fff"/>
           <ellipse cx="188" cy="96" rx="28" ry="12" fill="#fff"/>
         </g>
-
-        <!-- ══════════════════════════════════════
-             APTRANSCO POWER TRANSMISSION TOWERS
-             ══════════════════════════════════════ -->
-
-        <!-- ── Tower 1 — tall, center-left ── -->
+        <!-- Towers -->
         <g transform="translate(178,580)" opacity="0.82">
-          <!-- Main vertical legs -->
           <line x1="-18" y1="0" x2="-6" y2="-260" stroke="rgba(245,166,35,0.70)" stroke-width="2.2"/>
           <line x1="18"  y1="0" x2="6"  y2="-260" stroke="rgba(245,166,35,0.70)" stroke-width="2.2"/>
-          <!-- Cross braces -->
           <line x1="-18" y1="0"    x2="6"   y2="-260" stroke="rgba(245,166,35,0.25)" stroke-width="1"/>
           <line x1="18"  y1="0"    x2="-6"  y2="-260" stroke="rgba(245,166,35,0.25)" stroke-width="1"/>
-          <!-- Horizontal cross-arms at intervals -->
           <line x1="-16" y1="-52"  x2="16"  y2="-52"  stroke="rgba(245,166,35,0.55)" stroke-width="1.6"/>
           <line x1="-14" y1="-104" x2="14"  y2="-104" stroke="rgba(245,166,35,0.55)" stroke-width="1.6"/>
           <line x1="-12" y1="-156" x2="12"  y2="-156" stroke="rgba(245,166,35,0.55)" stroke-width="1.6"/>
           <line x1="-10" y1="-205" x2="10"  y2="-205" stroke="rgba(245,166,35,0.55)" stroke-width="1.6"/>
-          <!-- Top cross-arm (power line arm) -->
           <line x1="-38" y1="-248" x2="38"  y2="-248" stroke="rgba(245,166,35,0.80)" stroke-width="2.0"/>
           <line x1="-28" y1="-238" x2="28"  y2="-238" stroke="rgba(245,166,35,0.65)" stroke-width="1.6"/>
-          <!-- Diagonal lattice fillers -->
-          <line x1="-16" y1="-52"  x2="-14" y2="-104" stroke="rgba(245,166,35,0.20)" stroke-width="1"/>
-          <line x1="16"  y1="-52"  x2="14"  y2="-104" stroke="rgba(245,166,35,0.20)" stroke-width="1"/>
-          <line x1="-6"  y1="-52"  x2="-4"  y2="-104" stroke="rgba(245,166,35,0.15)" stroke-width="0.8"/>
-          <line x1="6"   y1="-52"  x2="4"   y2="-104" stroke="rgba(245,166,35,0.15)" stroke-width="0.8"/>
-          <line x1="-14" y1="-104" x2="-12" y2="-156" stroke="rgba(245,166,35,0.20)" stroke-width="1"/>
-          <line x1="14"  y1="-104" x2="12"  y2="-156" stroke="rgba(245,166,35,0.20)" stroke-width="1"/>
-          <line x1="-12" y1="-156" x2="-10" y2="-205" stroke="rgba(245,166,35,0.20)" stroke-width="1"/>
-          <line x1="12"  y1="-156" x2="10"  y2="-205" stroke="rgba(245,166,35,0.20)" stroke-width="1"/>
-          <!-- Base feet -->
+          <path d="M4,-230 L-2,-218 L2,-218 L-4,-205" stroke="#F5A623" stroke-width="1.8" fill="none" stroke-linecap="round" stroke-linejoin="round" opacity="0.90"/>
           <line x1="-18" y1="0" x2="-28" y2="10"  stroke="rgba(245,166,35,0.50)" stroke-width="2"/>
           <line x1="18"  y1="0" x2="28"  y2="10"  stroke="rgba(245,166,35,0.50)" stroke-width="2"/>
-          <!-- Lightning bolt (APTRANSCO emblem) -->
-          <path d="M4,-230 L-2,-218 L2,-218 L-4,-205" stroke="#F5A623" stroke-width="1.8" fill="none" stroke-linecap="round" stroke-linejoin="round" opacity="0.90"/>
-          <!-- Insulator chains -->
-          <line x1="-38" y1="-248" x2="-38" y2="-240" stroke="rgba(255,255,255,0.30)" stroke-width="1.5"/>
-          <line x1="38"  y1="-248" x2="38"  y2="-240" stroke="rgba(255,255,255,0.30)" stroke-width="1.5"/>
-          <line x1="-28" y1="-238" x2="-28" y2="-232" stroke="rgba(255,255,255,0.25)" stroke-width="1.2"/>
-          <line x1="28"  y1="-238" x2="28"  y2="-232" stroke="rgba(255,255,255,0.25)" stroke-width="1.2"/>
         </g>
-
-        <!-- ── Tower 2 — shorter, far right ── -->
         <g transform="translate(680,570)" opacity="0.55">
           <line x1="-14" y1="0" x2="-5"  y2="-195" stroke="rgba(245,166,35,0.60)" stroke-width="1.8"/>
           <line x1="14"  y1="0" x2="5"   y2="-195" stroke="rgba(245,166,35,0.60)" stroke-width="1.8"/>
@@ -843,73 +692,62 @@ html[data-theme='light'] .lp-card-footer { color: #8aaad0; }
           <line x1="-10" y1="-80"  x2="10"  y2="-80"  stroke="rgba(245,166,35,0.45)" stroke-width="1.4"/>
           <line x1="-8"  y1="-120" x2="8"   y2="-120" stroke="rgba(245,166,35,0.45)" stroke-width="1.4"/>
           <line x1="-7"  y1="-158" x2="7"   y2="-158" stroke="rgba(245,166,35,0.45)" stroke-width="1.4"/>
-          <!-- Top arm -->
           <line x1="-28" y1="-186" x2="28"  y2="-186" stroke="rgba(245,166,35,0.68)" stroke-width="1.8"/>
           <line x1="-20" y1="-178" x2="20"  y2="-178" stroke="rgba(245,166,35,0.50)" stroke-width="1.4"/>
-          <!-- Lightning bolt -->
           <path d="M3,-172 L-1.5,-162 L1.5,-162 L-3,-152" stroke="#F5A623" stroke-width="1.5" fill="none" stroke-linecap="round" stroke-linejoin="round" opacity="0.85"/>
-          <!-- Base -->
           <line x1="-14" y1="0" x2="-22" y2="8" stroke="rgba(245,166,35,0.45)" stroke-width="1.8"/>
           <line x1="14"  y1="0" x2="22"  y2="8" stroke="rgba(245,166,35,0.45)" stroke-width="1.8"/>
         </g>
-
-        <!-- ── Tower 3 — far left background (small/faded) ── -->
-        <g transform="translate(30,560)" opacity="0.30">
-          <line x1="-10" y1="0" x2="-3"  y2="-150" stroke="rgba(245,166,35,0.70)" stroke-width="1.5"/>
-          <line x1="10"  y1="0" x2="3"   y2="-150" stroke="rgba(245,166,35,0.70)" stroke-width="1.5"/>
-          <line x1="-10" y1="0" x2="3"   y2="-150" stroke="rgba(245,166,35,0.20)" stroke-width="0.8"/>
-          <line x1="10"  y1="0" x2="-3"  y2="-150" stroke="rgba(245,166,35,0.20)" stroke-width="0.8"/>
-          <line x1="-9"  y1="-38"  x2="9"   y2="-38"  stroke="rgba(245,166,35,0.50)" stroke-width="1.2"/>
-          <line x1="-7"  y1="-76"  x2="7"   y2="-76"  stroke="rgba(245,166,35,0.50)" stroke-width="1.2"/>
-          <line x1="-5"  y1="-114" x2="5"   y2="-114" stroke="rgba(245,166,35,0.50)" stroke-width="1.2"/>
-          <line x1="-20" y1="-142" x2="20"  y2="-142" stroke="rgba(245,166,35,0.60)" stroke-width="1.5"/>
-          <line x1="-10" y1="0" x2="-16" y2="6"  stroke="rgba(245,166,35,0.50)" stroke-width="1.5"/>
-          <line x1="10"  y1="0" x2="16"  y2="6"  stroke="rgba(245,166,35,0.50)" stroke-width="1.5"/>
-        </g>
-
-        <!-- ── Power lines connecting towers ── -->
-        <!-- Tower1 left arm → Tower3 right arm -->
+        <!-- Power lines -->
         <path d="M 140,332 Q 100,345 46,418" stroke="rgba(245,166,35,0.22)" stroke-width="1.2" fill="none"/>
-        <!-- Tower1 right arm → Tower2 left arm -->
         <path d="M 216,332 Q 420,310 652,384" stroke="rgba(245,166,35,0.18)" stroke-width="1.2" fill="none"/>
-        <!-- Secondary wire (sag) -->
         <path d="M 150,342 Q 420,320 652,392" stroke="rgba(245,166,35,0.12)" stroke-width="1" fill="none"/>
-
-        <!-- ── Electric spark animations on power lines ── -->
+        <!-- Spark animations -->
         <circle r="2.5" fill="#F5A623" opacity="0.85" filter="url(#scGlow)">
-          <animateMotion dur="3.5s" repeatCount="indefinite">
-            <mpath href="#wire1"/>
-          </animateMotion>
+          <animateMotion dur="3.5s" repeatCount="indefinite"><mpath href="#wire1"/></animateMotion>
         </circle>
         <circle r="2" fill="#FFD580" opacity="0.70" filter="url(#scGlow)">
-          <animateMotion dur="5s" repeatCount="indefinite" begin="1.2s">
-            <mpath href="#wire2"/>
-          </animateMotion>
+          <animateMotion dur="5s" repeatCount="indefinite" begin="1.2s"><mpath href="#wire2"/></animateMotion>
         </circle>
-
-        <!-- Named paths for animateMotion -->
         <defs>
           <path id="wire1" d="M 140,332 Q 420,310 652,384"/>
           <path id="wire2" d="M 216,332 Q 100,345 46,418"/>
         </defs>
       </svg>
-
-      </div><!-- /lp-scene-svg-wrap -->
+      </div>
     </div>
 
-    <!-- ── Right: Login card ── -->
+    <!-- ── Right: OTP card ── -->
     <div class="lp-card-wrap">
       <div class="lp-card">
 
-        <h2 class="lp-card-title"><span class="welcome-word" data-i18n="login.card_welcome">Welcome</span> <span class="gold" data-i18n="login.card_back">Back...</span></h2>
-        <p class="lp-card-sub" data-i18n="login.card_subtitle">Sign in to your Nigaa account to continue</p>
+        <!-- Shield / OTP icon -->
+        <div class="lp-otp-badge" aria-hidden="true">
+          <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="5" y="11" width="14" height="10" rx="2"/>
+            <path d="M8 11V7a4 4 0 0 1 8 0v4"/>
+            <circle cx="12" cy="16" r="1" fill="currentColor"/>
+          </svg>
+        </div>
 
-        <!-- Tabs -->
-        <div class="lp-tabs" role="tablist" aria-label="Login options">
-          <button type="button" class="lp-tab {% if active_login_tab != 'recovery' %}active{% endif %}" data-login-tab="secure"
-                  onclick="showLoginTab('secure')" data-i18n="login.tab_secure">Secure Login</button>
-          <button type="button" class="lp-tab {% if active_login_tab == 'recovery' %}active{% endif %}" data-login-tab="recovery"
-                  onclick="showLoginTab('recovery')" data-i18n="login.tab_recovery">Password Recovery</button>
+        <h2 class="lp-card-title">
+          <span class="welcome-word">Verify</span>
+          <span class="gold">OTP</span>
+        </h2>
+        <p class="lp-card-sub">
+          Sign-in for <strong>{{ username }}</strong> — OTP sent to
+          <strong>{{ masked_mobile }}</strong>
+        </p>
+
+        <!-- Step indicator -->
+        <div class="lp-step-row">
+          <div class="lp-step lp-step-done" title="Credentials verified">
+            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><path d="M20 6L9 17l-5-5"/></svg>
+          </div>
+          <div class="lp-step-line"></div>
+          <span class="lp-step-label active">OTP Verify</span>
+          <div class="lp-step-line"></div>
+          <div class="lp-step lp-step-active" title="Enter OTP">2</div>
         </div>
 
         <!-- Flash messages -->
@@ -920,6 +758,7 @@ html[data-theme='light'] .lp-card-footer { color: #8aaad0; }
         {% set key = category ~ '|' ~ message %}
         {% if key not in ns.seen %}
         <div class="lp-alert lp-alert-{{ category }}">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="flex-shrink:0;margin-top:1px"><circle cx="12" cy="12" r="10"/><path d="M12 8v4M12 16h.01"/></svg>
           <span>{{ message }}</span>
         </div>
         {% set ns.seen = ns.seen + [key] %}
@@ -928,120 +767,55 @@ html[data-theme='light'] .lp-card-footer { color: #8aaad0; }
         {% endif %}
         {% endwith %}
 
-        <form method="POST" action="{{ url_for('login') }}" data-login-panel="secure"
-              {% if active_login_tab == 'recovery' %}style="display:none;"{% endif %}>
-          <input type="hidden" name="login_action" value="credentials">
+        <!-- OTP form -->
+        <form method="POST" action="{{ url_for('login_verify_otp') }}" id="otpForm">
           <div class="lp-field">
-            <label for="username" data-i18n="login.username">Username</label>
+            <label for="otp_code">One-Time Password</label>
             <div class="lp-input-wrap">
-              <input type="text" id="username" name="username" required autofocus
-                     placeholder="Enter your username"
-                     data-i18n-placeholder="login.ph_username"
-                     value="{{ request.form.get('username', '') }}">
+              <input type="text" id="otp_code" name="otp_code"
+                     class="lp-otp-input"
+                     inputmode="numeric" autocomplete="one-time-code"
+                     maxlength="8" pattern="\d{4,8}" required
+                     autofocus placeholder="••••••••">
               <span class="lp-input-icon">
-                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>
               </span>
             </div>
+            <p class="lp-field-help">Enter the numeric code sent to your registered mobile</p>
           </div>
-          <div class="lp-field">
-            <label for="password" data-i18n="login.password">Password</label>
-            <div class="lp-input-wrap">
-              <input type="password" id="lp-pwd" name="password" required
-                     placeholder="Enter your password"
-                     data-i18n-placeholder="login.ph_password">
-              <span class="lp-input-icon clickable" onclick="lpTogglePwd()" title="Show/hide password">
-                <svg id="lp-eye" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
-              </span>
-            </div>
-          </div>
-          <div class="lp-field">
-            <label for="captcha_answer" data-i18n="login.security_verification">Security Check</label>
-            <div class="lp-captcha-row">
-              <div class="lp-captcha-box" aria-live="polite">
-                <img src="{{ captcha_image_data or captcha_image }}" alt="Verification challenge" class="lp-captcha-image">
-                <a href="{{ url_for('login', refresh_captcha='1') }}"
-                   class="lp-captcha-refresh" title="Refresh captcha" aria-label="Refresh captcha">&#8635;</a>
-              </div>
-              <div class="lp-input-wrap">
-                <input type="hidden" name="captcha_token" value="{{ captcha_token }}">
-                <input type="hidden" name="captcha_proof" value="{{ captcha_proof }}">
-                <input type="text" id="captcha_answer" name="captcha_answer"
-                       required inputmode="text" autocapitalize="characters" autocomplete="off" spellcheck="false"
-                       maxlength="8" placeholder="Enter the code" data-i18n-placeholder="login.ph_captcha">
-              </div>
-            </div>
-          </div>
-
-          <p class="lp-terms">
-            <span data-i18n="login.terms_prefix">By signing in you agree to our</span>
-            <a href="#" data-i18n="login.terms_link">Terms &amp; Conditions</a>
-          </p>
 
           <button type="submit" class="lp-btn-primary">
-            <span data-i18n="login.verify_signin">Verify &amp; Sign In</span>
+            <span>Verify &amp; Sign In</span>
             <span class="lp-btn-arrow">
               <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
             </span>
           </button>
-          <div class="lp-secondary-row">
-            <a href="#" class="lp-link" onclick="showLoginTab('recovery');return false;">
-              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 8v4M12 16h.01"/></svg>
-              <span data-i18n="login.forgot_password">Forgot Password?</span>
-            </a>
-          </div>
         </form>
 
-        <!-- ── Password Recovery Form ── -->
-        <form method="POST" action="{{ url_for('forgot_password_request') }}"
-              data-login-panel="recovery" {% if active_login_tab != 'recovery' %}style="display:none;"{% endif %}>
-          <div class="lp-field">
-            <label for="recovery_username" data-i18n="login.username">Username</label>
-            <div class="lp-input-wrap">
-              <input type="text" id="recovery_username" name="recovery_username"
-                     placeholder="Enter your username" data-i18n-placeholder="login.ph_username">
-              <span class="lp-input-icon">
-                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
-              </span>
-            </div>
-          </div>
-          <div class="lp-field">
-            <label for="recovery_password" data-i18n="login.new_password">New Password</label>
-            <div class="lp-input-wrap">
-              <input type="password" id="recovery_password" name="recovery_password"
-                     minlength="6" placeholder="Enter new password" data-i18n-placeholder="login.ph_new_password">
-              <span class="lp-input-icon">
-                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M11 11V7a1 1 0 012 0v4"/></svg>
-              </span>
-            </div>
-          </div>
-          <div class="lp-field">
-            <label for="recovery_confirm_password" data-i18n="login.confirm_new_password">Confirm Password</label>
-            <div class="lp-input-wrap">
-              <input type="password" id="recovery_confirm_password"
-                     name="recovery_confirm_password" minlength="6"
-                     placeholder="Confirm new password" data-i18n-placeholder="login.ph_confirm_new_password">
-              <span class="lp-input-icon">
-                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M11 11V7a1 1 0 012 0v4"/></svg>
-              </span>
-            </div>
-          </div>
-          <button type="submit" class="lp-btn-primary" data-i18n="login.submit_recovery">
-            Submit Recovery Request
-            <span class="lp-btn-arrow">
-              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
-            </span>
-          </button>
-          <div class="lp-secondary-row">
-            <a href="#" class="lp-link" onclick="showLoginTab('secure');return false;">
-              ← <span data-i18n="login.back_to_login">Back to Login</span>
+        <!-- Resend + Back -->
+        <form method="POST" action="{{ url_for('login_verify_otp') }}" id="resendForm">
+          <input type="hidden" name="login_action" value="resend_otp">
+          <div class="lp-btn-row">
+            <button type="submit" class="lp-btn-outline" id="resendBtn">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-right:5px"><path d="M21 2v6h-6"/><path d="M3 12a9 9 0 0 1 15-6.7L21 8"/><path d="M3 22v-6h6"/><path d="M21 12a9 9 0 0 1-15 6.7L3 16"/></svg>
+              Resend OTP
+            </button>
+            <a href="{{ url_for('login') }}" class="lp-btn-outline">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-right:5px"><path d="M19 12H5M12 5l-7 7 7 7"/></svg>
+              Back
             </a>
+          </div>
+          <div class="lp-resend-timer hidden" id="resendTimer">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg>
+            Resend available in <span id="lpResendSecs">30</span>s
           </div>
         </form>
 
         <div class="lp-divider"></div>
         <div class="lp-card-footer">
-          <p data-i18n="login.footer_wing">Vigilance Wing · {{ brand_name }} · © 2026</p>
+          <p>Vigilance Wing · {{ brand_name }} · © 2026</p>
         </div>
+
       </div>
     </div>
 
@@ -1049,7 +823,7 @@ html[data-theme='light'] .lp-card-footer { color: #8aaad0; }
 </div><!-- /lp -->
 
 <script>
-/* ── Particles (same as landing) ── */
+/* ── Particles ── */
 (function () {
   var container = document.getElementById('lpParticles');
   if (!container) return;
@@ -1064,31 +838,7 @@ html[data-theme='light'] .lp-card-footer { color: #8aaad0; }
   }
 })();
 
-/* ── Login tab switcher ── */
-function showLoginTab(tabName) {
-  document.querySelectorAll('.lp-tab').forEach(function(btn) {
-    btn.classList.toggle('active', btn.dataset.loginTab === tabName);
-  });
-  document.querySelectorAll('[data-login-panel]').forEach(function(panel) {
-    panel.style.display = panel.dataset.loginPanel === tabName ? '' : 'none';
-  });
-}
-
-/* ── Password visibility ── */
-function lpTogglePwd() {
-  var inp = document.getElementById('lp-pwd');
-  var eye = document.getElementById('lp-eye');
-  if (!inp) return;
-  if (inp.type === 'password') {
-    inp.type = 'text';
-    eye.innerHTML = '<path d="M17.94 17.94A10.07 10.07 0 0112 20c-7 0-11-8-11-8a18.45 18.45 0 015.06-5.94M9.9 4.24A9.12 9.12 0 0112 4c7 0 11 8 11 8a18.5 18.5 0 01-2.16 3.19m-6.72-1.07a3 3 0 11-4.24-4.24" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round"/><line x1="1" y1="1" x2="23" y2="23" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>';
-  } else {
-    inp.type = 'password';
-    eye.innerHTML = '<path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" stroke="currentColor" stroke-width="2" fill="none"/><circle cx="12" cy="12" r="3" stroke="currentColor" stroke-width="2" fill="none"/>';
-  }
-}
-
-/* ── Theme toggle (dedicated button, no conflict with base.css) ── */
+/* ── Theme toggle ── */
 document.getElementById('lpThemeToggle').addEventListener('click', function () {
   var html = document.documentElement;
   var next = html.getAttribute('data-theme') === 'dark' ? 'light' : 'dark';
@@ -1096,40 +846,56 @@ document.getElementById('lpThemeToggle').addEventListener('click', function () {
   localStorage.setItem('ui_theme_mode', next);
 });
 
-/* ── Language pills (sync with base app.js handler if loaded) ── */
-document.querySelectorAll('.lp-lang-btn').forEach(function(btn) {
-  btn.addEventListener('click', function() {
-    document.querySelectorAll('.lp-lang-btn').forEach(function(b) { b.classList.remove('lp-lang-active'); });
-    btn.classList.add('lp-lang-active');
-    // Trigger the global lang-pill click if app.js is handling it
-    btn.dispatchEvent(new MouseEvent('click', {bubbles: false}));
-  });
-});
+/* ── Resend cooldown (30 s) — starts after resend is clicked ── */
+(function () {
+  var btn   = document.getElementById('resendBtn');
+  var timer = document.getElementById('resendTimer');
+  var secs  = document.getElementById('lpResendSecs');
+  var COOLDOWN = 30;
+  var KEY = 'otp_resend_at';
 
-document.addEventListener('DOMContentLoaded', function() {
-  showLoginTab('{{ active_login_tab or "secure" }}');
-  // Set active lang pill
-  var savedLang = localStorage.getItem('ui_lang') || 'en';
-  document.querySelectorAll('.lp-lang-btn').forEach(function(b) {
-    b.classList.toggle('lp-lang-active', b.dataset.lang === savedLang);
-  });
-
-  var resendBtn = document.getElementById('loginResendOtpBtn');
-  var countdownEl = document.getElementById('loginOtpCountdown');
-  var resendNote = document.getElementById('loginOtpResendNote');
-  var remaining = parseInt(countdownEl ? countdownEl.textContent || '0' : '0', 10);
-  if (resendBtn && countdownEl && resendNote && remaining > 0) {
-    var timer = window.setInterval(function() {
-      remaining -= 1;
-      if (remaining <= 0) {
-        countdownEl.textContent = '0';
-        resendBtn.disabled = false;
-        resendNote.hidden = true;
-        window.clearInterval(timer);
-        return;
+  function startCountdown(endsAt) {
+    btn.disabled = true;
+    timer.classList.remove('hidden');
+    var tick = setInterval(function () {
+      var left = Math.ceil((endsAt - Date.now()) / 1000);
+      if (left <= 0) {
+        clearInterval(tick);
+        btn.disabled = false;
+        timer.classList.add('hidden');
+        sessionStorage.removeItem(KEY);
+      } else {
+        secs.textContent = left;
       }
-      countdownEl.textContent = String(remaining);
-    }, 1000);
+    }, 250);
+  }
+
+  /* Resume timer if page reloaded within cooldown window */
+  var stored = sessionStorage.getItem(KEY);
+  if (stored) {
+    var endsAt = parseInt(stored, 10);
+    if (endsAt > Date.now()) {
+      startCountdown(endsAt);
+    } else {
+      sessionStorage.removeItem(KEY);
+    }
+  }
+
+  /* Start cooldown on resend submit */
+  document.getElementById('resendForm').addEventListener('submit', function () {
+    var endsAt = Date.now() + COOLDOWN * 1000;
+    sessionStorage.setItem(KEY, endsAt);
+    startCountdown(endsAt);
+  });
+})();
+
+/* ── Strip non-digits; auto-submit only when maxlength reached ── */
+document.getElementById('otp_code').addEventListener('input', function () {
+  var v = this.value.replace(/\D/g, '');
+  this.value = v;
+  var max = parseInt(this.getAttribute('maxlength') || '8', 10);
+  if (v.length >= max) {
+    document.getElementById('otpForm').submit();
   }
 });
 </script>

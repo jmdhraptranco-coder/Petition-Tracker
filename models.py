@@ -268,8 +268,13 @@ def ensure_schema_updates():
                 session_data_json TEXT NOT NULL DEFAULT '{}',
                 expires_at TIMESTAMP NOT NULL,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                last_accessed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
+        """)
+        cur.execute("""
+            ALTER TABLE server_sessions
+            ADD COLUMN IF NOT EXISTS last_accessed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         """)
         cur.execute("""
             CREATE INDEX IF NOT EXISTS idx_server_sessions_user_id
@@ -1037,7 +1042,7 @@ def get_server_session(session_id):
     try:
         cur = dict_cursor(conn)
         cur.execute("""
-            SELECT session_id, user_id, session_data_json, expires_at
+            SELECT session_id, user_id, session_data_json, expires_at, created_at, updated_at, last_accessed_at
             FROM server_sessions
             WHERE session_id = %s
         """, (session_id,))
@@ -1060,6 +1065,9 @@ def get_server_session(session_id):
             'user_id': row.get('user_id'),
             'data': data if isinstance(data, dict) else {},
             'expires_at': expires_at,
+            'created_at': row.get('created_at'),
+            'updated_at': row.get('updated_at'),
+            'last_accessed_at': row.get('last_accessed_at'),
         }
     finally:
         conn.close()
@@ -1069,21 +1077,84 @@ def save_server_session(session_id, data, user_id, expires_at):
     conn = get_db()
     try:
         cur = dict_cursor(conn)
+        # NOTE: the eager "DELETE … WHERE expires_at <= CURRENT_TIMESTAMP" that
+        # used to live here has been removed.  Running a full-table scan on every
+        # session write acquires broad locks and creates contention when multiple
+        # concurrent requests are saving sessions simultaneously (the primary
+        # cause of the "2-3 click logout" under load).  Expired-row cleanup now
+        # happens only in touch_server_session (targeted, row-level) and via a
+        # scheduled maintenance query run outside the request cycle.
         cur.execute("""
-            DELETE FROM server_sessions
-            WHERE expires_at <= CURRENT_TIMESTAMP
-        """)
-        cur.execute("""
-            INSERT INTO server_sessions (session_id, user_id, session_data_json, expires_at, updated_at)
-            VALUES (%s, %s, %s, %s, CURRENT_TIMESTAMP)
+            INSERT INTO server_sessions (
+                session_id, user_id, session_data_json, expires_at, updated_at, last_accessed_at
+            )
+            VALUES (%s, %s, %s, %s, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
             ON CONFLICT (session_id)
             DO UPDATE SET
                 user_id = EXCLUDED.user_id,
                 session_data_json = EXCLUDED.session_data_json,
                 expires_at = EXCLUDED.expires_at,
-                updated_at = CURRENT_TIMESTAMP
+                updated_at = CURRENT_TIMESTAMP,
+                last_accessed_at = CURRENT_TIMESTAMP
         """, (session_id, user_id, json.dumps(data or {}), expires_at))
         conn.commit()
+    except Exception as e:
+        conn.rollback()
+        raise e
+    finally:
+        conn.close()
+
+
+def touch_server_session(session_id, expires_at=None, touch_threshold_seconds=300):
+    touch_threshold_seconds = max(30, int(touch_threshold_seconds or 300))
+    conn = get_db()
+    try:
+        cur = dict_cursor(conn)
+        if expires_at is None:
+            # FOR UPDATE SKIP LOCKED: under rapid concurrent clicks, multiple
+            # workers call touch_server_session for the same session_id
+            # simultaneously.  Without SKIP LOCKED they all queue on the same
+            # row lock, serialising requests and inflating response times.
+            # With SKIP LOCKED, all but the first worker skip the update
+            # (rowcount = 0) and return immediately — the first worker's touch
+            # is sufficient.
+            cur.execute("""
+                UPDATE server_sessions
+                SET last_accessed_at = CURRENT_TIMESTAMP,
+                    updated_at = CURRENT_TIMESTAMP
+                WHERE session_id = %s
+                  AND (
+                    last_accessed_at IS NULL
+                    OR last_accessed_at <= CURRENT_TIMESTAMP - (%s * INTERVAL '1 second')
+                  )
+                  AND ctid = (
+                    SELECT ctid FROM server_sessions
+                    WHERE session_id = %s
+                    FOR UPDATE SKIP LOCKED
+                    LIMIT 1
+                  )
+            """, (session_id, touch_threshold_seconds, session_id))
+        else:
+            cur.execute("""
+                UPDATE server_sessions
+                SET expires_at = %s,
+                    last_accessed_at = CURRENT_TIMESTAMP,
+                    updated_at = CURRENT_TIMESTAMP
+                WHERE session_id = %s
+                  AND (
+                    last_accessed_at IS NULL
+                    OR last_accessed_at <= CURRENT_TIMESTAMP - (%s * INTERVAL '1 second')
+                    OR expires_at < %s
+                  )
+                  AND ctid = (
+                    SELECT ctid FROM server_sessions
+                    WHERE session_id = %s
+                    FOR UPDATE SKIP LOCKED
+                    LIMIT 1
+                  )
+            """, (expires_at, session_id, touch_threshold_seconds, expires_at, session_id))
+        conn.commit()
+        return cur.rowcount > 0
     except Exception as e:
         conn.rollback()
         raise e
@@ -1096,6 +1167,31 @@ def delete_server_session(session_id):
     try:
         cur = dict_cursor(conn)
         cur.execute("DELETE FROM server_sessions WHERE session_id = %s", (session_id,))
+        conn.commit()
+    except Exception as e:
+        conn.rollback()
+        raise e
+    finally:
+        conn.close()
+
+
+def expire_server_session_soon(session_id, seconds):
+    """Shorten a session's TTL to `seconds` from now (rotation grace period).
+
+    Only shortens — never extends — so an already-expired row is not
+    accidentally revived, and a long-lived session is not truncated beyond
+    what was asked.
+    """
+    conn = get_db()
+    try:
+        cur = dict_cursor(conn)
+        cur.execute("""
+            UPDATE server_sessions
+            SET expires_at  = CURRENT_TIMESTAMP + (%s * INTERVAL '1 second'),
+                updated_at  = CURRENT_TIMESTAMP
+            WHERE session_id = %s
+              AND expires_at > CURRENT_TIMESTAMP + (%s * INTERVAL '1 second')
+        """, (seconds, session_id, seconds))
         conn.commit()
     except Exception as e:
         conn.rollback()
@@ -1125,51 +1221,118 @@ def delete_user_server_sessions(user_id, exclude_session_id=None):
     finally:
         conn.close()
 
-# ========================================
-# PETITION OPERATIONS
-# ========================================
 
-def generate_sno(received_at):
-    """Generate serial number like VIG/PO/2025/0001"""
+def bump_user_session_version(user_id):
     conn = get_db()
     try:
         cur = dict_cursor(conn)
-        cur.execute("SELECT nextval('petition_sno_seq')")
-        seq = cur.fetchone()['nextval']
-        
-        office_codes = {
-            'jmd_office': 'PO',
-            'cvo_apspdcl_tirupathi': 'SPDCL',
-            'cvo_apepdcl_vizag': 'EPDCL',
-            'cvo_apcpdcl_vijayawada': 'CPDCL'
-        }
-        office = office_codes.get(received_at, 'VIG')
-        year = datetime.now().year
-        sno = f"VIG/{office}/{year}/{seq:04d}"
+        cur.execute("""
+            UPDATE users
+            SET session_version = session_version + 1,
+                updated_at = CURRENT_TIMESTAMP
+            WHERE id = %s
+            RETURNING session_version
+        """, (user_id,))
+        row = cur.fetchone()
         conn.commit()
-        return sno
+        return int((row or {}).get('session_version') or 0)
     except Exception as e:
         conn.rollback()
         raise e
     finally:
         conn.close()
 
+
+def get_server_session_health_stats():
+    conn = get_db()
+    try:
+        cur = dict_cursor(conn)
+        cur.execute("""
+            SELECT
+                COUNT(*)::INT AS total_sessions,
+                COUNT(*) FILTER (WHERE expires_at > CURRENT_TIMESTAMP)::INT AS active_sessions,
+                COUNT(*) FILTER (WHERE expires_at <= CURRENT_TIMESTAMP)::INT AS expired_sessions,
+                COUNT(DISTINCT user_id)::INT FILTER (WHERE user_id IS NOT NULL AND expires_at > CURRENT_TIMESTAMP) AS active_users,
+                MIN(created_at) AS oldest_session_created_at,
+                MAX(updated_at) AS latest_session_updated_at
+            FROM server_sessions
+        """)
+        row = cur.fetchone() or {}
+        return {
+            'total_sessions': int(row.get('total_sessions') or 0),
+            'active_sessions': int(row.get('active_sessions') or 0),
+            'expired_sessions': int(row.get('expired_sessions') or 0),
+            'active_users': int(row.get('active_users') or 0),
+            'oldest_session_created_at': row.get('oldest_session_created_at'),
+            'latest_session_updated_at': row.get('latest_session_updated_at'),
+        }
+    finally:
+        conn.close()
+
+
+def prune_user_server_sessions(user_id, max_sessions, keep_session_id=None):
+    max_sessions = max(1, int(max_sessions or 1))
+    conn = get_db()
+    try:
+        cur = dict_cursor(conn)
+        if keep_session_id:
+            keep_other_count = max(0, max_sessions - 1)
+            cur.execute("""
+                DELETE FROM server_sessions
+                WHERE session_id IN (
+                    SELECT session_id
+                    FROM server_sessions
+                    WHERE user_id = %s AND session_id <> %s
+                    ORDER BY updated_at DESC, created_at DESC, session_id DESC
+                    OFFSET %s
+                )
+            """, (user_id, keep_session_id, keep_other_count))
+        else:
+            cur.execute("""
+                DELETE FROM server_sessions
+                WHERE session_id IN (
+                    SELECT session_id
+                    FROM server_sessions
+                    WHERE user_id = %s
+                    ORDER BY updated_at DESC, created_at DESC, session_id DESC
+                    OFFSET %s
+                )
+            """, (user_id, max_sessions))
+        conn.commit()
+    except Exception as e:
+        conn.rollback()
+        raise e
+    finally:
+        conn.close()
+
+# ========================================
+# PETITION OPERATIONS
+# ========================================
+
 def create_petition(data, created_by):
     conn = get_db()
     try:
         cur = dict_cursor(conn)
-        sno = generate_sno(data['received_at'])
-        
+
+        # sno is intentionally omitted — the DB trigger generates it atomically.
         cur.execute("""
-            INSERT INTO petitions (sno, efile_no, petitioner_name, contact, place, subject, 
-                petition_type, source_of_petition, received_at, target_cvo, requires_permission, received_date,
-                govt_institution_type, organization, permission_status, enquiry_type, created_by, current_handler_id, status, remarks, ereceipt_no, ereceipt_file)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 'received', %s, %s, %s)
+            INSERT INTO petitions (
+                efile_no, petitioner_name, contact, place, subject,
+                petition_type, source_of_petition, received_at, target_cvo,
+                requires_permission, received_date, govt_institution_type,
+                organization, permission_status, enquiry_type,
+                created_by, current_handler_id, status, remarks,
+                ereceipt_no, ereceipt_file
+            ) VALUES (
+                %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
+                %s, %s, %s, %s, %s, 'received', %s, %s, %s
+            )
             RETURNING id, sno
         """, (
-            sno, data.get('efile_no'), data['petitioner_name'], data.get('contact'),
-            data.get('place'), data['subject'], data['petition_type'], data.get('source_of_petition', 'public_individual'),
-            data['received_at'], data.get('target_cvo'), 
+            data.get('efile_no'), data['petitioner_name'], data.get('contact'),
+            data.get('place'), data['subject'], data['petition_type'],
+            data.get('source_of_petition', 'public_individual'),
+            data['received_at'], data.get('target_cvo'),
             data.get('requires_permission', False),
             data.get('received_date', date.today()),
             data.get('govt_institution_type'),
@@ -1178,16 +1341,21 @@ def create_petition(data, created_by):
             data.get('enquiry_type', ''),
             created_by, created_by, data.get('remarks'),
             data.get('ereceipt_no'),
-            data.get('ereceipt_file')
+            data.get('ereceipt_file'),
         ))
         result = cur.fetchone()
-        
+        sno = result['sno']
+
         # Log the creation
         cur.execute("""
-            INSERT INTO petition_tracking (petition_id, from_user_id, from_role, action, status_after, comments)
-            VALUES (%s, %s, (SELECT role FROM users WHERE id = %s), 'Petition Created', 'received', %s)
+            INSERT INTO petition_tracking (
+                petition_id, from_user_id, from_role, action, status_after, comments
+            ) VALUES (
+                %s, %s, (SELECT role FROM users WHERE id = %s),
+                'Petition Created', 'received', %s
+            )
         """, (result['id'], created_by, created_by, f"Petition {sno} created"))
-        
+
         conn.commit()
         return dict(result)
     except Exception as e:
@@ -1642,9 +1810,26 @@ def get_petitions_for_user(user_id, user_role, cvo_office=None, status_filter=No
         if user_role == 'super_admin':
             pass  # See all
         elif user_role == 'data_entry':
-            pass  # Data entry sees all petitions for assignment tracking
+            # Data entry sees only petitions they created.
+            conditions.append("p.created_by = %s")
+            params.append(user_id)
+        elif user_role == 'jmd':
+            # JMD sees petitions at JMD/PO review stages or explicitly assigned to them.
+            conditions.append(
+                "(p.status IN ('forwarded_to_jmd', 'forwarded_to_po',"
+                " 'conclusion_given', 'action_instructed', 'action_taken',"
+                " 'lodged', 'closed')"
+                " OR p.current_handler_id = %s)"
+            )
+            params.append(user_id)
         elif user_role == 'po' and not is_beyond_sla_filter:
-            conditions.append("(p.status IN ('forwarded_to_po', 'forwarded_to_jmd', 'sent_for_permission', 'action_taken', 'lodged', 'sent_back_for_reenquiry') OR p.current_handler_id = %s OR p.requires_permission = FALSE)")
+            conditions.append(
+                "(p.status IN ('sent_for_permission', 'permission_approved',"
+                " 'permission_rejected', 'forwarded_to_po', 'forwarded_to_jmd',"
+                " 'conclusion_given', 'action_instructed', 'action_taken',"
+                " 'lodged', 'closed', 'sent_back_for_reenquiry')"
+                " OR p.current_handler_id = %s)"
+            )
             params.append(user_id)
         elif user_role in ('cmd_apspdcl', 'cmd_apepdcl', 'cmd_apcpdcl', 'cgm_hr_transco'):
             cmd_office_map = {'cmd_apspdcl': 'apspdcl', 'cmd_apepdcl': 'apepdcl', 'cmd_apcpdcl': 'apcpdcl', 'cgm_hr_transco': 'headquarters'}
@@ -1695,6 +1880,76 @@ def get_petitions_for_user(user_id, user_role, cvo_office=None, status_filter=No
         return rows
     finally:
         conn.close()
+
+def can_user_access_petition(user_id, user_role, cvo_office, petition_id):
+    """Return True iff the given user's role allows them to see petition_id.
+
+    Mirrors the WHERE conditions of get_petitions_for_user() but issues a
+    single-row query so it is fast enough for per-request access checks.
+    super_admin sees every petition; all other roles are scoped.
+    """
+    conn = get_db()
+    try:
+        cur = dict_cursor(conn)
+        conditions = ["p.id = %s"]
+        params = [int(petition_id)]
+
+        if user_role == 'super_admin':
+            pass  # no extra conditions
+        elif user_role == 'data_entry':
+            conditions.append("p.created_by = %s")
+            params.append(user_id)
+        elif user_role == 'po':
+            conditions.append(
+                "(p.status IN ('sent_for_permission', 'permission_approved',"
+                " 'permission_rejected', 'forwarded_to_po', 'forwarded_to_jmd',"
+                " 'conclusion_given', 'action_instructed', 'action_taken',"
+                " 'lodged', 'closed', 'sent_back_for_reenquiry')"
+                " OR p.current_handler_id = %s)"
+            )
+            params.append(user_id)
+        elif user_role == 'jmd':
+            conditions.append(
+                "(p.status IN ('forwarded_to_jmd', 'forwarded_to_po',"
+                " 'conclusion_given', 'action_instructed', 'action_taken',"
+                " 'lodged', 'closed')"
+                " OR p.current_handler_id = %s)"
+            )
+            params.append(user_id)
+        elif user_role in ('cmd_apspdcl', 'cmd_apepdcl', 'cmd_apcpdcl', 'cgm_hr_transco'):
+            cmd_office_map = {
+                'cmd_apspdcl': 'apspdcl', 'cmd_apepdcl': 'apepdcl',
+                'cmd_apcpdcl': 'apcpdcl', 'cgm_hr_transco': 'headquarters',
+            }
+            conditions.append(
+                "p.status IN ('action_instructed', 'action_taken')"
+                " AND (p.current_handler_id = %s OR p.target_cvo = %s)"
+            )
+            params.extend([user_id, cmd_office_map[user_role]])
+        elif user_role in ('cvo_apspdcl', 'cvo_apepdcl', 'cvo_apcpdcl', 'dsp'):
+            targets = _target_cvos_for_cvo_role(user_role)
+            if not targets:
+                return False
+            elif len(targets) == 1:
+                conditions.append("p.target_cvo = %s")
+                params.append(targets[0])
+            else:
+                placeholders = ', '.join(['%s'] * len(targets))
+                conditions.append(f"p.target_cvo IN ({placeholders})")
+                params.extend(targets)
+        elif user_role == 'inspector':
+            conditions.append("p.assigned_inspector_id = %s")
+            params.append(user_id)
+        else:
+            # Unknown role — deny by default.
+            return False
+
+        sql = "SELECT 1 FROM petitions p WHERE " + " AND ".join(conditions) + " LIMIT 1"
+        cur.execute(sql, tuple(params))
+        return cur.fetchone() is not None
+    finally:
+        conn.close()
+
 
 def get_all_petitions(status_filter=None, enquiry_mode='all'):
     conn = get_db()
@@ -2976,6 +3231,16 @@ def _build_role_kpi_cards(user_role, petitions, user_id=None):
             {'label': 'Pending for Action', 'value': counts.get('action_instructed', 0), 'metric': 'status:action_instructed', 'style': 'stat-warning'},
             {'label': 'Action Report Submitted', 'value': counts.get('action_taken', 0), 'metric': 'status:action_taken', 'style': 'stat-success'},
         ]
+    if user_role == 'jmd':
+        return [
+            {'label': 'Received for Review', 'value': counts.get('forwarded_to_jmd', 0), 'metric': 'status:forwarded_to_jmd', 'style': 'stat-primary'},
+            {'label': 'Pending at PO', 'value': counts.get('forwarded_to_po', 0), 'metric': 'status:forwarded_to_po', 'style': 'stat-info'},
+            {'label': 'Conclusions Given', 'value': counts.get('conclusion_given', 0), 'metric': 'status:conclusion_given', 'style': 'stat-success'},
+            {'label': 'Actions Instructed', 'value': counts.get('action_instructed', 0), 'metric': 'status:action_instructed', 'style': 'stat-warning'},
+            {'label': 'Action Taken', 'value': counts.get('action_taken', 0), 'metric': 'status:action_taken', 'style': 'stat-success'},
+            {'label': 'Lodged', 'value': counts.get('lodged', 0), 'metric': 'status:lodged', 'style': 'stat-amber'},
+            {'label': 'Closed', 'value': counts.get('closed', 0), 'metric': 'status:closed', 'style': 'stat-violet'},
+        ]
     if user_role == 'inspector':
         return [
             {'label': 'Assigned', 'value': counts.get('assigned_to_inspector', 0), 'metric': 'status:assigned_to_inspector', 'style': 'stat-primary'},
@@ -2985,10 +3250,9 @@ def _build_role_kpi_cards(user_role, petitions, user_id=None):
         ]
     if user_role == 'data_entry':
         return [
-            {'label': 'Received', 'value': counts.get('received', 0), 'metric': 'status:received', 'style': 'stat-primary'},
-            {'label': 'Forwarded to CVO/DSP', 'value': counts.get('forwarded_to_cvo', 0), 'metric': 'status:forwarded_to_cvo', 'style': 'stat-info'},
-            {'label': 'Sent for Permission', 'value': counts.get('sent_for_permission', 0), 'metric': 'status:sent_for_permission', 'style': 'stat-warning'},
-            {'label': 'Lodged', 'value': counts.get('lodged', 0), 'metric': 'status:lodged', 'style': 'stat-amber'},
+            {'label': 'Petitions Entered', 'value': len(petitions), 'metric': 'all', 'style': 'stat-primary'},
+            {'label': 'Pending at CVO/DSP', 'value': counts.get('forwarded_to_cvo', 0), 'metric': 'status:forwarded_to_cvo', 'style': 'stat-info'},
+            {'label': 'Closed', 'value': counts.get('closed', 0), 'metric': 'status:closed', 'style': 'stat-violet'},
         ]
     return [
         {'label': 'Total', 'value': len(petitions), 'metric': 'all', 'style': 'stat-primary'},
@@ -3581,14 +3845,14 @@ def _resolve_sla_row_officer(row, user_roles=None):
 
 
 def get_sla_dashboard_data_for_user(user_role, user_id=None, cvo_office=None):
+    # inspector has no SLA dashboard access — return empty result.
+    if user_role == 'inspector':
+        return {'summary': {}, 'employees': [], 'petitions': []}
+
     petitions = get_petitions_for_user(user_id, user_role, cvo_office, status_filter=None)
-    if user_role == 'data_entry' and user_id:
-        # In SLA dashboard, DEO should only see petitions related to their own login.
-        petitions = [
-            p for p in petitions
-            if int(p.get('created_by') or 0) == int(user_id)
-            or int(p.get('current_handler_id') or 0) == int(user_id)
-        ]
+    # data_entry: get_petitions_for_user already scopes to created_by=user_id.
+    # No further post-filter needed; just suppress the employee breakdown below.
+
     eval_rows = get_sla_evaluation_rows(petitions)
     summary = _get_sla_stats_for_petitions(petitions)
     relevant_user_ids = set()
@@ -3600,6 +3864,10 @@ def get_sla_dashboard_data_for_user(user_role, user_id=None, cvo_office=None):
         if iid:
             relevant_user_ids.add(iid)
     user_roles = _get_user_roles_map(list(relevant_user_ids))
+
+    # data_entry sees their own petition summary but no per-officer breakdown.
+    if user_role == 'data_entry':
+        return {'summary': summary, 'employees': [], 'petitions': eval_rows}
 
     privileged_full_access = user_role in ('super_admin', 'po')
     employee_map = {}
@@ -3642,12 +3910,28 @@ def get_sla_dashboard_data_for_user(user_role, user_id=None, cvo_office=None):
         if not row.get('closed_at'):
             bucket['in_progress'] += 1
 
+    _CVO_ROLES = frozenset({'cvo_apspdcl', 'cvo_apepdcl', 'cvo_apcpdcl', 'dsp'})
+
     if not privileged_full_access:
-        # For non-PO/non-super-admin, show only officers in their visibility scope.
-        employee_map = {
-            k: v for k, v in employee_map.items()
-            if int(v.get('total') or 0) > 0 or int(v.get('officer_id') or 0) == int(user_id or 0)
-        }
+        if user_role == 'jmd':
+            # JMD sees CVO-family officers only.
+            employee_map = {
+                k: v for k, v in employee_map.items()
+                if (user_roles.get(k) or v.get('officer_role') or '') in _CVO_ROLES
+                and int(v.get('total') or 0) > 0
+            }
+        elif user_role in _CVO_ROLES:
+            # CVO/DSP: only inspectors under their petition scope (already scoped via petitions).
+            employee_map = {
+                k: v for k, v in employee_map.items()
+                if int(v.get('total') or 0) > 0 or int(v.get('officer_id') or 0) == int(user_id or 0)
+            }
+        else:
+            # All other non-privileged roles: only officers visible in their scope.
+            employee_map = {
+                k: v for k, v in employee_map.items()
+                if int(v.get('total') or 0) > 0 or int(v.get('officer_id') or 0) == int(user_id or 0)
+            }
 
     employees = sorted(
         employee_map.values(),

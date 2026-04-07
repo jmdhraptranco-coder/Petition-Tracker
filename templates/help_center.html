@@ -1,0 +1,99 @@
+{% extends "base.html" %}
+{% block title %}Help Center - Petition Tracker{% endblock %}
+{% block page_title %}Help Center{% endblock %}
+
+{% block content %}
+<div class="card form-mgmt-hero">
+    <div class="card-header">
+        <h2 data-i18n="help.center_title">Help Center</h2>
+    </div>
+    <div class="form-mgmt-hero-body">
+        <p data-i18n="help.center_description">Access user manuals, flowcharts, and training videos from one place.</p>
+    </div>
+</div>
+
+{% set section_meta = {
+    'manual': {'title': 'User Manuals', 'empty': 'No user manuals available yet.'},
+    'flowchart': {'title': 'Flowcharts', 'empty': 'No flowcharts available yet.'},
+    'video': {'title': 'Videos', 'empty': 'No videos available yet.'}
+} %}
+
+{% for section_key, meta in section_meta.items() %}
+<div class="card">
+    <div class="card-header">
+        <h3>{{ meta.title }}</h3>
+        <span class="form-mgmt-count">{{ grouped_resources.get(section_key, [])|length }} items</span>
+    </div>
+    <div class="form-mgmt-grid">
+        {% for resource in grouped_resources.get(section_key, []) %}
+        <article class="form-mgmt-field-card">
+            <div class="form-mgmt-field-head">
+                <strong>{{ resource.title }}</strong>
+                <span class="status-badge status-open">{{ resource.resource_type|replace('_', ' ')|title }}</span>
+            </div>
+            <div class="form-mgmt-field-body">
+                {% if resource.preview_kind == 'pdf' %}
+                <div class="form-group full-width">
+                    <label>Preview</label>
+                    <iframe
+                        src="{{ resource.view_url }}"
+                        title="{{ resource.title }}"
+                        style="width:100%;height:420px;border:1px solid rgba(148,163,184,.25);border-radius:14px;background:#fff;"
+                    ></iframe>
+                </div>
+                {% elif resource.preview_kind == 'image' %}
+                <div class="form-group full-width">
+                    <label>Preview</label>
+                    <img
+                        src="{{ resource.view_url }}"
+                        alt="{{ resource.title }}"
+                        style="max-width:100%;max-height:420px;display:block;border:1px solid rgba(148,163,184,.25);border-radius:14px;background:#fff;object-fit:contain;"
+                    >
+                </div>
+                {% elif resource.preview_kind == 'video' %}
+                <div class="form-group full-width">
+                    <label>Preview</label>
+                    <video
+                        controls
+                        preload="metadata"
+                        style="width:100%;max-height:420px;border:1px solid rgba(148,163,184,.25);border-radius:14px;background:#000;"
+                    >
+                        <source src="{{ resource.view_url }}">
+                        Your browser does not support inline video preview.
+                    </video>
+                </div>
+                {% endif %}
+                <div class="form-group full-width">
+                    <label>Source</label>
+                    <div>{{ 'Uploaded File' if resource.storage_kind == 'upload' else 'External Link' }}</div>
+                </div>
+                {% if resource.uploaded_by_name %}
+                <div class="form-group full-width">
+                    <label>Uploaded By</label>
+                    <div>{{ resource.uploaded_by_name }}</div>
+                </div>
+                {% endif %}
+                {% if resource.created_at %}
+                <div class="form-group full-width">
+                    <label>Added On</label>
+                    <div>{{ resource.created_at.strftime('%d %b %Y %I:%M %p') if resource.created_at else '-' }}</div>
+                </div>
+                {% endif %}
+            </div>
+            <div class="form-mgmt-actions">
+                {% if resource.view_url %}
+                <a href="{{ resource.view_url }}" class="btn btn-primary btn-sm" target="_blank" rel="noopener">
+                    {{ 'Open / Download' if resource.storage_kind == 'upload' else 'Open Link' }}
+                </a>
+                {% else %}
+                <span class="empty-state">File link unavailable.</span>
+                {% endif %}
+            </div>
+        </article>
+        {% else %}
+        <div class="empty-state">{{ meta.empty }}</div>
+        {% endfor %}
+    </div>
+</div>
+{% endfor %}
+{% endblock %}

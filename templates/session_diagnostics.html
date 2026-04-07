@@ -1,0 +1,119 @@
+{% extends "base.html" %}
+{% block title %}Session Diagnostics{% endblock %}
+{% block page_title %}Session Diagnostics{% endblock %}
+
+{% block content %}
+<div class="card">
+  <div class="card-header">
+    <h2>Session Store Health</h2>
+  </div>
+  <div class="form-grid">
+    <div class="form-group">
+      <label>Status</label>
+      <div>{{ health.status or 'unknown' }}</div>
+    </div>
+    <div class="form-group">
+      <label>Store</label>
+      <div>{{ health.store }}</div>
+    </div>
+    <div class="form-group">
+      <label>Active Sessions</label>
+      <div>{{ health.active_sessions if health.active_sessions is defined else '-' }}</div>
+    </div>
+    <div class="form-group">
+      <label>Expired Sessions</label>
+      <div>{{ health.expired_sessions if health.expired_sessions is defined else '-' }}</div>
+    </div>
+    <div class="form-group">
+      <label>Total Sessions</label>
+      <div>{{ health.total_sessions if health.total_sessions is defined else '-' }}</div>
+    </div>
+    <div class="form-group">
+      <label>Expired Ratio</label>
+      <div>{{ health.expired_ratio if health.expired_ratio is defined else '-' }}</div>
+    </div>
+    <div class="form-group">
+      <label>Active Users</label>
+      <div>{{ health.active_users if health.active_users is defined else '-' }}</div>
+    </div>
+    <div class="form-group">
+      <label>Cookie Name</label>
+      <div><code>{{ health.session_cookie_name }}</code></div>
+    </div>
+    <div class="form-group">
+      <label>Cookie Secure</label>
+      <div>{{ 'Yes' if health.session_cookie_secure else 'No' }}</div>
+    </div>
+    <div class="form-group">
+      <label>Cookie SameSite</label>
+      <div>{{ health.session_cookie_samesite }}</div>
+    </div>
+    <div class="form-group">
+      <label>Trust Proxy Headers</label>
+      <div>{{ 'Yes' if health.trust_proxy_headers else 'No' }}</div>
+    </div>
+    <div class="form-group">
+      <label>Touch Threshold</label>
+      <div>{{ health.session_touch_threshold_seconds }} seconds</div>
+    </div>
+    <div class="form-group">
+      <label>Inactivity Timeout</label>
+      <div>{{ health.session_inactivity_minutes }} minutes</div>
+    </div>
+    <div class="form-group">
+      <label>Absolute Timeout</label>
+      <div>{{ health.session_absolute_hours }} hours</div>
+    </div>
+    <div class="form-group">
+      <label>Oldest Session Created</label>
+      <div>{{ health.oldest_session_created_at or '-' }}</div>
+    </div>
+    <div class="form-group">
+      <label>Latest Session Updated</label>
+      <div>{{ health.latest_session_updated_at or '-' }}</div>
+    </div>
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-header">
+    <h2>Recent Session Diagnostics</h2>
+  </div>
+  {% if diagnostics %}
+  <div class="table-responsive">
+    <table class="table">
+      <thead>
+        <tr>
+          <th>Time</th>
+          <th>Event</th>
+          <th>Severity</th>
+          <th>Reason</th>
+          <th>Path</th>
+          <th>Forwarded Proto</th>
+          <th>Secure</th>
+          <th>Host</th>
+          <th>Port</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for item in diagnostics %}
+        <tr>
+          <td>{{ item.ts }}</td>
+          <td><code>{{ item.event_type }}</code></td>
+          <td>{{ item.severity }}</td>
+          <td>{{ item.reason or '-' }}</td>
+          <td>{{ item.path or '-' }}</td>
+          <td>{{ item.forwarded_proto or '-' }}</td>
+          <td>{{ item.request_secure if item.request_secure is defined else '-' }}</td>
+          <td>{{ item.forwarded_host or '-' }}</td>
+          <td>{{ item.forwarded_port or '-' }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <div class="empty-state">No recent session diagnostics recorded.</div>
+  {% endif %}
+</div>
+{% endblock %}

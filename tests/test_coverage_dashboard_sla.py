@@ -441,8 +441,10 @@ def test_sla_dashboard_and_profile_views(monkeypatch):
     assert [employee["officer_id"] for employee in po_dashboard["employees"]] == [302, 201, 303, 301]
 
     data_entry_dashboard = models.get_sla_dashboard_data_for_user("data_entry", 20, "apspdcl")
-    assert len(data_entry_dashboard["petitions"]) == 1
-    assert data_entry_dashboard["employees"][0]["officer_id"] == 201
+    # data_entry has no per-officer breakdown; scoping is handled in get_petitions_for_user.
+    assert data_entry_dashboard["employees"] == []
+    # Petitions list is driven by the (mocked) get_petitions_for_user return value.
+    assert len(data_entry_dashboard["petitions"]) == 3
 
     unauthorized = models.get_sla_employee_profile_for_user("data_entry", 20, "apspdcl", 302)
     assert unauthorized["unauthorized"] is True
