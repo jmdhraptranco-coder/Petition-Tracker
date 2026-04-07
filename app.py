@@ -474,10 +474,6 @@ class DatabaseSessionInterface(SessionInterface):
         if not getattr(session_obj, 'sid', None):
             session_obj.sid = self.generate_sid()
 
-        # _pending_touch is set by _load_current_authenticated_user when it
-        # updates auth_last_seen_at without wanting a full UPSERT (see below).
-        pending_touch = getattr(session_obj, '_pending_touch', False)
-
         expires = self.get_expiration_time(app, session_obj)
         persist_expires = expires
         if persist_expires is not None and getattr(persist_expires, 'tzinfo', None) is not None:
@@ -488,7 +484,8 @@ class DatabaseSessionInterface(SessionInterface):
         lock = _get_sid_save_lock(sid)
         with lock:
             if session_obj.modified or session_obj.new:
-                # Full UPSERT — data actually changed.
+                # Full UPSERT — data actually changed (including auth_last_seen_at
+                # written via session['auth_last_seen_at'] = now_ts on activity bump).
                 _save_server_session_record(
                     sid,
                     dict(session_obj),
@@ -497,17 +494,16 @@ class DatabaseSessionInterface(SessionInterface):
                 )
                 session_obj.last_persisted_expires_at = persist_expires
                 session_obj.last_persisted_accessed_at = datetime.now(timezone.utc).replace(tzinfo=None)
-            elif pending_touch or self.should_set_cookie(app, session_obj):
-                # Touch-only path: update expiry/last_accessed without a full
-                # data write.  This is the normal path for rapid-click requests
-                # that only bumped auth_last_seen_at in-memory.
+            elif self.should_set_cookie(app, session_obj):
+                # Touch-only path: session data is unchanged; only advance the
+                # cookie expiry / last_accessed timestamp in the DB (sliding window).
                 refreshed_expires = persist_expires or (datetime.now(timezone.utc).replace(tzinfo=None) + app.permanent_session_lifetime)
                 touched = _touch_server_session_record(sid, refreshed_expires)
                 if touched:
                     session_obj.last_persisted_expires_at = refreshed_expires
                     session_obj.last_persisted_accessed_at = datetime.now(timezone.utc).replace(tzinfo=None)
 
-        if session_obj.modified or session_obj.new or pending_touch or self.should_set_cookie(app, session_obj):
+        if session_obj.modified or session_obj.new or self.should_set_cookie(app, session_obj):
             response.set_cookie(
                 cookie_name,
                 sid,
@@ -2022,16 +2018,19 @@ def _load_current_authenticated_user(refresh_activity=True):
 
     _sync_session_user_fields(user)
     if refresh_activity and now_ts - last_seen_at >= 30:
-        # Update auth_last_seen_at in-memory WITHOUT triggering session.modified.
-        # Writing via CallbackDict.__setitem__ fires _mark_modified → full DB
-        # UPSERT on every request that crosses the 30-second threshold, which
-        # creates unnecessary write contention under rapid concurrent clicks.
+        # Persist auth_last_seen_at via the normal CallbackDict path so it is
+        # included in the next full UPSERT (session.modified becomes True).
+        # The per-SID write lock in save_session serialises concurrent writers,
+        # so rapid parallel requests do not corrupt the row — the last writer
+        # wins with a very close timestamp.
         #
-        # Instead we bypass the callback (the value is still readable by
-        # subsequent calls within this request) and set _pending_touch so
-        # save_session uses the cheaper touch_server_session path.
-        dict.__setitem__(session, 'auth_last_seen_at', now_ts)
-        session._pending_touch = True
+        # The previous approach (dict.__setitem__ bypass + _pending_touch) left
+        # auth_last_seen_at stale in session_data_json: touch_server_session
+        # updates last_accessed_at/expires_at but NOT the JSON data column, so
+        # every subsequent request reloaded the login-time timestamp and the
+        # inactivity check fired prematurely — the root cause of the flapping
+        # session / "continuous-use logout" bug.
+        session['auth_last_seen_at'] = now_ts
 
     if has_request_context():
         g.current_user = user
@@ -2698,27 +2697,15 @@ def _get_user_by_username_for_auth(username):
 
 
 def _send_login_otp(mobile):
-    if app.config.get('TESTING'):
-        print(f'[OTP] TESTING mode – skipped send. mobile={mobile}', flush=True)
+    if app.config.get('TESTING') or not _internal_auth_api.is_configured():
         return APIResult(True, message='OTP sent.', payload={'source': 'local'})
-    if not _internal_auth_api.is_configured():
-        print(f'[OTP] NOT CONFIGURED – AUTH_API_BASE_URL missing. mobile={mobile}', flush=True)
-        return APIResult(True, message='OTP sent.', payload={'source': 'local'})
-    print(f'[OTP] Sending to mobile={mobile} via {_internal_auth_api.base_url}', flush=True)
-    result = _internal_auth_api.send_otp(mobile)
-    print(f'[OTP] Send result: ok={result.ok} reason={result.reason} message={result.message} payload={result.payload}', flush=True)
-    return result
+    return _internal_auth_api.send_otp(mobile)
 
 
 def _verify_login_otp(mobile, otp_code):
-    if app.config.get('TESTING'):
+    if app.config.get('TESTING') or not _internal_auth_api.is_configured():
         return APIResult(True, message='OTP verified.', payload={'source': 'local'})
-    if not _internal_auth_api.is_configured():
-        print(f'[OTP] NOT CONFIGURED – verify skipped. mobile={mobile}', flush=True)
-        return APIResult(True, message='OTP verified.', payload={'source': 'local'})
-    result = _internal_auth_api.verify_otp(mobile, otp_code)
-    print(f'[OTP] Verify result: ok={result.ok} reason={result.reason} message={result.message} payload={result.payload}', flush=True)
-    return result
+    return _internal_auth_api.verify_otp(mobile, otp_code)
 
 
 def _render_login_page(active_tab='secure', **extra_context):
@@ -2910,8 +2897,12 @@ def inject_globals():
     if isinstance(current_user_name, str) and current_user_name:
         normalized_user_name = re.sub(r'APS?CPDCL', 'APCPDCL', current_user_name, flags=re.IGNORECASE)
         if normalized_user_name != current_user_name:
+            # Display-only normalisation: update the local variable for template
+            # rendering only.  Writing to session here causes a perpetual
+            # modify-revert cycle: _sync_session_user_fields reverts to the DB
+            # value on the next request, this re-normalises, triggering a full
+            # UPSERT on every single request for affected users.
             current_user_name = normalized_user_name
-            session['full_name'] = normalized_user_name
     notification = {
         'received_count': 0,
         'pending_count': 0,

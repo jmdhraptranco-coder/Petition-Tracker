@@ -282,7 +282,6 @@ def begin_pending_login(user: dict[str, Any], mobile: str) -> dict[str, Any]:
         "must_change_password": bool(user.get("must_change_password")),
     }
     session[LOGIN_PENDING_KEY] = state
-    session.modified = True
     return state
 
 
@@ -297,7 +296,6 @@ def begin_reset_password(user: dict[str, Any], mobile: str) -> dict[str, Any]:
         "masked_mobile": mask_mobile(mobile),
     }
     session[RESET_PENDING_KEY] = state
-    session.modified = True
     return state
 
 
@@ -308,7 +306,6 @@ def mark_reset_password_verified() -> dict[str, Any] | None:
     state["otp_verified"] = True
     state["verified_at"] = _session_now()
     session[RESET_PENDING_KEY] = state
-    session.modified = True
     return state
 
 
@@ -404,9 +401,7 @@ def handle_login(context: dict[str, Any]):
                 return _render_login_page_with_state(render_login_page, active_tab="secure")
 
             mobile = normalize_mobile_for_otp(user.get("phone"))
-            print(f'[LOGIN] raw_phone={user.get("phone")!r} normalized_mobile={mobile!r}', flush=True)
             if not mobile:
-                print(f'[LOGIN] No valid mobile – skipping OTP, logging in directly.', flush=True)
                 clear_legacy_login_captcha_session()
                 activate_login_session(user)
                 clear_login_failures()
@@ -450,7 +445,6 @@ def handle_login_verify(context: dict[str, Any]):
         else:
             pending_state["created_at"] = _session_now()
             session[LOGIN_PENDING_KEY] = pending_state
-            session.modified = True
             flash(f"OTP resent to {pending_state['masked_mobile']}.", "info")
         return redirect(url_for("login_verify_otp"))
 
@@ -637,7 +631,6 @@ def handle_forgot_password_resend_otp(context: dict[str, Any]):
 
     state["created_at"] = _session_now()
     session[RESET_PENDING_KEY] = state
-    session.modified = True
     flash(f"OTP resent to {state['masked_mobile']}.", "info")
     return redirect(url_for("forgot_password_verify"))
 
