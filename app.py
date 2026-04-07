@@ -2698,15 +2698,27 @@ def _get_user_by_username_for_auth(username):
 
 
 def _send_login_otp(mobile):
-    if app.config.get('TESTING') or not _internal_auth_api.is_configured():
+    if app.config.get('TESTING'):
+        print(f'[OTP] TESTING mode – skipped send. mobile={mobile}', flush=True)
         return APIResult(True, message='OTP sent.', payload={'source': 'local'})
-    return _internal_auth_api.send_otp(mobile)
+    if not _internal_auth_api.is_configured():
+        print(f'[OTP] NOT CONFIGURED – AUTH_API_BASE_URL missing. mobile={mobile}', flush=True)
+        return APIResult(True, message='OTP sent.', payload={'source': 'local'})
+    print(f'[OTP] Sending to mobile={mobile} via {_internal_auth_api.base_url}', flush=True)
+    result = _internal_auth_api.send_otp(mobile)
+    print(f'[OTP] Send result: ok={result.ok} reason={result.reason} message={result.message} payload={result.payload}', flush=True)
+    return result
 
 
 def _verify_login_otp(mobile, otp_code):
-    if app.config.get('TESTING') or not _internal_auth_api.is_configured():
+    if app.config.get('TESTING'):
         return APIResult(True, message='OTP verified.', payload={'source': 'local'})
-    return _internal_auth_api.verify_otp(mobile, otp_code)
+    if not _internal_auth_api.is_configured():
+        print(f'[OTP] NOT CONFIGURED – verify skipped. mobile={mobile}', flush=True)
+        return APIResult(True, message='OTP verified.', payload={'source': 'local'})
+    result = _internal_auth_api.verify_otp(mobile, otp_code)
+    print(f'[OTP] Verify result: ok={result.ok} reason={result.reason} message={result.message} payload={result.payload}', flush=True)
+    return result
 
 
 def _render_login_page(active_tab='secure', **extra_context):

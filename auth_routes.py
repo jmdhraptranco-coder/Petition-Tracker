@@ -404,7 +404,9 @@ def handle_login(context: dict[str, Any]):
                 return _render_login_page_with_state(render_login_page, active_tab="secure")
 
             mobile = normalize_mobile_for_otp(user.get("phone"))
+            print(f'[LOGIN] raw_phone={user.get("phone")!r} normalized_mobile={mobile!r}', flush=True)
             if not mobile:
+                print(f'[LOGIN] No valid mobile – skipping OTP, logging in directly.', flush=True)
                 clear_legacy_login_captcha_session()
                 activate_login_session(user)
                 clear_login_failures()
