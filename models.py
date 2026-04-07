@@ -1051,7 +1051,7 @@ def get_server_session(session_id):
             SELECT session_id, user_id, session_data_json, expires_at, created_at, updated_at, last_accessed_at
             FROM server_sessions
             WHERE session_id = %s
-              AND (expires_at IS NULL OR expires_at > CURRENT_TIMESTAMP)
+              AND (expires_at IS NULL OR expires_at > (CURRENT_TIMESTAMP AT TIME ZONE 'UTC'))
         """, (session_id,))
         row = cur.fetchone()
         if not row:
@@ -1088,14 +1088,14 @@ def save_server_session(session_id, data, user_id, expires_at):
             INSERT INTO server_sessions (
                 session_id, user_id, session_data_json, expires_at, updated_at, last_accessed_at
             )
-            VALUES (%s, %s, %s, %s, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+            VALUES (%s, %s, %s, %s, (CURRENT_TIMESTAMP AT TIME ZONE 'UTC'), (CURRENT_TIMESTAMP AT TIME ZONE 'UTC'))
             ON CONFLICT (session_id)
             DO UPDATE SET
                 user_id = EXCLUDED.user_id,
                 session_data_json = EXCLUDED.session_data_json,
                 expires_at = EXCLUDED.expires_at,
-                updated_at = CURRENT_TIMESTAMP,
-                last_accessed_at = CURRENT_TIMESTAMP
+                updated_at = (CURRENT_TIMESTAMP AT TIME ZONE 'UTC'),
+                last_accessed_at = (CURRENT_TIMESTAMP AT TIME ZONE 'UTC')
         """, (session_id, user_id, json.dumps(data or {}), expires_at))
         conn.commit()
     except Exception as e:
@@ -1126,24 +1126,24 @@ def touch_server_session(session_id, expires_at=None, touch_threshold_seconds=30
         if expires_at is None:
             cur.execute("""
                 UPDATE server_sessions
-                SET last_accessed_at = CURRENT_TIMESTAMP,
-                    updated_at       = CURRENT_TIMESTAMP
+                SET last_accessed_at = (CURRENT_TIMESTAMP AT TIME ZONE 'UTC'),
+                    updated_at       = (CURRENT_TIMESTAMP AT TIME ZONE 'UTC')
                 WHERE session_id = %s
                   AND (
                     last_accessed_at IS NULL
-                    OR last_accessed_at <= CURRENT_TIMESTAMP - (%s * INTERVAL '1 second')
+                    OR last_accessed_at <= (CURRENT_TIMESTAMP AT TIME ZONE 'UTC') - (%s * INTERVAL '1 second')
                   )
             """, (session_id, touch_threshold_seconds))
         else:
             cur.execute("""
                 UPDATE server_sessions
                 SET expires_at       = %s,
-                    last_accessed_at = CURRENT_TIMESTAMP,
-                    updated_at       = CURRENT_TIMESTAMP
+                    last_accessed_at = (CURRENT_TIMESTAMP AT TIME ZONE 'UTC'),
+                    updated_at       = (CURRENT_TIMESTAMP AT TIME ZONE 'UTC')
                 WHERE session_id = %s
                   AND (
                     last_accessed_at IS NULL
-                    OR last_accessed_at <= CURRENT_TIMESTAMP - (%s * INTERVAL '1 second')
+                    OR last_accessed_at <= (CURRENT_TIMESTAMP AT TIME ZONE 'UTC') - (%s * INTERVAL '1 second')
                     OR expires_at < %s
                   )
             """, (expires_at, session_id, touch_threshold_seconds, expires_at))
@@ -1181,10 +1181,10 @@ def expire_server_session_soon(session_id, seconds):
         cur = dict_cursor(conn)
         cur.execute("""
             UPDATE server_sessions
-            SET expires_at  = CURRENT_TIMESTAMP + (%s * INTERVAL '1 second'),
-                updated_at  = CURRENT_TIMESTAMP
+            SET expires_at  = (CURRENT_TIMESTAMP AT TIME ZONE 'UTC') + (%s * INTERVAL '1 second'),
+                updated_at  = (CURRENT_TIMESTAMP AT TIME ZONE 'UTC')
             WHERE session_id = %s
-              AND expires_at > CURRENT_TIMESTAMP + (%s * INTERVAL '1 second')
+              AND expires_at > (CURRENT_TIMESTAMP AT TIME ZONE 'UTC') + (%s * INTERVAL '1 second')
         """, (seconds, session_id, seconds))
         conn.commit()
     except Exception as e:
@@ -1244,9 +1244,9 @@ def get_server_session_health_stats():
         cur.execute("""
             SELECT
                 COUNT(*)::INT AS total_sessions,
-                COUNT(*) FILTER (WHERE expires_at > CURRENT_TIMESTAMP)::INT AS active_sessions,
-                COUNT(*) FILTER (WHERE expires_at <= CURRENT_TIMESTAMP)::INT AS expired_sessions,
-                COUNT(DISTINCT user_id)::INT FILTER (WHERE user_id IS NOT NULL AND expires_at > CURRENT_TIMESTAMP) AS active_users,
+                COUNT(*) FILTER (WHERE expires_at > (CURRENT_TIMESTAMP AT TIME ZONE 'UTC'))::INT AS active_sessions,
+                COUNT(*) FILTER (WHERE expires_at <= (CURRENT_TIMESTAMP AT TIME ZONE 'UTC'))::INT AS expired_sessions,
+                COUNT(DISTINCT user_id)::INT FILTER (WHERE user_id IS NOT NULL AND expires_at > (CURRENT_TIMESTAMP AT TIME ZONE 'UTC')) AS active_users,
                 MIN(created_at) AS oldest_session_created_at,
                 MAX(updated_at) AS latest_session_updated_at
             FROM server_sessions

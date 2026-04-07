@@ -410,6 +410,7 @@ class DatabaseSessionInterface(SessionInterface):
     def open_session(self, app, request):
         cookie_name = self.get_cookie_name(app)
         sid = request.cookies.get(cookie_name)
+        print(f'[SESSION-OPEN] {request.method} {request.path} cookie_name={cookie_name!r} sid_present={sid is not None} secure_flag={self.get_cookie_secure(app)}', flush=True)
         if not sid:
             return self.session_class(sid=self.generate_sid(), new=True)
         record = _load_server_session_record(sid)
