@@ -1038,57 +1038,6 @@ html[data-theme='light'] .lp-card-footer { color: #8aaad0; }
           </div>
         </form>
 
-<<<<<<< HEAD
-=======
-        {% if pending_login_otp %}
-        <form method="POST" action="{{ url_for('login') }}"
-              data-login-panel="otp" {% if active_login_tab != 'otp' %}style="display:none;"{% endif %}>
-          <input type="hidden" name="login_action" value="verify_otp">
-          <div class="lp-field">
-            <label for="otp_username">Username</label>
-            <div class="lp-input-wrap">
-              <input type="text" id="otp_username" value="{{ pending_login_otp.username }}" readonly>
-              <span class="lp-input-icon">
-                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
-              </span>
-            </div>
-          </div>
-          <div class="lp-field">
-            <label for="otp_code">One-Time Password</label>
-            <div class="lp-input-wrap">
-              <input type="text" id="otp_code" name="otp_code" required
-                     inputmode="numeric" pattern="[0-9]{4,8}" maxlength="8"
-                     autocomplete="one-time-code"
-                     placeholder="Enter OTP">
-              <span class="lp-input-icon">
-                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 1v6"/><path d="M8 3h8"/><rect x="4" y="8" width="16" height="13" rx="2"/><path d="M9 14h6"/><path d="M9 18h6"/></svg>
-              </span>
-            </div>
-          </div>
-          <p class="lp-terms">
-            OTP was sent to <strong>{{ pending_login_otp.masked_phone }}</strong>.
-          </p>
-          <button type="submit" class="lp-btn-primary">
-            Verify OTP
-            <span class="lp-btn-arrow">
-              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
-            </span>
-          </button>
-          <div class="lp-secondary-row" style="display:flex; gap:12px; flex-wrap:wrap;">
-            <button type="submit" class="lp-link" name="otp_action" value="resend" id="loginResendOtpBtn" {% if otp_resend_seconds_remaining > 0 %}disabled{% endif %}>
-              Resend OTP
-            </button>
-            <button type="submit" class="lp-link" name="otp_action" value="cancel">
-              Cancel
-            </button>
-          </div>
-          <p class="lp-terms" id="loginOtpResendNote" {% if otp_resend_seconds_remaining <= 0 %}hidden{% endif %}>
-            You can request a fresh OTP in <span id="loginOtpCountdown">{{ otp_resend_seconds_remaining }}</span>s.
-          </p>
-        </form>
-        {% endif %}
-
->>>>>>> 758ca03415a5b78a729da7a19866c3e078e0e91a
         <div class="lp-divider"></div>
         <div class="lp-card-footer">
           <p data-i18n="login.footer_wing">Vigilance Wing · {{ brand_name }} · © 2026</p>

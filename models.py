@@ -1041,21 +1041,21 @@ def get_server_session(session_id):
     conn = get_db()
     try:
         cur = dict_cursor(conn)
+        # Filter expired rows in SQL so this function is a pure read with no
+        # write lock.  The previous approach issued a DELETE inside this call,
+        # which caused brief write-lock contention under concurrent rapid clicks
+        # (each request competing to delete the same just-expired row).
+        # Cleanup of expired rows is handled by touch_server_session (row-level,
+        # targeted) and the scheduled maintenance query.
         cur.execute("""
             SELECT session_id, user_id, session_data_json, expires_at, created_at, updated_at, last_accessed_at
             FROM server_sessions
             WHERE session_id = %s
+              AND (expires_at IS NULL OR expires_at > CURRENT_TIMESTAMP)
         """, (session_id,))
         row = cur.fetchone()
         if not row:
             return None
-
-        expires_at = row.get('expires_at')
-        if expires_at and expires_at <= datetime.now(timezone.utc).replace(tzinfo=None):
-            cur.execute("DELETE FROM server_sessions WHERE session_id = %s", (session_id,))
-            conn.commit()
-            return None
-
         try:
             data = json.loads(row.get('session_data_json') or '{}')
         except Exception:
@@ -1064,7 +1064,7 @@ def get_server_session(session_id):
             'session_id': row.get('session_id'),
             'user_id': row.get('user_id'),
             'data': data if isinstance(data, dict) else {},
-            'expires_at': expires_at,
+            'expires_at': row.get('expires_at'),
             'created_at': row.get('created_at'),
             'updated_at': row.get('updated_at'),
             'last_accessed_at': row.get('last_accessed_at'),
@@ -1110,49 +1110,43 @@ def touch_server_session(session_id, expires_at=None, touch_threshold_seconds=30
     conn = get_db()
     try:
         cur = dict_cursor(conn)
+        # Idempotent conditional UPDATE: the WHERE clause is the concurrency
+        # guard.  PostgreSQL serialises concurrent UPDATEs to the same row via
+        # its built-in row-level locking — the first touch wins, subsequent
+        # ones within the threshold window find the condition false and affect
+        # 0 rows, returning immediately.
+        #
+        # The previous implementation used a sub-select to obtain the row's
+        # physical tuple identifier (ctid) and combined it with FOR UPDATE
+        # SKIP LOCKED.  That pattern is fragile: VACUUM can relocate a row to a
+        # new page, making the cached ctid stale.  When that happens the UPDATE
+        # matches nothing (rowcount=0) even though the row exists and needs
+        # touching — session expiry silently stops advancing, which ultimately
+        # causes premature logouts.  Removing ctid eliminates that failure mode.
         if expires_at is None:
-            # FOR UPDATE SKIP LOCKED: under rapid concurrent clicks, multiple
-            # workers call touch_server_session for the same session_id
-            # simultaneously.  Without SKIP LOCKED they all queue on the same
-            # row lock, serialising requests and inflating response times.
-            # With SKIP LOCKED, all but the first worker skip the update
-            # (rowcount = 0) and return immediately — the first worker's touch
-            # is sufficient.
             cur.execute("""
                 UPDATE server_sessions
                 SET last_accessed_at = CURRENT_TIMESTAMP,
-                    updated_at = CURRENT_TIMESTAMP
+                    updated_at       = CURRENT_TIMESTAMP
                 WHERE session_id = %s
                   AND (
                     last_accessed_at IS NULL
                     OR last_accessed_at <= CURRENT_TIMESTAMP - (%s * INTERVAL '1 second')
                   )
-                  AND ctid = (
-                    SELECT ctid FROM server_sessions
-                    WHERE session_id = %s
-                    FOR UPDATE SKIP LOCKED
-                    LIMIT 1
-                  )
-            """, (session_id, touch_threshold_seconds, session_id))
+            """, (session_id, touch_threshold_seconds))
         else:
             cur.execute("""
                 UPDATE server_sessions
-                SET expires_at = %s,
+                SET expires_at       = %s,
                     last_accessed_at = CURRENT_TIMESTAMP,
-                    updated_at = CURRENT_TIMESTAMP
+                    updated_at       = CURRENT_TIMESTAMP
                 WHERE session_id = %s
                   AND (
                     last_accessed_at IS NULL
                     OR last_accessed_at <= CURRENT_TIMESTAMP - (%s * INTERVAL '1 second')
                     OR expires_at < %s
                   )
-                  AND ctid = (
-                    SELECT ctid FROM server_sessions
-                    WHERE session_id = %s
-                    FOR UPDATE SKIP LOCKED
-                    LIMIT 1
-                  )
-            """, (expires_at, session_id, touch_threshold_seconds, expires_at, session_id))
+            """, (expires_at, session_id, touch_threshold_seconds, expires_at))
         conn.commit()
         return cur.rowcount > 0
     except Exception as e:

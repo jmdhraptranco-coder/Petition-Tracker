@@ -410,10 +410,26 @@ class DatabaseSessionInterface(SessionInterface):
         if not sid:
             return self.session_class(sid=self.generate_sid(), new=True)
         record = _load_server_session_record(sid)
-        if not record:
-            # The SID may belong to a session that was just rotated.  Check the
-            # in-process grace map before giving up: if found, transparently
-            # adopt the new SID so the concurrent request stays authenticated.
+        if record:
+            # Old row still exists (normal path, or within the rotation grace
+            # window).  Check the grace map: if this SID was recently rotated
+            # AND the new row is already in DB, migrate immediately to the new
+            # SID.  This advances the browser's cookie to the new SID on this
+            # very response, so the old row expiring at the end of the grace
+            # window never causes a logout.
+            #
+            # If the new row does not exist yet (login's save_session hasn't
+            # completed), keep the old SID — the old row is still valid and the
+            # browser will receive the new SID cookie from the login response.
+            forwarded_sid = _resolve_rotation_grace(sid)
+            if forwarded_sid:
+                new_record = _load_server_session_record(forwarded_sid)
+                if new_record:
+                    record = new_record
+                    sid = forwarded_sid
+        else:
+            # Old row is gone (expired or deleted).  Try the grace map: maybe
+            # the SID was just rotated and the new row is already in DB.
             forwarded_sid = _resolve_rotation_grace(sid)
             if forwarded_sid:
                 record = _load_server_session_record(forwarded_sid)
