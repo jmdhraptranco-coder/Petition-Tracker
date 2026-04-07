@@ -99,7 +99,10 @@ if config.TRUST_PROXY_HEADERS:
     # Enforce Secure cookie flag when behind a trusted proxy that terminates
     # TLS.  This prevents Safari from silently dropping session cookies on
     # mixed-protocol transitions during high-frequency clicks.
-    if not app.config.get('SESSION_COOKIE_SECURE'):
+    # Only auto-enable if SESSION_COOKIE_SECURE was not explicitly set in the
+    # environment — honouring SESSION_COOKIE_SECURE=0 lets developers run the
+    # app over plain HTTP on a local network while still using ProxyFix.
+    if os.environ.get('SESSION_COOKIE_SECURE') is None and not app.config.get('SESSION_COOKIE_SECURE'):
         app.config['SESSION_COOKIE_SECURE'] = True
 
 _internal_auth_api = InternalAPI.from_config(config)
@@ -3247,8 +3250,6 @@ def _invalidate_all_user_sessions(user_id: int) -> None:
 @app.route('/auth/request-recovery', methods=['POST'])
 def forgot_password_request():
     g._log_security_event = log_security_event
-    username = (request.form.get('fp_username') or request.form.get('recovery_username') or '').strip()
-    app.logger.info('[PASSWORD-RESET] username=%r form_keys=%s', username, list(request.form.keys()))
     return handle_forgot_password_request(
         {
             'get_user_by_username': _get_user_by_username_for_auth,
