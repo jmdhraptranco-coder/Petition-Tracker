@@ -591,9 +591,14 @@ def handle_forgot_password_verify(context: dict[str, Any]):
     verify_login_otp = context["verify_login_otp"]
 
     state = get_reset_password_state()
-    if not state or state.get("otp_verified"):
+    if not state:
         flash("Your password reset session expired. Please start again.", "warning")
         return redirect(url_for("login", tab="recovery"))
+    # OTP already verified (e.g. user hit Back after submitting, or double-
+    # submitted the form).  Forward them to the set-password step so they don't
+    # lose the verified session and have to restart from scratch.
+    if state.get("otp_verified"):
+        return redirect(url_for("forgot_password_set"))
 
     if request.method == "GET":
         return render_template("password_reset_verify.html", username=state.get("username", ""), masked_mobile=state.get("masked_mobile", ""))
