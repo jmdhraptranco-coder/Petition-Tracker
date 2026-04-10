@@ -304,9 +304,10 @@
 <div class="card">
     <div class="card-header">
         <h3 data-i18n="sla.emp.petitions_with_employee">Petitions with Employee</h3>
+        <button type="button" class="btn btn-xs btn-outline" onclick="exportTableCSV('slaProfileTable', 'sla_employee_petitions.csv')"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-right:4px"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>Export CSV</button>
     </div>
     <div class="sla-profile-table-wrap">
-        <table class="sla-profile-table data-table">
+        <table class="sla-profile-table data-table" id="slaProfileTable">
             <thead>
                 <tr>
                     <th data-i18n="table.sno">S.No</th>
@@ -363,10 +364,13 @@
     <div class="dash-modal-panel">
         <div class="card-header">
             <h3 id="slaEmpDrilldownTitle" data-i18n="sla.emp.drilldown_title">SLA Drilldown</h3>
-            <button class="btn btn-xs btn-outline" type="button" onclick="closeSlaEmpDrilldown()" data-i18n="common.close">Close</button>
+            <div style="display:flex;gap:8px;align-items:center;">
+                <button type="button" class="btn btn-xs btn-outline" onclick="exportTableCSV('slaEmpDrilldownTable', 'sla_emp_drilldown.csv')"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-right:4px"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>Export CSV</button>
+                <button class="btn btn-xs btn-outline" type="button" onclick="closeSlaEmpDrilldown()" data-i18n="common.close">Close</button>
+            </div>
         </div>
         <div class="table-wrapper sla-emp-drill-wrap">
-            <table class="sla-emp-drill-table data-table">
+            <table class="sla-emp-drill-table data-table" id="slaEmpDrilldownTable">
                 <thead>
                     <tr>
                         <th data-i18n="table.sno">S.No</th>

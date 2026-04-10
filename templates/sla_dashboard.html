@@ -463,9 +463,10 @@ html[data-theme='dark'] .state-beyond { color: #fca5a5; background: rgba(220, 38
 <div class="card">
     <div class="card-header">
         <h3 data-i18n="sla.employee_profile_grid">Employee SLA Profile Grid</h3>
+        <button type="button" class="btn btn-xs btn-outline" onclick="exportTableCSV('slaEmployeeTable', 'sla_employee_grid.csv')"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-right:4px"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>Export CSV</button>
     </div>
     <div class="sla-table-wrap">
-        <table class="sla-table data-table">
+        <table class="sla-table data-table" id="slaEmployeeTable">
             <thead>
                 <tr>
                     <th data-i18n="table.sno">#</th>
@@ -522,10 +523,13 @@ html[data-theme='dark'] .state-beyond { color: #fca5a5; background: rgba(220, 38
     <div class="dash-modal-panel">
         <div class="card-header">
             <h3 id="slaDrilldownTitle" data-i18n="sla.drilldown_title">SLA Drilldown</h3>
-            <button class="btn btn-xs btn-outline" type="button" onclick="closeSlaDrilldown()" data-i18n="common.close">Close</button>
+            <div style="display:flex;gap:8px;align-items:center;">
+                <button type="button" class="btn btn-xs btn-outline" onclick="exportTableCSV('slaDrilldownTable', 'sla_drilldown.csv')"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-right:4px"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>Export CSV</button>
+                <button class="btn btn-xs btn-outline" type="button" onclick="closeSlaDrilldown()" data-i18n="common.close">Close</button>
+            </div>
         </div>
         <div class="table-wrapper sla-drill-wrap">
-            <table class="sla-drill-table data-table">
+            <table class="sla-drill-table data-table" id="slaDrilldownTable">
                 <thead>
                     <tr>
                         <th data-i18n="table.sno">S.No</th>

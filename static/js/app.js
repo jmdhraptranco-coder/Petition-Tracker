@@ -952,3 +952,41 @@ function initRippleEffect() {
     });
 }
 
+function exportTableCSV(tableId, filename) {
+    const table = typeof tableId === 'string' ? document.getElementById(tableId) : tableId;
+    if (!table) return;
+
+    const skipCols = new Set();
+    const headers = [];
+    table.querySelectorAll('thead th').forEach((th, i) => {
+        const text = th.textContent.trim().replace(/\s+/g, ' ');
+        headers.push(text);
+        if (!text) skipCols.add(i);
+    });
+
+    const rows = [headers.filter((_, i) => !skipCols.has(i))];
+
+    table.querySelectorAll('tbody tr').forEach(tr => {
+        if (tr.style.display === 'none') return;
+        const cells = tr.querySelectorAll('td');
+        if (cells.length === 1 && cells[0].hasAttribute('colspan')) return;
+        const row = [];
+        cells.forEach((td, i) => {
+            if (skipCols.has(i)) return;
+            row.push(td.textContent.trim().replace(/\s+/g, ' '));
+        });
+        if (row.length) rows.push(row);
+    });
+
+    const csv = rows.map(r => r.map(v => '"' + String(v).replace(/"/g, '""') + '"').join(',')).join('\r\n');
+    const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename || 'export.csv';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+}
+
