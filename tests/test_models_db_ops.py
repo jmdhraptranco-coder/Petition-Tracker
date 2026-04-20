@@ -175,17 +175,6 @@ def test_form_config_and_petition_queries(monkeypatch):
     models.upsert_form_field_config("deo_petition", "subject", "Subject", "text", True, [], 1)
     assert conn.commits == 1
 
-    class _FakeDateTime:
-        @staticmethod
-        def now():
-            return datetime(2026, 2, 17, 10, 0, 0)
-
-    monkeypatch.setattr(models, "datetime", _FakeDateTime)
-    conn, _ = bind_db(monkeypatch, fetchone_items=[{"nextval": 12}])
-    assert models.generate_sno("jmd_office") == "VIG/PO/2026/0012"
-    assert conn.commits == 1
-
-    monkeypatch.setattr(models, "generate_sno", lambda _r: "VIG/PO/2026/0001")
     conn, _ = bind_db(monkeypatch, fetchone_items=[{"id": 1, "sno": "VIG/PO/2026/0001"}])
     out = models.create_petition(
         {
@@ -527,7 +516,6 @@ def test_models_workflow_rollback_paths(monkeypatch):
         lambda: models.update_user_full_name(1, "name"),
         lambda: models.map_inspector_to_cvo(1, 2),
         lambda: models.upsert_form_field_config("deo_petition", "subject", "s", "text", True, [], 1),
-        lambda: models.generate_sno("jmd_office"),
         lambda: models.create_petition({"received_at": "jmd_office", "petitioner_name": "a", "subject": "s", "petition_type": "other"}, 1),
         lambda: models.forward_petition_to_cvo(1, 1, "apspdcl"),
         lambda: models.send_for_permission(1, 1),
@@ -568,10 +556,10 @@ def test_model_kpi_and_sla_remaining_branches(monkeypatch):
     assert models._get_po_permission_given_count(1) == 0
 
     petitions = [{"status": "received"}, {"status": "assigned_to_inspector"}, {"status": "forwarded_to_po"}]
-    assert models._build_role_kpi_cards("super_admin", petitions)[0]["label"] == "Received"
-    assert models._build_role_kpi_cards("cvo_apspdcl", petitions)[0]["label"] == "Received"
-    assert models._build_role_kpi_cards("inspector", petitions)[0]["label"] == "Assigned"
-    assert models._build_role_kpi_cards("data_entry", petitions)[0]["label"] == "Received"
+    assert models._build_role_kpi_cards("super_admin", petitions)[0]["label"] == "Total Petitions"
+    assert models._build_role_kpi_cards("cvo_apspdcl", petitions)[0]["label"] == "Total Petitions"
+    assert models._build_role_kpi_cards("inspector", petitions)[0]["label"] == "Total Petitions"
+    assert models._build_role_kpi_cards("data_entry", petitions)[0]["label"] == "Total Petitions"
 
     rows = [{"assigned_at": None, "closed_at": None, "enquiry_type": "detailed"}]
     cursor = CursorStub(fetchall_items=[rows])

@@ -2011,6 +2011,54 @@ def can_user_access_petition(user_id, user_role, cvo_office, petition_id):
         conn.close()
 
 
+def get_landing_page_aggregate_stats():
+    """Return lightweight aggregate stats for the public landing page.
+
+    This intentionally selects only non-PII columns (status, dates, office
+    keys) so that no petitioner names, contacts, or subjects are loaded into
+    memory for an unauthenticated request.
+    """
+    conn = get_db()
+    try:
+        cur = dict_cursor(conn)
+        cur.execute("""
+            SELECT
+                COUNT(*) AS total,
+                COUNT(*) FILTER (WHERE status = 'closed') AS closed,
+                COUNT(*) FILTER (WHERE status IN (
+                    'forwarded_to_cvo', 'sent_for_permission', 'permission_approved',
+                    'assigned_to_inspector', 'sent_back_for_reenquiry',
+                    'enquiry_in_progress', 'enquiry_report_submitted',
+                    'cvo_comments_added', 'forwarded_to_po', 'forwarded_to_jmd',
+                    'action_instructed'
+                )) AS under_review,
+                COUNT(*) FILTER (
+                    WHERE status = 'closed'
+                      AND updated_at IS NOT NULL
+                      AND updated_at::date = CURRENT_DATE
+                ) AS resolved_today,
+                COUNT(*) FILTER (
+                    WHERE status <> 'closed'
+                      AND received_date IS NOT NULL
+                      AND (CURRENT_DATE - received_date) >= 30
+                ) AS urgent_pending,
+                (
+                    SELECT COUNT(DISTINCT val)
+                    FROM petitions,
+                         LATERAL (VALUES (target_cvo), (received_at)) AS t(val)
+                    WHERE val IS NOT NULL AND BTRIM(val::text) <> ''
+                ) AS offices_covered
+            FROM petitions
+        """)
+        row = cur.fetchone()
+        if not row:
+            return {'total': 0, 'closed': 0, 'under_review': 0,
+                    'resolved_today': 0, 'urgent_pending': 0, 'offices_covered': 0}
+        return {k: int(v or 0) for k, v in dict(row).items()}
+    finally:
+        conn.close()
+
+
 def get_all_petitions(status_filter=None, enquiry_mode='all'):
     conn = get_db()
     try:

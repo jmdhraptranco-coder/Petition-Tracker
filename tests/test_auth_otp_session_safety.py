@@ -1,4 +1,4 @@
-import importlib
+﻿import importlib
 import os
 import sys
 import time
@@ -61,15 +61,13 @@ def _stub_models():
 @pytest.fixture
 def client(monkeypatch):
     monkeypatch.setattr(app_module, "models", _stub_models())
-    monkeypatch.setattr(app_module, "_send_login_otp", lambda mobile: app_module.APIResult(True, message="OTP sent"))
-    monkeypatch.setattr(app_module, "_verify_login_otp", lambda mobile, code: app_module.APIResult(True, message="OTP ok"))
     app_module.app.config["TESTING"] = True
     app_module.TEST_SERVER_SESSION_STORE.clear()
     with app_module.app.test_client() as client:
         yield client
 
 
-def test_login_pending_otp_keeps_same_session_id(client):
+def test_login_rotates_session_after_successful_auth(client):
     client.get("/login")
     with client.session_transaction() as sess:
         sid_before = sess.sid
@@ -86,55 +84,18 @@ def test_login_pending_otp_keeps_same_session_id(client):
     )
 
     assert response.status_code == 302
-    assert "/auth/login/verify" in response.headers["Location"]
-    with client.session_transaction() as sess:
-        assert sess.sid == sid_before
-        assert sess.get("pending_login_auth", {}).get("username") == USER["username"]
-        assert "user_id" not in sess
-
-
-def test_login_rotates_session_only_after_successful_otp_verify(client):
-    client.post(
-        "/login",
-        data={
-            "username": USER["username"],
-            "password": "Pass@1234",
-            "login_action": "credentials",
-            **_set_captcha(client),
-        },
-    )
-    with client.session_transaction() as sess:
-        sid_before_verify = sess.sid
-
-    response = client.post("/auth/login/verify", data={"otp_code": "123456"}, follow_redirects=False)
-
-    assert response.status_code == 302
     assert "/dashboard" in response.headers["Location"]
     with client.session_transaction() as sess:
-        assert sess.sid != sid_before_verify
+        assert sess.sid != sid_before
         assert sess.get("user_id") == USER["id"]
-        assert "pending_login_auth" not in sess
 
 
-def test_password_reset_verification_does_not_create_login_session(client, monkeypatch):
-    now_ts = int(time.time())
+def test_password_reset_does_not_create_login_session(client):
     with client.session_transaction() as sess:
-        sess["pw_reset_state"] = {
-            "created_at": now_ts,
-            "verified_at": None,
-            "otp_verified": False,
-            "user_id": USER["id"],
-            "username": USER["username"],
-            "mobile": USER["phone"],
-            "masked_mobile": "******3210",
-        }
         sid_before = sess.sid
 
-    response = client.post("/auth/forgot-password/verify", data={"otp_code": "123456"}, follow_redirects=False)
+    response = client.get("/auth/forgot-password/set")
 
     assert response.status_code == 302
-    assert "/auth/forgot-password/set" in response.headers["Location"]
     with client.session_transaction() as sess:
-        assert sess.sid == sid_before
-        assert sess.get("pw_reset_state", {}).get("otp_verified") is True
         assert "user_id" not in sess

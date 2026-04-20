@@ -641,11 +641,12 @@ def test_auth_session_helpers_and_decorators(monkeypatch):
         assert "user_id" not in session
 
         session.sid = "old-sid"
-        deleted = []
-        monkeypatch.setattr(app_module, "_delete_server_session_record", lambda sid: deleted.append(sid))
+        expired = []
+        monkeypatch.setattr(app_module, "_expire_server_session_soon", lambda sid, seconds: expired.append(sid))
+        monkeypatch.setattr(app_module, "_register_rotation_grace", lambda old, new: None)
         app_module._rotate_session_identifier()
         assert session.sid != "old-sid"
-        assert deleted == ["old-sid"]
+        assert expired == ["old-sid"]
 
         monkeypatch.setattr(app_module.time, "time", lambda: 12345)
         app_module._activate_login_session(
@@ -723,21 +724,6 @@ def test_login_attempt_cleanup_and_system_setting_defaults(monkeypatch):
 
 def test_model_signup_reset_settings_and_sessions(monkeypatch):
     monkeypatch.setattr(models, "generate_password_hash", lambda pwd: f"h::{pwd}")
-
-    conn, _ = bind_db(monkeypatch, fetchone_items=[{"id": 9}])
-    assert models.create_signup_request("u", "p", "User", "po") == 9
-    assert conn.commits == 1
-
-    bind_db(monkeypatch, fetchall_items=[[{"id": 1, "status": "pending"}]])
-    assert models.get_pending_signup_requests()[0]["id"] == 1
-
-    conn, _ = bind_db(monkeypatch, fetchone_items=[{"id": 1, "status": "pending", "username": "u", "password_hash": "h::p", "full_name": "U", "requested_role": "po", "cvo_office": None, "phone": None, "email": None}, {"id": 7}])
-    assert models.approve_signup_request(1, 99) == 7
-    assert conn.commits == 1
-
-    conn, _ = bind_db(monkeypatch, fetchone_items=[{"status": "pending"}])
-    models.reject_signup_request(1, 88, "no")
-    assert conn.commits == 1
 
     conn, _ = bind_db(monkeypatch, fetchone_items=[{"id": 2, "username": "u"}, {"id": 10}])
     assert models.create_password_reset_request("u", "pass") == 10

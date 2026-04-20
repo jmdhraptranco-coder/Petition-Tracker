@@ -1004,8 +1004,40 @@ html[data-theme='light'] .lp-card-footer { color: #8aaad0; }
               </span>
             </div>
           </div>
+          <div class="lp-field">
+            <label for="recovery_old_password" data-i18n="login.current_password">Current Password</label>
+            <div class="lp-input-wrap">
+              <input type="password" id="recovery_old_password" name="recovery_old_password"
+                     placeholder="Enter your current password" data-i18n-placeholder="login.ph_current_password">
+              <span class="lp-input-icon">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+              </span>
+            </div>
+          </div>
+          <div class="lp-field">
+            <label for="recovery_new_password" data-i18n="login.new_password">New Password</label>
+            <div class="lp-input-wrap">
+              <input type="password" id="recovery_new_password" name="recovery_new_password"
+                     placeholder="Enter new password" data-i18n-placeholder="login.ph_new_password"
+                     minlength="8">
+              <span class="lp-input-icon">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+              </span>
+            </div>
+          </div>
+          <div class="lp-field">
+            <label for="recovery_confirm_password" data-i18n="login.confirm_password">Confirm New Password</label>
+            <div class="lp-input-wrap">
+              <input type="password" id="recovery_confirm_password" name="recovery_confirm_password"
+                     placeholder="Re-enter new password" data-i18n-placeholder="login.ph_confirm_password"
+                     minlength="8">
+              <span class="lp-input-icon">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+              </span>
+            </div>
+          </div>
           <button type="submit" class="lp-btn-primary" data-i18n="login.submit_recovery">
-            Send OTP
+            Reset Password
             <span class="lp-btn-arrow">
               <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
             </span>
@@ -1092,24 +1124,6 @@ document.addEventListener('DOMContentLoaded', function() {
   document.querySelectorAll('.lp-lang-btn').forEach(function(b) {
     b.classList.toggle('lp-lang-active', b.dataset.lang === savedLang);
   });
-
-  var resendBtn = document.getElementById('loginResendOtpBtn');
-  var countdownEl = document.getElementById('loginOtpCountdown');
-  var resendNote = document.getElementById('loginOtpResendNote');
-  var remaining = parseInt(countdownEl ? countdownEl.textContent || '0' : '0', 10);
-  if (resendBtn && countdownEl && resendNote && remaining > 0) {
-    var timer = window.setInterval(function() {
-      remaining -= 1;
-      if (remaining <= 0) {
-        countdownEl.textContent = '0';
-        resendBtn.disabled = false;
-        resendNote.hidden = true;
-        window.clearInterval(timer);
-        return;
-      }
-      countdownEl.textContent = String(remaining);
-    }, 1000);
-  }
 });
 </script>
 {% endblock %}

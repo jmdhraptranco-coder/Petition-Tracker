@@ -1,37 +1,18 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import Any
-import json
 import re
 import time
-import warnings
 
 from flask import current_app, flash, g, redirect, render_template, request, session, url_for
-from itsdangerous import URLSafeSerializer
-
-try:
-    import requests
-    from requests.auth import HTTPBasicAuth
-except Exception:  # pragma: no cover
-    requests = None
-
-    class HTTPBasicAuth:  # type: ignore[override]
-        def __init__(self, *_args: Any, **_kwargs: Any) -> None:
-            pass
-
-try:
-    from urllib3.exceptions import InsecureRequestWarning
-except Exception:  # pragma: no cover
-    InsecureRequestWarning = None
 
 
-LOGIN_PENDING_KEY = "pending_login_auth"
 RESET_PENDING_KEY = "pw_reset_state"
-OTP_TTL_SECONDS = 300
+RESET_TTL_SECONDS = 300
 
 
-def normalize_mobile_for_otp(raw_mobile: str | None) -> str | None:
+def normalize_mobile(raw_mobile: str | None) -> str | None:
     digits = re.sub(r"\D+", "", raw_mobile or "")
     if len(digits) == 12 and digits.startswith("91"):
         digits = digits[2:]
@@ -40,37 +21,8 @@ def normalize_mobile_for_otp(raw_mobile: str | None) -> str | None:
     return None
 
 
-def mask_mobile(mobile: str | None) -> str:
-    normalized = normalize_mobile_for_otp(mobile)
-    if not normalized:
-        return ""
-    return f"******{normalized[-4:]}"
-
-
 def _session_now() -> int:
     return int(time.time())
-
-
-def _message_from_payload(payload: Any) -> str:
-    if isinstance(payload, dict):
-        for key in ("message", "msg", "statusMessage", "error", "reason", "remarks", "response"):
-            value = payload.get(key)
-            if value:
-                return str(value).strip()
-        return json.dumps(payload, ensure_ascii=True, default=str)
-    if payload is None:
-        return ""
-    return str(payload).strip()
-
-
-def _looks_truthy(value: Any) -> bool:
-    if isinstance(value, bool):
-        return value
-    if isinstance(value, (int, float)):
-        return value == 1
-    if isinstance(value, str):
-        return value.strip().lower() in {"1", "ok", "success", "true", "valid", "verified", "y", "yes"}
-    return False
 
 
 @dataclass
@@ -81,154 +33,8 @@ class APIResult:
     payload: Any = None
 
 
-class InternalAPI:
-    def __init__(
-        self,
-        *,
-        base_url: str | None,
-        basic_username: str | None = None,
-        basic_password: str | None = None,
-        verify_ssl: bool = True,
-        timeout_seconds: int = 60,
-        otp_user_id: str | None = None,
-        otp_app_name: str = "ita",
-        otp_message: str = "IT Assets",
-        otp_type: str = "otp",
-    ) -> None:
-        self.base_url = (base_url or "").rstrip("/")
-        self.basic_username = basic_username
-        self.basic_password = basic_password
-        self.verify_ssl = bool(verify_ssl)
-        self.timeout_seconds = int(timeout_seconds)
-        self.otp_user_id = str(otp_user_id or "").strip()
-        self.otp_app_name = (otp_app_name or "ita").strip() or "ita"
-        self.otp_message = (otp_message or "IT Assets").strip() or "IT Assets"
-        self.otp_type = (otp_type or "otp").strip() or "otp"
-
-    @classmethod
-    def from_config(cls, config: Any) -> "InternalAPI":
-        return cls(
-            base_url=getattr(config, "AUTH_API_BASE_URL", None),
-            basic_username=getattr(config, "AUTH_API_BASIC_USERNAME", None),
-            basic_password=getattr(config, "AUTH_API_BASIC_PASSWORD", None),
-            verify_ssl=bool(getattr(config, "AUTH_API_VERIFY_TLS", True)),
-            timeout_seconds=int(getattr(config, "AUTH_API_TIMEOUT_SECONDS", 60)),
-            otp_user_id=getattr(config, "AUTH_API_OTP_USER_ID", None),
-            otp_app_name=getattr(config, "AUTH_API_APP_NAME", "ita"),
-            otp_message=getattr(config, "AUTH_API_OTP_MESSAGE", "IT Assets"),
-            otp_type=getattr(config, "AUTH_API_OTP_TYPE", "otp"),
-        )
-
-    def is_configured(self) -> bool:
-        return bool(self.base_url)
-
-    def _auth(self) -> HTTPBasicAuth | None:
-        if not (self.basic_username and self.basic_password):
-            return None
-        return HTTPBasicAuth(self.basic_username, self.basic_password)
-
-    def _post(self, path: str, payload: dict[str, Any]) -> APIResult:
-        if requests is None:
-            return APIResult(False, reason="auth_api_dependency_missing", message="Authentication client dependency is unavailable.")
-        if not self.is_configured():
-            return APIResult(False, reason="auth_api_unconfigured", message="Authentication service is not configured.")
-        url = f"{self.base_url}{path}"
-        try:
-            if self.verify_ssl or InsecureRequestWarning is None:
-                response = requests.post(
-                    url,
-                    json=payload,
-                    verify=self.verify_ssl,
-                    timeout=self.timeout_seconds,
-                    auth=self._auth(),
-                )
-            else:
-                with warnings.catch_warnings():
-                    warnings.simplefilter("ignore", InsecureRequestWarning)
-                    response = requests.post(
-                        url,
-                        json=payload,
-                        verify=False,
-                        timeout=self.timeout_seconds,
-                        auth=self._auth(),
-                    )
-        except requests.Timeout:
-            return APIResult(False, reason="server_busy", message="Authentication server timed out.")
-        except requests.RequestException:
-            return APIResult(False, reason="server_busy", message="Authentication server is unavailable.")
-
-        try:
-            body = response.json()
-        except ValueError:
-            body = response.text
-
-        if response.status_code >= 500:
-            return APIResult(False, reason="server_busy", message="Authentication server is busy.", payload=body)
-        if response.status_code == 404:
-            # Endpoint not deployed on this server (e.g. quality/staging environment).
-            # Treat as service unavailable so callers can fall through gracefully.
-            return APIResult(False, reason="server_busy", message="Authentication endpoint not available on this server.", payload=body)
-        if response.status_code >= 400:
-            return APIResult(False, reason="invalid_credentials", message=_message_from_payload(body) or "Authentication failed.", payload=body)
-        return APIResult(True, message=_message_from_payload(body), payload=body)
-
-    def send_otp(self, mobile: str) -> APIResult:
-        payload = {
-            "mobileno": mobile,
-            "otpType": self.otp_type,
-            "userId": self.otp_user_id,
-            "appName": self.otp_app_name,
-            "message": self.otp_message,
-        }
-        result = self._post("/sendOTP", payload)
-        if not result.ok:
-            return result
-        message = (result.message or "").lower()
-        if any(token in message for token in ("failed", "error", "unable")):
-            return APIResult(False, reason="server_busy", message=result.message or "Unable to send OTP.", payload=result.payload)
-        return APIResult(True, message=result.message or "OTP sent.", payload=result.payload)
-
-    def verify_otp(self, mobile: str, otp_code: str) -> APIResult:
-        payload = {
-            "mobileno": mobile,
-            "otpcode": otp_code,
-            "userId": self.otp_user_id,
-            "appName": self.otp_app_name,
-        }
-        result = self._post("/verifyOTP", payload)
-        if not result.ok:
-            return result
-        payload_data = result.payload
-        if isinstance(payload_data, dict):
-            for key in ("success", "status", "verified", "valid"):
-                if key in payload_data and _looks_truthy(payload_data.get(key)):
-                    return APIResult(True, message=result.message or "OTP verified.", payload=payload_data)
-        message = (result.message or "").lower()
-        if any(token in message for token in ("expired", "timeout")):
-            return APIResult(False, reason="invalid_otp", message=result.message or "OTP expired.", payload=payload_data)
-        if any(token in message for token in ("invalid", "wrong", "mismatch", "failed")):
-            return APIResult(False, reason="invalid_otp", message=result.message or "Invalid OTP.", payload=payload_data)
-        return APIResult(True, message=result.message or "OTP verified.", payload=payload_data)
-
-
-def clear_pending_login_state() -> None:
-    session.pop(LOGIN_PENDING_KEY, None)
-
-
 def clear_reset_password_state() -> None:
     session.pop(RESET_PENDING_KEY, None)
-
-
-def get_pending_login_state() -> dict[str, Any] | None:
-    state = session.get(LOGIN_PENDING_KEY)
-    if not isinstance(state, dict):
-        return None
-    created_at = int(state.get("created_at") or 0)
-    now_ts = _session_now()
-    if created_at <= 0 or now_ts - created_at > OTP_TTL_SECONDS:
-        clear_pending_login_state()
-        return None
-    return dict(state)
 
 
 def get_reset_password_state() -> dict[str, Any] | None:
@@ -236,52 +42,19 @@ def get_reset_password_state() -> dict[str, Any] | None:
     if not isinstance(state, dict):
         return None
     created_at = int(state.get("created_at") or 0)
-    verified_at = int(state.get("verified_at") or 0)
     now_ts = _session_now()
-    anchor = verified_at or created_at
-    if anchor <= 0 or now_ts - anchor > OTP_TTL_SECONDS:
+    if created_at <= 0 or now_ts - created_at > RESET_TTL_SECONDS:
         clear_reset_password_state()
         return None
     return dict(state)
 
 
-def begin_pending_login(user: dict[str, Any], mobile: str, password: str = "") -> dict[str, Any]:
-    # Encode the password so it's not stored as plaintext in the session DB.
-    serializer = URLSafeSerializer(current_app.secret_key, salt="pending-login-pw")
-    encoded_pw = serializer.dumps(password) if password else ""
+def begin_reset_password(user: dict[str, Any]) -> dict[str, Any]:
     state = {
         "created_at": _session_now(),
         "user_id": int(user["id"]),
         "username": user.get("username") or "",
-        "mobile": mobile,
-        "masked_mobile": mask_mobile(mobile),
-        "must_change_password": bool(user.get("must_change_password")),
-        "pending_password": encoded_pw,
     }
-    session[LOGIN_PENDING_KEY] = state
-    return state
-
-
-def begin_reset_password(user: dict[str, Any], mobile: str) -> dict[str, Any]:
-    state = {
-        "created_at": _session_now(),
-        "verified_at": None,
-        "otp_verified": False,
-        "user_id": int(user["id"]),
-        "username": user.get("username") or "",
-        "mobile": mobile,
-        "masked_mobile": mask_mobile(mobile),
-    }
-    session[RESET_PENDING_KEY] = state
-    return state
-
-
-def mark_reset_password_verified() -> dict[str, Any] | None:
-    state = get_reset_password_state()
-    if not state:
-        return None
-    state["otp_verified"] = True
-    state["verified_at"] = _session_now()
     session[RESET_PENDING_KEY] = state
     return state
 
@@ -301,23 +74,14 @@ def _set_auth_invalid_reason(reason: str, *, username: str | None = None, user_i
 
 
 def _render_login_page_with_state(render_login_page, *, active_tab: str = "secure"):
-    pending_login = get_pending_login_state()
-    reset_state = get_reset_password_state()
     return render_login_page(
         active_tab=active_tab,
-        pending_login_otp=bool(pending_login),
-        pending_login_username=(pending_login or {}).get("username", ""),
-        pending_login_masked_mobile=(pending_login or {}).get("masked_mobile", ""),
-        pending_reset_otp=bool(reset_state and not reset_state.get("otp_verified")),
-        reset_username=(reset_state or {}).get("username", ""),
-        reset_masked_mobile=(reset_state or {}).get("masked_mobile", ""),
     )
 
 
 def handle_login(context: dict[str, Any]):
     render_login_page = context["render_login_page"]
     check_credentials = context["check_internal_credentials"]
-    send_login_otp = context["send_login_otp"]
     get_user_by_username = context["get_user_by_username"]
     clear_legacy_login_captcha_session = context["clear_legacy_login_captcha_session"]
     clear_login_failures = context["clear_login_failures"]
@@ -357,12 +121,9 @@ def handle_login(context: dict[str, Any]):
                 reset_login_captcha()
                 return _render_login_page_with_state(render_login_page, active_tab="secure")
 
-            clear_pending_login_state()
             username = (request.form.get("username") or "").strip()
             password = request.form.get("password") or ""
 
-            # Look up user by username (don't verify password yet — that
-            # happens after OTP verification).
             user = get_user_by_username(username)
 
             if not user or user.get("is_active") is False:
@@ -372,113 +133,28 @@ def handle_login(context: dict[str, Any]):
                 reset_login_captcha()
                 return _render_login_page_with_state(render_login_page, active_tab="secure")
 
-            mobile = normalize_mobile_for_otp(user.get("phone"))
-            if not mobile:
-                # No mobile registered — cannot do OTP, verify credentials
-                # against the local DB directly and login.
-                credential_result = check_credentials(username, password)
-                if not credential_result.ok:
-                    register_login_failure()
-                    _set_auth_invalid_reason(credential_result.reason or "invalid_credentials", username=username, user_id=user.get("id"), flow="login", detail=credential_result.message)
-                    flash(credential_result.message or "Invalid username or password.", "danger")
-                    reset_login_captcha()
-                    return _render_login_page_with_state(render_login_page, active_tab="secure")
-                clear_legacy_login_captcha_session()
-                activate_login_session(user)
-                clear_login_failures()
-                g._log_security_event("auth.login_success", severity="info", auth_factor="password_only_no_registered_phone")
-                flash(f"Welcome, {user['full_name']}!", "success")
-                return redirect(url_for("dashboard"))
-
-            # Send OTP first; password will be verified after OTP confirmation.
-            otp_result = send_login_otp(mobile)
-            if not otp_result.ok:
-                _set_auth_invalid_reason(otp_result.reason or "server_busy", username=username, user_id=user.get("id"), flow="login", detail=otp_result.message)
-                flash(otp_result.message or "Unable to send OTP. Please try again.", "danger")
+            credential_result = check_credentials(username, password)
+            if not credential_result.ok:
+                register_login_failure()
+                _set_auth_invalid_reason(credential_result.reason or "invalid_credentials", username=username, user_id=user.get("id"), flow="login", detail=credential_result.message)
+                flash(credential_result.message or "Invalid username or password.", "danger")
+                reset_login_captcha()
                 return _render_login_page_with_state(render_login_page, active_tab="secure")
 
-            pending_state = begin_pending_login(user, mobile, password=password)
-            g._log_security_event("auth.pending_otp_started", severity="info", flow="login", target_user_id=user.get("id"))
-            flash(f"OTP sent to your registered mobile {pending_state['masked_mobile']}.", "info")
-            return redirect(url_for("login_verify_otp"))
+            clear_legacy_login_captcha_session()
+            clear_login_failures()
+
+            if user.get("must_change_password"):
+                begin_forced_password_change(user)
+                g._log_security_event("auth.first_login_change_required", severity="info", target_user_id=user["id"])
+                return redirect(url_for("first_login_setup"))
+
+            activate_login_session(user)
+            g._log_security_event("auth.login_success", severity="info", auth_factor="password")
+            flash(f"Welcome, {user.get('full_name', 'User')}!", "success")
+            return redirect(url_for("dashboard"))
 
     return _render_login_page_with_state(render_login_page, active_tab="secure")
-
-
-def handle_login_verify(context: dict[str, Any]):
-    send_login_otp = context["send_login_otp"]
-    verify_login_otp = context["verify_login_otp"]
-    check_credentials = context["check_internal_credentials"]
-    get_user_by_username = context["get_user_by_username"]
-    clear_legacy_login_captcha_session = context["clear_legacy_login_captcha_session"]
-    clear_login_failures = context["clear_login_failures"]
-    register_login_failure = context["register_login_failure"]
-    activate_login_session = context["activate_login_session"]
-    begin_forced_password_change = context["begin_forced_password_change"]
-
-    pending_state = get_pending_login_state()
-    if not pending_state:
-        flash("Your verification session expired. Please login again.", "warning")
-        return redirect(url_for("login"))
-
-    if request.method == "POST" and (request.form.get("login_action") or "").strip().lower() == "resend_otp":
-        otp_result = send_login_otp(pending_state["mobile"])
-        if not otp_result.ok:
-            _set_auth_invalid_reason(otp_result.reason or "server_busy", username=pending_state.get("username"), user_id=pending_state.get("user_id"), flow="login_resend", detail=otp_result.message)
-            flash(otp_result.message or "Unable to resend OTP.", "danger")
-        else:
-            pending_state["created_at"] = _session_now()
-            session[LOGIN_PENDING_KEY] = pending_state
-            flash(f"OTP resent to {pending_state['masked_mobile']}.", "info")
-        return redirect(url_for("login_verify_otp"))
-
-    if request.method == "POST":
-        otp_code = (request.form.get("otp_code") or "").strip()
-        if not re.fullmatch(r"\d{4,8}", otp_code):
-            flash("Enter a valid OTP.", "warning")
-            return render_template("login_otp_verify.html", username=pending_state.get("username", ""), masked_mobile=pending_state.get("masked_mobile", ""))
-
-        verify_result = verify_login_otp(pending_state["mobile"], otp_code)
-        if not verify_result.ok:
-            _set_auth_invalid_reason(verify_result.reason or "invalid_otp", username=pending_state.get("username"), user_id=pending_state.get("user_id"), flow="login_verify", detail=verify_result.message)
-            flash(verify_result.message or "Invalid OTP.", "danger")
-            return render_template("login_otp_verify.html", username=pending_state.get("username", ""), masked_mobile=pending_state.get("masked_mobile", ""))
-
-        # OTP verified — now check the password against the local DB.
-        encoded_pw = pending_state.get("pending_password") or ""
-        username = pending_state.get("username") or ""
-        try:
-            serializer = URLSafeSerializer(current_app.secret_key, salt="pending-login-pw")
-            stored_password = serializer.loads(encoded_pw) if encoded_pw else ""
-        except Exception:
-            stored_password = ""
-        credential_result = check_credentials(username, stored_password)
-        clear_pending_login_state()
-
-        if not credential_result.ok:
-            register_login_failure()
-            _set_auth_invalid_reason(credential_result.reason or "invalid_credentials", username=username, user_id=pending_state.get("user_id"), flow="login_verify_cred_check", detail=credential_result.message)
-            flash(credential_result.message or "Invalid username or password.", "danger")
-            return redirect(url_for("login"))
-
-        user = get_user_by_username(username)
-        clear_legacy_login_captcha_session()
-        clear_login_failures()
-        if not user or user.get("is_active") is False:
-            _set_auth_invalid_reason("expired_credentials", username=username, user_id=pending_state.get("user_id"), flow="login_finalize", detail="local_user_missing_after_otp")
-            flash("Your account is no longer active. Please contact administrator.", "danger")
-            return redirect(url_for("login"))
-        if user.get("must_change_password"):
-            begin_forced_password_change(user)
-            g._log_security_event("auth.first_login_change_required", severity="info", target_user_id=user["id"])
-            return redirect(url_for("first_login_setup"))
-
-        activate_login_session(user)
-        g._log_security_event("auth.login_success", severity="info", auth_factor="password_plus_otp")
-        flash(f"Welcome, {user['full_name']}!", "success")
-        return redirect(url_for("dashboard"))
-
-    return render_template("login_otp_verify.html", username=pending_state.get("username", ""), masked_mobile=pending_state.get("masked_mobile", ""))
 
 
 def handle_first_login_setup(context: dict[str, Any]):
@@ -513,7 +189,7 @@ def handle_first_login_setup(context: dict[str, Any]):
             flash("Passwords do not match.", "danger")
             return redirect(url_for("first_login_setup"))
 
-        if not normalize_mobile_for_otp(phone):
+        if not normalize_mobile(phone):
             flash("Please enter a valid 10-digit Indian mobile number (starts with 6-9).", "danger")
             return redirect(url_for("first_login_setup"))
 
@@ -543,146 +219,78 @@ def handle_first_login_setup(context: dict[str, Any]):
 
 def handle_forgot_password_request(context: dict[str, Any]):
     get_user_by_username = context["get_user_by_username"]
-    send_login_otp = context["send_login_otp"]
+    check_credentials = context["check_credentials"]
+    validate_password_strength = context["validate_password_strength"]
+    update_password_only = context["update_password_only"]
+    invalidate_user_sessions = context.get("invalidate_user_sessions")
+    invalidate_current_session = context.get("invalidate_current_session")
+    flash_internal_error = context["flash_internal_error"]
 
-    clear_reset_password_state()
     username = (request.form.get("fp_username") or request.form.get("recovery_username") or "").strip()
+    old_password = request.form.get("recovery_old_password") or ""
+    new_password = request.form.get("recovery_new_password") or ""
+    confirm_password = request.form.get("recovery_confirm_password") or ""
+
     if not username:
         flash("Username is required for password reset.", "warning")
         return redirect(url_for("login", tab="recovery"))
 
+    if not old_password:
+        flash("Current password is required for password reset.", "warning")
+        return redirect(url_for("login", tab="recovery"))
+
+    if not new_password:
+        flash("New password is required.", "warning")
+        return redirect(url_for("login", tab="recovery"))
+
     user = get_user_by_username(username)
     if not user or user.get("is_active") is False:
-        _set_auth_invalid_reason("expired_credentials", username=username, flow="password_reset_request", detail="unknown_or_inactive_user")
-        flash("Unable to start password reset for this account.", "warning")
+        _set_auth_invalid_reason("expired_credentials", username=username, flow="password_reset", detail="unknown_or_inactive_user")
+        flash("Invalid username or current password.", "warning")
         return redirect(url_for("login", tab="recovery"))
 
-    mobile = normalize_mobile_for_otp(user.get("phone"))
-    if not mobile:
-        flash("No valid recovery mobile number is registered for this account.", "warning")
+    credential_result = check_credentials(username, old_password)
+    if not credential_result.ok:
+        _set_auth_invalid_reason(credential_result.reason or "invalid_credentials", username=username, user_id=user.get("id"), flow="password_reset", detail="wrong_old_password")
+        flash("Invalid username or current password.", "warning")
         return redirect(url_for("login", tab="recovery"))
 
-    send_result = send_login_otp(mobile)
-    if not send_result.ok:
-        _set_auth_invalid_reason(send_result.reason or "server_busy", username=username, user_id=user.get("id"), flow="password_reset_request", detail=send_result.message)
-        flash(send_result.message or "Unable to send OTP. Please try again.", "danger")
+    if new_password == old_password:
+        flash("New password must be different from the current password.", "danger")
         return redirect(url_for("login", tab="recovery"))
 
-    reset_state = begin_reset_password(user, mobile)
-    g._log_security_event("auth.pending_otp_started", severity="info", flow="password_reset", target_user_id=user.get("id"))
-    flash(f"OTP sent to {reset_state['masked_mobile']}.", "info")
-    return redirect(url_for("forgot_password_verify"))
-
-
-def handle_forgot_password_verify(context: dict[str, Any]):
-    verify_login_otp = context.get("verify_login_otp")
-
-    state = get_reset_password_state()
-    if not state:
-        flash("Your password reset session expired. Please start again.", "warning")
-        return redirect(url_for("login", tab="recovery"))
-    if state.get("otp_verified"):
-        return redirect(url_for("forgot_password_set"))
-
-    if request.method == "GET":
-        return render_template(
-            "password_reset_verify.html",
-            username=state.get("username", ""),
-            masked_mobile=state.get("masked_mobile", ""),
-            use_temp_password=False,
-        )
-
-    otp_code = (request.form.get("otp_code") or "").strip()
-    if not re.fullmatch(r"\d{4,8}", otp_code):
-        flash("Enter a valid OTP.", "warning")
-        return render_template("password_reset_verify.html", username=state.get("username", ""), masked_mobile=state.get("masked_mobile", ""), use_temp_password=False)
-    if not verify_login_otp:
-        flash("Verification service unavailable. Please try again.", "danger")
-        return render_template("password_reset_verify.html", username=state.get("username", ""), masked_mobile=state.get("masked_mobile", ""), use_temp_password=False)
-    verify_result = verify_login_otp(state["mobile"], otp_code)
-    if not verify_result.ok:
-        _set_auth_invalid_reason(verify_result.reason or "invalid_otp", username=state.get("username"), user_id=state.get("user_id"), flow="password_reset_verify", detail=verify_result.message)
-        flash(verify_result.message or "Invalid OTP.", "danger")
-        return render_template("password_reset_verify.html", username=state.get("username", ""), masked_mobile=state.get("masked_mobile", ""), use_temp_password=False)
-
-    mark_reset_password_verified()
-    g._log_security_event("auth.otp_verified", severity="info", flow="password_reset", target_user_id=state.get("user_id"))
-    flash("Verified. Set your new password now.", "success")
-    return redirect(url_for("forgot_password_set"))
-
-
-def handle_forgot_password_resend_otp(context: dict[str, Any]):
-    send_login_otp = context["send_login_otp"]
-
-    state = get_reset_password_state()
-    if not state or state.get("otp_verified"):
-        flash("Your password reset session expired. Please start again.", "warning")
+    if new_password == "Nigaa@123":
+        flash("You cannot use the default password.", "danger")
         return redirect(url_for("login", tab="recovery"))
 
-    send_result = send_login_otp(state["mobile"])
-    if not send_result.ok:
-        _set_auth_invalid_reason(send_result.reason or "server_busy", username=state.get("username"), user_id=state.get("user_id"), flow="password_reset_resend", detail=send_result.message)
-        flash(send_result.message or "Unable to resend OTP.", "danger")
+    ok, err = validate_password_strength(new_password, "New password")
+    if not ok:
+        flash(err, "danger")
         return redirect(url_for("login", tab="recovery"))
 
-    state["created_at"] = _session_now()
-    session[RESET_PENDING_KEY] = state
-    flash(f"OTP resent to {state['masked_mobile']}.", "info")
-    return redirect(url_for("forgot_password_verify"))
+    if new_password != confirm_password:
+        flash("New passwords do not match.", "danger")
+        return redirect(url_for("login", tab="recovery"))
+
+    try:
+        update_password_only(user["id"], new_password)
+    except Exception:
+        flash_internal_error("Unable to update password. Please try again.")
+        return redirect(url_for("login", tab="recovery"))
+
+    if invalidate_user_sessions:
+        invalidate_user_sessions(user["id"])
+
+    g._log_security_event("auth.password_reset_completed", severity="info", target_user_id=user.get("id"))
+
+    if invalidate_current_session:
+        invalidate_current_session(revoke_store=True)
+
+    flash("Password updated successfully. Please login with your new password.", "success")
+    return redirect(url_for("login", pw_reset="ok"), 303)
 
 
 def handle_forgot_password_set(context: dict[str, Any]):
-    validate_password_strength = context["validate_password_strength"]
-    flash_internal_error = context["flash_internal_error"]
-    update_password_only = context["update_password_only"]
-    invalidate_user_sessions = context.get("invalidate_user_sessions")
-    invalidate_current_session = context.get("invalidate_current_session")
-
-    state = get_reset_password_state()
-    if not state or not state.get("otp_verified"):
-        flash("Verify OTP before setting a new password.", "warning")
-        return redirect(url_for("login", tab="recovery"))
-
-    if request.method == "POST":
-        new_password = request.form.get("new_password", "")
-        confirm_password = request.form.get("confirm_password", "")
-
-        if new_password == "Nigaa@123":
-            flash("You cannot reuse the default password.", "danger")
-            return render_template("password_reset_set.html", username=state.get("username", ""))
-
-        ok, err = validate_password_strength(new_password, "New password")
-        if not ok:
-            flash(err, "danger")
-            return render_template("password_reset_set.html", username=state.get("username", ""))
-
-        if new_password != confirm_password:
-            flash("Passwords do not match.", "danger")
-            return render_template("password_reset_set.html", username=state.get("username", ""))
-
-        try:
-            update_password_only(state["user_id"], new_password)
-        except Exception:
-            flash_internal_error("Unable to update password. Please try again.")
-            return render_template("password_reset_set.html", username=state.get("username", ""))
-
-        # Invalidate all existing sessions for this user so hijacked or stale
-        # sessions cannot persist after the password change.
-        if invalidate_user_sessions:
-            invalidate_user_sessions(state["user_id"])
-
-        user_id_for_log = state.get("user_id")
-        clear_reset_password_state()
-        g._log_security_event("auth.password_reset_completed", severity="info", target_user_id=user_id_for_log)
-
-        # Destroy the current session completely so the user starts fresh on
-        # the login page — avoids stale session/token rotation issues.
-        if invalidate_current_session:
-            invalidate_current_session(revoke_store=True)
-
-        # Flash AFTER session invalidation so the message goes into the new
-        # (clean) session, not the destroyed one.
-        flash("Password updated successfully. Please login with your new password.", "success")
-        return redirect(url_for("login", pw_reset="ok"), 303)
-
-    return render_template("password_reset_set.html", username=state.get("username", ""))
+    """Legacy endpoint kept for bookmark/back-button safety — redirects to login."""
+    flash("Please use the password recovery form to reset your password.", "info")
+    return redirect(url_for("login", tab="recovery"))

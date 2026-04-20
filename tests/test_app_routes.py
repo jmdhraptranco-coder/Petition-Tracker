@@ -60,15 +60,17 @@ def test_login_flow_success_and_logout(client, monkeypatch):
         'id': 1, 'username': 'testuser', 'password_hash': 'h::password123',
         'full_name': 'Test User', 'role': 'po', 'is_active': True, 'phone': '1234567890'
     }
-    monkeypatch.setattr('app.models.authenticate_user', lambda u, p: user_data)
-    monkeypatch.setattr('app.models.get_user_by_id', lambda _uid: {
+    full_user = {
         **user_data,
         'cvo_office': None,
         'email': None,
         'profile_photo': None,
         'session_version': 1,
         'must_change_password': False,
-    })
+    }
+    monkeypatch.setattr('app.models.authenticate_user', lambda u, p: user_data)
+    monkeypatch.setattr('app.models.get_user_by_username', lambda u: full_user)
+    monkeypatch.setattr('app.models.get_user_by_id', lambda _uid: full_user)
     with client:
         captcha_token = issue_login_captcha(client, "482753")
 

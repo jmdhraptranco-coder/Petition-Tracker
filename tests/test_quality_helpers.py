@@ -133,10 +133,10 @@ def test_model_count_and_kpi_helpers(monkeypatch):
     assert any(card["label"] == "Permission Given" and card["value"] == 7 for card in po_cards)
 
     cgm_cards = models._build_role_kpi_cards("cgm_hr_transco", petitions)
-    assert len(cgm_cards) == 2
+    assert len(cgm_cards) == 3
 
     fallback_cards = models._build_role_kpi_cards("unknown", petitions)
-    assert fallback_cards[0]["label"] == "Total"
+    assert fallback_cards[0]["label"] == "Total Petitions"
 
 
 def test_workflow_stage_and_drilldown_filters(monkeypatch):

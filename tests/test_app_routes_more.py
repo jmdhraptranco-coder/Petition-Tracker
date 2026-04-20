@@ -175,4 +175,4 @@ def test_legacy_signup_and_password_reset_routes_redirect_to_login(monkeypatch):
 
         reset_response = client.get("/auth/forgot-password/set", follow_redirects=True)
         assert reset_response.status_code == 200
-        assert b"Direct password reset is unavailable." in reset_response.data
+        assert b"Please use the password recovery form to reset your password." in reset_response.data

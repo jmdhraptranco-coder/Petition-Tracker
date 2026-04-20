@@ -53,6 +53,9 @@ class AuthModelsStub:
     def update_password_and_phone(self, user_id, password, phone):
         self._record("update_password_and_phone", user_id=user_id, password=password, phone=phone)
 
+    def update_password_only(self, user_id, password):
+        self._record("update_password_only", user_id=user_id, password=password)
+
 
 def _issue_captcha(client, answer="482753"):
     client.get("/login")
@@ -111,8 +114,8 @@ def test_login_uses_current_user_session_version(monkeypatch):
     stub = AuthModelsStub()
     stub.user = {
         "id": 7,
-        "username": "otpuser",
-        "full_name": "OTP User",
+        "username": "testuser",
+        "full_name": "Test User",
         "role": "po",
         "phone": "919999999999",
         "email": None,
@@ -126,11 +129,9 @@ def test_login_uses_current_user_session_version(monkeypatch):
     app_module.app.config["TESTING"] = True
 
     with app_module.app.test_client() as client:
-        response = _login_post(client, username="otpuser", password="p")
+        response = _login_post(client, username="testuser", password="p")
         assert response.status_code == 302
-        assert "/auth/login/verify" in response.headers["Location"]
-        response = client.post("/auth/login/verify", data={"otp_code": "123456"})
-        assert response.status_code == 302
+        assert "/dashboard" in response.headers["Location"]
         with client.session_transaction() as sess:
             assert sess.get("user_id") == 7
             assert sess.get("session_version") == 5
@@ -208,7 +209,7 @@ def test_login_ignores_unknown_non_credential_actions(monkeypatch):
     app_module.app.config["TESTING"] = True
 
     with app_module.app.test_client() as client:
-        response = client.post("/login", data={"login_action": "verify_otp"})
+        response = client.post("/login", data={"login_action": "unknown_action"})
         assert response.status_code == 200
 
         html = client.get("/login").get_data(as_text=True)

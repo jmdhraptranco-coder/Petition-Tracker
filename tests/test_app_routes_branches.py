@@ -121,7 +121,7 @@ class RichModelsStub:
         return {"id": _uid, "role": "super_admin", "username": "tester", "full_name": "Tester", "cvo_office": None, "phone": None, "email": None, "profile_photo": None, "session_version": 1, "is_active": True}
 
     def get_user_by_username(self, _uname):
-        return {"id": 2, "role": "cvo_apspdcl"}
+        return {"id": 2, "role": "cvo_apspdcl", "username": _uname, "full_name": "CVO User", "cvo_office": "apspdcl", "phone": "9000000001", "email": None, "profile_photo": None, "session_version": 1, "is_active": True}
 
     def get_dashboard_drilldown(self, *_a, **_k):
         return [{"id": 1, "sno": "VIG/PO/2026/0001", "petitioner_name": "X", "subject": "S", "status": "received", "received_date": date(2026, 2, 17)}]

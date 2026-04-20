@@ -109,15 +109,6 @@ class Config:
         self.PROXY_FIX_X_PROTO = max(0, int(os.environ.get('PROXY_FIX_X_PROTO', '1')))
         self.PROXY_FIX_X_HOST = max(0, int(os.environ.get('PROXY_FIX_X_HOST', '1')))
         self.PROXY_FIX_X_PORT = max(0, int(os.environ.get('PROXY_FIX_X_PORT', '1')))
-        self.AUTH_API_BASE_URL = (os.environ.get('AUTH_API_BASE_URL') or '').strip() or None
-        self.AUTH_API_BASIC_USERNAME = (os.environ.get('AUTH_API_BASIC_USERNAME') or '').strip() or None
-        self.AUTH_API_BASIC_PASSWORD = os.environ.get('AUTH_API_BASIC_PASSWORD')
-        self.AUTH_API_VERIFY_TLS = _env_bool('AUTH_API_VERIFY_TLS', not self.IS_PRODUCTION)
-        self.AUTH_API_TIMEOUT_SECONDS = max(5, int(os.environ.get('AUTH_API_TIMEOUT_SECONDS', '60')))
-        self.AUTH_API_OTP_USER_ID = (os.environ.get('AUTH_API_OTP_USER_ID') or '').strip() or None
-        self.AUTH_API_APP_NAME = (os.environ.get('AUTH_API_APP_NAME') or 'ita').strip() or 'ita'
-        self.AUTH_API_OTP_MESSAGE = (os.environ.get('AUTH_API_OTP_MESSAGE') or 'IT Assets').strip() or 'IT Assets'
-        self.AUTH_API_OTP_TYPE = (os.environ.get('AUTH_API_OTP_TYPE') or 'otp').strip() or 'otp'
         self.PETITION_USER_RATE_LIMIT_WINDOW_SECONDS = int(os.environ.get('PETITION_USER_RATE_LIMIT_WINDOW_SECONDS', '300'))
         self.PETITION_USER_RATE_LIMIT_MAX_SUBMISSIONS = int(os.environ.get('PETITION_USER_RATE_LIMIT_MAX_SUBMISSIONS', '10'))
         self.PETITION_USER_RATE_LIMIT_BLOCK_SECONDS = int(os.environ.get('PETITION_USER_RATE_LIMIT_BLOCK_SECONDS', '300'))

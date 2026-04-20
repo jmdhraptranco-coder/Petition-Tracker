@@ -5,16 +5,11 @@ from config import Config
 import models
 from auth_routes import (
     APIResult,
-    InternalAPI,
     handle_first_login_setup,
     handle_forgot_password_request,
-    handle_forgot_password_resend_otp,
     handle_forgot_password_set,
-    handle_forgot_password_verify,
     handle_login,
-    handle_login_verify,
-    mask_mobile as auth_mask_mobile,
-    normalize_mobile_for_otp as auth_normalize_mobile_for_otp,
+    normalize_mobile as auth_normalize_mobile,
 )
 from datetime import datetime, date, timedelta, timezone
 from collections import Counter, deque
@@ -107,7 +102,7 @@ if config.TRUST_PROXY_HEADERS:
     if os.environ.get('SESSION_COOKIE_SECURE') is None and not app.config.get('SESSION_COOKIE_SECURE'):
         app.config['SESSION_COOKIE_SECURE'] = True
 
-_internal_auth_api = InternalAPI.from_config(config)
+
 
 
 # ---------------------------------------------------------------------------
@@ -2356,6 +2351,23 @@ def _can_access_petition(petition_id):
         return False
 
 
+def _is_inspector_in_cvo_scope(inspector_id):
+    """Return True if inspector_id belongs to an active inspector under the
+    current CVO/DSP user's jurisdiction.  super_admin bypasses the check."""
+    role = session.get('user_role')
+    if role == 'super_admin':
+        return True
+    user_id = session.get('user_id')
+    if not user_id or not inspector_id:
+        return False
+    try:
+        allowed = models.get_inspectors_by_cvo(user_id)
+        allowed_ids = {int(i['id']) for i in allowed if i.get('id')}
+        return int(inspector_id) in allowed_ids
+    except Exception:
+        return False
+
+
 def _can_access_cvo_scope(cvo_id):
     role = session.get('user_role')
     try:
@@ -2764,17 +2776,11 @@ def _destroy_current_session():
         _delete_server_session_record(current_sid)
 
 
-def _normalize_mobile_for_otp(raw_mobile):
-    return auth_normalize_mobile_for_otp(raw_mobile)
-
-
-def _mask_mobile(mobile):
-    return auth_mask_mobile(mobile)
+def _normalize_mobile(raw_mobile):
+    return auth_normalize_mobile(raw_mobile)
 
 
 def _check_internal_credentials(username, password):
-    # Credentials are always verified against the local database.
-    # The external API is used exclusively for OTP delivery/verification.
     user = models.authenticate_user(username, password)
     if user:
         return APIResult(True, message='Credentials verified.', payload={'source': 'local', 'user': user})
@@ -2790,18 +2796,6 @@ def _get_user_by_username_for_auth(username):
         if isinstance(candidate, dict) and candidate.get('username') == username:
             return candidate
     return None
-
-
-def _send_login_otp(mobile):
-    if app.config.get('TESTING') or not _internal_auth_api.is_configured():
-        return APIResult(True, message='OTP sent.', payload={'source': 'local'})
-    return _internal_auth_api.send_otp(mobile)
-
-
-def _verify_login_otp(mobile, otp_code):
-    if app.config.get('TESTING') or not _internal_auth_api.is_configured():
-        return APIResult(True, message='OTP verified.', payload={'source': 'local'})
-    return _internal_auth_api.verify_otp(mobile, otp_code)
 
 
 def _render_login_page(active_tab='secure', **extra_context):
@@ -2883,7 +2877,19 @@ def role_required(*roles):
                 current_user = _load_current_authenticated_user(refresh_activity=False)
                 current_role = (current_user or {}).get('role') if isinstance(current_user, dict) else None
             if not current_role or current_role not in roles:
-                log_security_event('access.role_forbidden', severity='warning', required_roles=','.join(roles))
+                log_security_event(
+                    'access.role_forbidden',
+                    severity='warning',
+                    required_roles=','.join(roles),
+                    attempted_role=current_role,
+                    endpoint=request.endpoint if has_request_context() else None,
+                )
+                # Return JSON 403 for API endpoints instead of redirect.
+                if has_request_context() and (
+                    request.path.startswith('/api/')
+                    or request.accept_mimetypes.best == 'application/json'
+                ):
+                    return jsonify({'error': 'Forbidden', 'message': 'You do not have permission to access this resource.'}), 403
                 flash('You do not have permission to access this page.', 'danger')
                 return redirect(url_for('dashboard'))
             return f(*args, **kwargs)
@@ -3088,57 +3094,19 @@ def index():
         'urgent_pending': 0,
     }
     try:
-        petitions = models.get_all_petitions()
-        today = date.today()
-        total_petitions = len(petitions)
-        closed_petitions = sum(1 for p in petitions if p.get('status') == 'closed')
-        office_keys = set()
-        review_statuses = {
-            'forwarded_to_cvo',
-            'sent_for_permission',
-            'permission_approved',
-            'assigned_to_inspector',
-            'sent_back_for_reenquiry',
-            'enquiry_in_progress',
-            'enquiry_report_submitted',
-            'cvo_comments_added',
-            'forwarded_to_po',
-            'forwarded_to_jmd',
-            'action_instructed',
-        }
-        urgent_age_days = 30
-        resolved_today = 0
-        under_review = 0
-        urgent_pending = 0
-
-        for petition in petitions:
-            for key in ('target_cvo', 'received_at'):
-                raw_value = petition.get(key)
-                value = str(raw_value).strip() if raw_value is not None else ''
-                if value:
-                    office_keys.add(value)
-            status = petition.get('status')
-            if status in review_statuses:
-                under_review += 1
-            updated_at = petition.get('updated_at')
-            if status == 'closed' and updated_at and getattr(updated_at, 'date', None):
-                if updated_at.date() == today:
-                    resolved_today += 1
-            if status != 'closed':
-                received_date = petition.get('received_date')
-                if received_date and ((today - received_date).days >= urgent_age_days):
-                    urgent_pending += 1
-
+        agg = models.get_landing_page_aggregate_stats()
+        total_petitions = agg.get('total', 0)
+        closed_petitions = agg.get('closed', 0)
         landing_stats = {
             'petitions_tracked': total_petitions,
-            'offices_covered': len(office_keys),
+            'offices_covered': agg.get('offices_covered', 0),
             'resolution_rate': int(round((closed_petitions / total_petitions) * 100)) if total_petitions else 0,
             'active_monitoring': max(0, total_petitions - closed_petitions),
         }
         live_status = {
-            'resolved_today': resolved_today,
-            'under_review': under_review,
-            'urgent_pending': urgent_pending,
+            'resolved_today': agg.get('resolved_today', 0),
+            'under_review': agg.get('under_review', 0),
+            'urgent_pending': agg.get('urgent_pending', 0),
         }
     except Exception:
         pass
@@ -3186,8 +3154,6 @@ def login():
         {
             'render_login_page': _render_login_page,
             'check_internal_credentials': _check_internal_credentials,
-            'send_login_otp': _send_login_otp,
-            'verify_login_otp': _verify_login_otp,
             'get_user_by_username': _get_user_by_username_for_auth,
             'clear_legacy_login_captcha_session': _clear_legacy_login_captcha_session,
             'clear_login_failures': _clear_login_failures,
@@ -3195,24 +3161,6 @@ def login():
             'is_login_blocked': _is_login_blocked,
             'validate_login_captcha': validate_login_captcha,
             'reset_login_captcha': reset_login_captcha,
-            'activate_login_session': _activate_login_session,
-            'begin_forced_password_change': _begin_forced_password_change,
-        }
-    )
-
-
-@app.route('/auth/login/verify', methods=['GET', 'POST'])
-def login_verify_otp():
-    g._log_security_event = log_security_event
-    return handle_login_verify(
-        {
-            'send_login_otp': _send_login_otp,
-            'verify_login_otp': _verify_login_otp,
-            'check_internal_credentials': _check_internal_credentials,
-            'get_user_by_username': _get_user_by_username_for_auth,
-            'clear_legacy_login_captcha_session': _clear_legacy_login_captcha_session,
-            'clear_login_failures': _clear_login_failures,
-            'register_login_failure': _register_login_failure,
             'activate_login_session': _activate_login_session,
             'begin_forced_password_change': _begin_forced_password_change,
         }
@@ -3347,27 +3295,12 @@ def forgot_password_request():
     return handle_forgot_password_request(
         {
             'get_user_by_username': _get_user_by_username_for_auth,
-            'send_login_otp': _send_login_otp,
-        }
-    )
-
-
-@app.route('/auth/forgot-password/verify', methods=['GET', 'POST'])
-def forgot_password_verify():
-    g._log_security_event = log_security_event
-    return handle_forgot_password_verify(
-        {
-            'verify_login_otp': _verify_login_otp,
-        }
-    )
-
-
-@app.route('/auth/forgot-password/resend-otp', methods=['POST'])
-def forgot_password_resend_otp():
-    g._log_security_event = log_security_event
-    return handle_forgot_password_resend_otp(
-        {
-            'send_login_otp': _send_login_otp,
+            'check_credentials': _check_internal_credentials,
+            'validate_password_strength': validate_password_strength,
+            'update_password_only': models.update_password_only,
+            'invalidate_user_sessions': _invalidate_all_user_sessions,
+            'invalidate_current_session': _invalidate_current_session,
+            'flash_internal_error': flash_internal_error,
         }
     )
 
@@ -3375,15 +3308,7 @@ def forgot_password_resend_otp():
 @app.route('/auth/forgot-password/set', methods=['GET', 'POST'])
 def forgot_password_set():
     g._log_security_event = log_security_event
-    return handle_forgot_password_set(
-        {
-            'validate_password_strength': validate_password_strength,
-            'flash_internal_error': flash_internal_error,
-            'update_password_only': models.update_password_only,
-            'invalidate_user_sessions': _invalidate_all_user_sessions,
-            'invalidate_current_session': _invalidate_current_session,
-        }
-    )
+    return handle_forgot_password_set({})
 
 
 # ── END PASSWORD RESET MODULE ────────────────────────────────────────────────
@@ -4243,6 +4168,7 @@ def _build_analysis_report_data(petitions):
 
 @app.route('/analysis-report')
 @login_required
+@role_required('super_admin', 'po', 'cvo_apspdcl', 'cvo_apepdcl', 'cvo_apcpdcl', 'dsp')
 def analysis_report():
     user_role = session['user_role']
     user_id = session['user_id']
@@ -5072,6 +4998,7 @@ def petition_action(petition_id):
 
         if action == 'forward_to_cvo':
             if user_role not in ('super_admin', 'data_entry'):
+                log_security_event('access.action_forbidden', severity='warning', petition_id=petition_id, action=action)
                 flash('You are not allowed to forward petitions to CVO/DSP.', 'danger')
                 return redirect(url_for('petition_view', petition_id=petition_id))
             target_cvo = (request.form.get('target_cvo') or '').strip()
@@ -5082,8 +5009,9 @@ def petition_action(petition_id):
             flash('Petition forwarded to CVO/DSP successfully.', 'success')
             
         elif action == 'send_for_permission':
-            if user_role not in ('super_admin', 'po'):
-                flash('Only PO can send petitions for permission routing.', 'danger')
+            if user_role not in ('super_admin', 'po', 'cvo_apspdcl', 'cvo_apepdcl', 'cvo_apcpdcl', 'dsp'):
+                log_security_event('access.action_forbidden', severity='warning', petition_id=petition_id, action=action)
+                flash('Only CVO/DSP or PO can send petitions for permission routing.', 'danger')
                 return redirect(url_for('petition_view', petition_id=petition_id))
             petition = models.get_petition_by_id(petition_id)
             if not petition:
@@ -5097,6 +5025,7 @@ def petition_action(petition_id):
 
         elif action in ('cvo_set_enquiry_mode', 'send_receipt_to_po', 'cvo_route_petition'):
             if user_role not in ('super_admin', 'cvo_apspdcl', 'cvo_apepdcl', 'cvo_apcpdcl', 'dsp'):
+                log_security_event('access.action_forbidden', severity='warning', petition_id=petition_id, action=action)
                 flash('Only CVO/DSP can decide enquiry mode.', 'danger')
                 return redirect(url_for('petition_view', petition_id=petition_id))
             petition = models.get_petition_by_id(petition_id)
@@ -5150,6 +5079,10 @@ def petition_action(petition_id):
                     if not inspector_id:
                         flash('Please select a valid field inspector.', 'warning')
                         return redirect(url_for('petition_view', petition_id=petition_id))
+                    if not _is_inspector_in_cvo_scope(inspector_id):
+                        log_security_event('access.inspector_scope_violation', severity='warning', inspector_id=inspector_id)
+                        flash('Selected inspector is not under your jurisdiction.', 'danger')
+                        return redirect(url_for('petition_view', petition_id=petition_id))
                     memo_file = request.files.get('assignment_memo_file')
                     memo_filename = None
                     if memo_file and memo_file.filename:
@@ -5184,6 +5117,7 @@ def petition_action(petition_id):
 
         elif action == 'cvo_direct_lodge':
             if user_role not in ('super_admin', 'cvo_apspdcl', 'cvo_apepdcl', 'cvo_apcpdcl', 'dsp'):
+                log_security_event('access.action_forbidden', severity='warning', petition_id=petition_id, action=action)
                 flash('Only CVO/DSP can directly lodge this petition.', 'danger')
                 return redirect(url_for('petition_view', petition_id=petition_id))
             petition = models.get_petition_by_id(petition_id)
@@ -5208,6 +5142,7 @@ def petition_action(petition_id):
             
         elif action == 'approve_permission':
             if user_role not in ('super_admin', 'po'):
+                log_security_event('access.action_forbidden', severity='warning', petition_id=petition_id, action=action)
                 flash('Only PO can approve permission.', 'danger')
                 return redirect(url_for('petition_view', petition_id=petition_id))
             petition = models.get_petition_by_id(petition_id)
@@ -5261,6 +5196,7 @@ def petition_action(petition_id):
 
         elif action == 'po_beyond_sla_send_to_cvo':
             if user_role not in ('super_admin', 'po'):
+                log_security_event('access.action_forbidden', severity='warning', petition_id=petition_id, action=action)
                 flash('Only PO can process beyond-SLA petitions.', 'danger')
                 return redirect(url_for('petition_view', petition_id=petition_id))
             petition = models.get_petition_by_id(petition_id)
@@ -5333,6 +5269,7 @@ def petition_action(petition_id):
 
         elif action == 'reject_permission':
             if user_role not in ('super_admin', 'po'):
+                log_security_event('access.action_forbidden', severity='warning', petition_id=petition_id, action=action)
                 flash('Only PO can reject permission.', 'danger')
                 return redirect(url_for('petition_view', petition_id=petition_id))
             petition = models.get_petition_by_id(petition_id)
@@ -5350,6 +5287,7 @@ def petition_action(petition_id):
             
         elif action == 'assign_inspector':
             if user_role not in ('super_admin', 'cvo_apspdcl', 'cvo_apepdcl', 'cvo_apcpdcl', 'dsp'):
+                log_security_event('access.action_forbidden', severity='warning', petition_id=petition_id, action=action)
                 flash('Only CVO/DSP can assign inspectors.', 'danger')
                 return redirect(url_for('petition_view', petition_id=petition_id))
             petition = models.get_petition_by_id(petition_id)
@@ -5362,6 +5300,10 @@ def petition_action(petition_id):
             inspector_id = parse_optional_int(request.form.get('inspector_id'))
             if not inspector_id:
                 flash('Please select a valid field inspector.', 'warning')
+                return redirect(url_for('petition_view', petition_id=petition_id))
+            if not _is_inspector_in_cvo_scope(inspector_id):
+                log_security_event('access.inspector_scope_violation', severity='warning', inspector_id=inspector_id)
+                flash('Selected inspector is not under your jurisdiction.', 'danger')
                 return redirect(url_for('petition_view', petition_id=petition_id))
             conversion_reassignment_locked = False
             try:
@@ -5418,6 +5360,7 @@ def petition_action(petition_id):
 
         elif action == 'submit_report':
             if user_role not in ('super_admin', 'inspector'):
+                log_security_event('access.action_forbidden', severity='warning', petition_id=petition_id, action=action)
                 flash('Only inspectors can upload enquiry report.', 'danger')
                 return redirect(url_for('petition_view', petition_id=petition_id))
             petition = models.get_petition_by_id(petition_id)
@@ -5607,6 +5550,7 @@ def petition_action(petition_id):
             
         elif action == 'cvo_comments':
             if user_role not in ('super_admin', 'cvo_apspdcl', 'cvo_apepdcl', 'cvo_apcpdcl', 'dsp'):
+                log_security_event('access.action_forbidden', severity='warning', petition_id=petition_id, action=action)
                 flash('Only CVO/DSP can enter remarks.', 'danger')
                 return redirect(url_for('petition_view', petition_id=petition_id))
             petition = models.get_petition_by_id(petition_id)
@@ -5657,6 +5601,7 @@ def petition_action(petition_id):
 
         elif action == 'cvo_send_back_reenquiry':
             if user_role not in ('super_admin', 'cvo_apspdcl', 'cvo_apepdcl', 'cvo_apcpdcl', 'dsp'):
+                log_security_event('access.action_forbidden', severity='warning', petition_id=petition_id, action=action)
                 flash('Only CVO/DSP can send back for re-enquiry.', 'danger')
                 return redirect(url_for('petition_view', petition_id=petition_id))
             petition = models.get_petition_by_id(petition_id)
@@ -5669,6 +5614,10 @@ def petition_action(petition_id):
             inspector_id = parse_optional_int(request.form.get('inspector_id'))
             if not inspector_id:
                 flash('Please select a valid field inspector.', 'warning')
+                return redirect(url_for('petition_view', petition_id=petition_id))
+            if not _is_inspector_in_cvo_scope(inspector_id):
+                log_security_event('access.inspector_scope_violation', severity='warning', inspector_id=inspector_id)
+                flash('Selected inspector is not under your jurisdiction.', 'danger')
                 return redirect(url_for('petition_view', petition_id=petition_id))
             reenquiry_reason = request.form.get('comments', '').strip()
             if not reenquiry_reason:
@@ -5684,6 +5633,7 @@ def petition_action(petition_id):
 
         elif action == 'upload_consolidated_report':
             if user_role not in ('super_admin', 'cvo_apspdcl', 'cvo_apepdcl', 'cvo_apcpdcl', 'dsp'):
+                log_security_event('access.action_forbidden', severity='warning', petition_id=petition_id, action=action)
                 flash('Only CVO/DSP can upload consolidated report.', 'danger')
                 return redirect(url_for('petition_view', petition_id=petition_id))
             petition = models.get_petition_by_id(petition_id)
@@ -5721,6 +5671,7 @@ def petition_action(petition_id):
 
         elif action == 'request_detailed_enquiry':
             if user_role not in ('super_admin', 'cvo_apspdcl', 'cvo_apepdcl', 'cvo_apcpdcl', 'dsp'):
+                log_security_event('access.action_forbidden', severity='warning', petition_id=petition_id, action=action)
                 flash('Only CVO/DSP can request detailed enquiry.', 'danger')
                 return redirect(url_for('petition_view', petition_id=petition_id))
             petition = models.get_petition_by_id(petition_id)
@@ -5765,6 +5716,7 @@ def petition_action(petition_id):
             
         elif action == 'give_conclusion':
             if user_role not in ('super_admin', 'po'):
+                log_security_event('access.action_forbidden', severity='warning', petition_id=petition_id, action=action)
                 flash('Only PO can give conclusion.', 'danger')
                 return redirect(url_for('petition_view', petition_id=petition_id))
             petition = models.get_petition_by_id(petition_id)
@@ -5824,6 +5776,7 @@ def petition_action(petition_id):
 
         elif action == 'send_to_cmd':
             if user_role not in ('super_admin', 'po'):
+                log_security_event('access.action_forbidden', severity='warning', petition_id=petition_id, action=action)
                 flash('Only PO can forward petition to CMD/CGM-HR.', 'danger')
                 return redirect(url_for('petition_view', petition_id=petition_id))
             petition = models.get_petition_by_id(petition_id)
@@ -5858,6 +5811,7 @@ def petition_action(petition_id):
 
         elif action == 'po_send_back_reenquiry':
             if user_role not in ('super_admin', 'po'):
+                log_security_event('access.action_forbidden', severity='warning', petition_id=petition_id, action=action)
                 flash('Only PO can send back for re-enquiry.', 'danger')
                 return redirect(url_for('petition_view', petition_id=petition_id))
             petition = models.get_petition_by_id(petition_id)
@@ -5879,6 +5833,7 @@ def petition_action(petition_id):
 
         elif action == 'update_efile_no':
             if user_role not in ('super_admin', 'po'):
+                log_security_event('access.action_forbidden', severity='warning', petition_id=petition_id, action=action)
                 flash('Only PO can update E-Office File No.', 'danger')
                 return redirect(url_for('petition_view', petition_id=petition_id))
             efile_no = request.form.get('efile_no', '').strip()
@@ -5911,6 +5866,7 @@ def petition_action(petition_id):
 
         elif action == 'cmd_submit_action_report':
             if user_role not in ('super_admin', 'cmd_apspdcl', 'cmd_apepdcl', 'cmd_apcpdcl', 'cgm_hr_transco'):
+                log_security_event('access.action_forbidden', severity='warning', petition_id=petition_id, action=action)
                 flash('Only CMD can upload action taken report.', 'danger')
                 return redirect(url_for('petition_view', petition_id=petition_id))
             petition = models.get_petition_by_id(petition_id)
@@ -5966,6 +5922,7 @@ def petition_action(petition_id):
 
         elif action == 'po_lodge':
             if user_role not in ('super_admin', 'po'):
+                log_security_event('access.action_forbidden', severity='warning', petition_id=petition_id, action=action)
                 flash('Only PO can lodge petition.', 'danger')
                 return redirect(url_for('petition_view', petition_id=petition_id))
             petition = models.get_petition_by_id(petition_id)
@@ -5996,6 +5953,7 @@ def petition_action(petition_id):
 
         elif action == 'po_direct_lodge':
             if user_role not in ('super_admin', 'po'):
+                log_security_event('access.action_forbidden', severity='warning', petition_id=petition_id, action=action)
                 flash('Only PO can directly lodge petition.', 'danger')
                 return redirect(url_for('petition_view', petition_id=petition_id))
             petition = models.get_petition_by_id(petition_id)
@@ -6023,6 +5981,7 @@ def petition_action(petition_id):
             
         elif action == 'close':
             if user_role not in ('super_admin', 'po'):
+                log_security_event('access.action_forbidden', severity='warning', petition_id=petition_id, action=action)
                 flash('Only PO can close petition.', 'danger')
                 return redirect(url_for('petition_view', petition_id=petition_id))
             petition = models.get_petition_by_id(petition_id)
@@ -6234,6 +6193,7 @@ def _build_grouped_resources(active_only=True):
 def help_page():
     if request.method == 'POST':
         if session.get('user_role') not in ('super_admin', 'po'):
+            log_security_event('access.help_resource_forbidden', severity='warning', action='help_resource_modify')
             return Response(status=403)
         action = (request.form.get('action') or 'upload').strip()
         if action == 'toggle_active':
@@ -6860,6 +6820,9 @@ def users_upload():
 @login_required
 @role_required('super_admin')
 def user_toggle(user_id):
+    if user_id == session.get('user_id'):
+        flash('You cannot deactivate your own account.', 'danger')
+        return redirect(url_for('users_list'))
     try:
         models.toggle_user_status(user_id)
         flash('User status updated.', 'success')
