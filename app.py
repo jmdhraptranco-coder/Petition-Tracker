@@ -9,6 +9,10 @@ from auth_routes import (
     handle_forgot_password_request,
     handle_forgot_password_set,
     handle_login,
+    handle_otp_send,
+    handle_otp_verify_page,
+    handle_otp_verify,
+    handle_otp_resend,
     normalize_mobile as auth_normalize_mobile,
 )
 from datetime import datetime, date, timedelta, timezone
@@ -2802,7 +2806,7 @@ def _render_login_page(active_tab='secure', **extra_context):
     captcha_image, captcha_token = get_login_captcha(reuse_existing=True)
     captcha_proof = _login_captcha_proof(captcha_token)
     requested_tab = (request.args.get('tab') or active_tab or 'secure').strip().lower()
-    if requested_tab not in {'secure', 'recovery'}:
+    if requested_tab not in {'secure', 'recovery', 'otp'}:
         requested_tab = 'secure'
     return render_template(
         'login.html',
@@ -3205,6 +3209,37 @@ def request_signup():
     return redirect(url_for('login'))
 
 
+# ── OTP LOGIN ROUTES ─────────────────────────────────────────────────────────
+
+@app.route('/auth/otp/send', methods=['POST'])
+def otp_send():
+    g._log_security_event = log_security_event
+    return handle_otp_send({
+        'get_user_by_phone': models.get_user_by_phone,
+        'render_login_page': _render_login_page,
+    })
+
+
+@app.route('/auth/otp/verify', methods=['GET', 'POST'])
+def otp_verify_page():
+    g._log_security_event = log_security_event
+    if request.method == 'POST':
+        return handle_otp_verify({
+            'get_user_by_id': models.get_user_by_id,
+            'activate_login_session': _activate_login_session,
+            'begin_forced_password_change': _begin_forced_password_change,
+        })
+    return handle_otp_verify_page({})
+
+
+@app.route('/auth/otp/resend', methods=['POST'])
+def otp_resend():
+    g._log_security_event = log_security_event
+    return handle_otp_resend({})
+
+# ── END OTP LOGIN ROUTES ─────────────────────────────────────────────────────
+
+
 _DEFAULT_PASSWORD = 'Nigaa@123'
 # ── PASSWORD RESET MODULE ────────────────────────────────────────────────────
 
@@ -3295,12 +3330,7 @@ def forgot_password_request():
     return handle_forgot_password_request(
         {
             'get_user_by_username': _get_user_by_username_for_auth,
-            'check_credentials': _check_internal_credentials,
-            'validate_password_strength': validate_password_strength,
-            'update_password_only': models.update_password_only,
-            'invalidate_user_sessions': _invalidate_all_user_sessions,
-            'invalidate_current_session': _invalidate_current_session,
-            'flash_internal_error': flash_internal_error,
+            'render_login_page': _render_login_page,
         }
     )
 
@@ -3308,7 +3338,15 @@ def forgot_password_request():
 @app.route('/auth/forgot-password/set', methods=['GET', 'POST'])
 def forgot_password_set():
     g._log_security_event = log_security_event
-    return handle_forgot_password_set({})
+    return handle_forgot_password_set(
+        {
+            'validate_password_strength': validate_password_strength,
+            'update_password_only': models.update_password_only,
+            'invalidate_user_sessions': _invalidate_all_user_sessions,
+            'invalidate_current_session': _invalidate_current_session,
+            'flash_internal_error': flash_internal_error,
+        }
+    )
 
 
 # ── END PASSWORD RESET MODULE ────────────────────────────────────────────────

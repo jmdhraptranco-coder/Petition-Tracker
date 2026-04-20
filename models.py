@@ -575,6 +575,16 @@ def get_user_by_username(username):
     finally:
         conn.close()
 
+def get_user_by_phone(phone):
+    conn = get_db()
+    try:
+        cur = dict_cursor(conn)
+        cur.execute("SELECT * FROM users WHERE phone = %s AND is_active = TRUE", (phone,))
+        user = cur.fetchone()
+        return dict(user) if user else None
+    finally:
+        conn.close()
+
 def get_all_users():
     conn = get_db()
     try:
