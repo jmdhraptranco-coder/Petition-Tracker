@@ -1,0 +1,34 @@
+ID,Username,Full Name,Role,Office,Active,Default Password,Password Status
+1,superadmin,superadministrator,super_admin,,Yes,admin123,Changed (unknown)
+2,JMD,JMD VIGILANCE & SECURITY,jmd,,Yes,Nigaa@123,Still default
+3,PO_Vigilance,Personal Officer (V&S),po,,Yes,Nigaa@123,Changed (unknown)
+4,CVO_APSPDCL,CVO APSPDCL,cvo_apspdcl,apspdcl,Yes,Change@123,Changed (unknown)
+5,inspector_of_police_1,Inspector of Police 1,inspector,headquarters,Yes,Nigaa@123,Still default
+6,deo_jmdoffice,DEO JMD Office,data_entry,headquarters,Yes,Nigaa@123,Changed (unknown)
+8,CVO_APEPDCL,CVO APEPDCL,cvo_apepdcl,apepdcl,Yes,Change@123,Changed (unknown)
+9,cvo_apcpdcl,CVO APCPDCL,cvo_apcpdcl,apcpdcl,Yes,Change@123,Still default
+10,ci_ananthapuramu,CI / Ananthapuramu,inspector,,Yes,Change@123,Still default
+11,ci_kurnool,CI / Kurnool,inspector,,Yes,Change@123,Still default
+12,ci_kadapa,CI / Kadapa,inspector,,Yes,Change@123,Changed (unknown)
+13,ci_tirupati,CI / Tirupati,inspector,,Yes,Change@123,Still default
+14,ci_nellore,CI / Nellore,inspector,,Yes,Change@123,Still default
+15,ci_ongole,CI / Ongole,inspector,,Yes,Change@123,Still default
+16,ci_guntur,CI / Guntur,inspector,,Yes,Change@123,Still default
+17,ci_vijayawada,CI / Vijayawada,inspector,,Yes,Change@123,Still default
+18,ci_eluru,CI / Eluru,inspector,,Yes,Change@123,Still default
+19,ci_rajahmundry,CI / Rajahmundry,inspector,,Yes,Change@123,Still default
+20,ci_visakhapatnam,CI / Visakhapatnam,inspector,,Yes,Change@123,Still default
+21,ci_vizianagaram,CI / Vizianagaram,inspector,,Yes,Change@123,Still default
+22,ci_srikakulam,CI / Srikakulam,inspector,,Yes,Change@123,Still default
+23,cmd_apspdcl,CMD APSPDCL,cmd_apspdcl,,Yes,Nigaa@123,Still default
+24,cmd_apepdcl,CMD APEPDCL,cmd_apepdcl,,Yes,Nigaa@123,Still default
+25,cmd_apcpdcl,CMD APCPDCL,cmd_apcpdcl,,Yes,Nigaa@123,Still default
+26,dsp_hq,DSP - Headquarters,dsp,headquarters,Yes,Nigaa@123,Still default
+27,inspector_of_police_2,Inspector of Police 2,inspector,headquarters,Yes,Nigaa@123,Still default
+28,sub_inspector_1,Sub Inspector 1,inspector,headquarters,Yes,Nigaa@123,Still default
+29,sub_inspector_2,Sub Inspector 2,inspector,headquarters,Yes,Nigaa@123,Still default
+30,cgm_hr_transco,CGM/HR TRANSCO,cgm_hr_transco,headquarters,Yes,Nigaa@123,Still default
+31,deo_apcpdcl,DEO APCPDCL Office,data_entry,apcpdcl,Yes,Nigaa@123,Changed (unknown)
+32,deo_apspdcl,DEO APSPDCL Office,data_entry,apspdcl,Yes,Nigaa@123,Changed (unknown)
+33,deo_apepdcl,DEO APEPDCL Office,data_entry,apepdcl,Yes,Nigaa@123,Changed (unknown)
+34,sub_inspector_3,Sub Inspector 3,inspector,headquarters,Yes,Nigaa@123,Still default

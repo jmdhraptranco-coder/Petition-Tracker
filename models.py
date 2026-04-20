@@ -2389,21 +2389,34 @@ def approve_permission(
         conn.close()
 
 def reject_permission(petition_id, from_user_id, comments=None):
-    """PO rejects permission"""
+    """PO rejects permission — routes handler back to the concerned CVO/DSP."""
     conn = get_db()
     try:
         cur = dict_cursor(conn)
+        cur.execute("SELECT target_cvo, status FROM petitions WHERE id = %s", (petition_id,))
+        petition = cur.fetchone()
+        status_before = petition['status'] if petition else 'sent_for_permission'
+
+        # Route handler back to the CVO/DSP for the petition's target jurisdiction
+        cvo_role = _cvo_role_for_target(petition.get('target_cvo') if petition else None)
+        cvo_id = None
+        if cvo_role:
+            cur.execute("SELECT id FROM users WHERE role = %s AND is_active = TRUE LIMIT 1", (cvo_role,))
+            cvo_user = cur.fetchone()
+            cvo_id = cvo_user['id'] if cvo_user else None
+
         cur.execute("""
             UPDATE petitions SET status = 'permission_rejected', permission_status = 'rejected',
+                current_handler_id = COALESCE(%s, current_handler_id),
                 updated_at = CURRENT_TIMESTAMP
             WHERE id = %s
-        """, (petition_id,))
+        """, (cvo_id, petition_id))
         
         cur.execute("""
-            INSERT INTO petition_tracking (petition_id, from_user_id, from_role,
+            INSERT INTO petition_tracking (petition_id, from_user_id, to_user_id, from_role, to_role,
                 action, comments, status_before, status_after)
-            VALUES (%s, %s, 'po', 'Permission Rejected', %s, 'sent_for_permission', 'permission_rejected')
-        """, (petition_id, from_user_id, comments))
+            VALUES (%s, %s, %s, 'po', %s, 'Permission Rejected', %s, %s, 'permission_rejected')
+        """, (petition_id, from_user_id, cvo_id, cvo_role, comments, status_before))
         
         conn.commit()
     except Exception as e:
@@ -2656,13 +2669,15 @@ def po_send_back_to_cvo_for_reenquiry(petition_id, po_user_id, comments):
         if not cvo_role:
             raise Exception("Target CVO/DSP is not configured for this petition.")
 
-        # Prefer routing back to the same CVO who last handled it
+        # Prefer routing back to the last CVO who handled this petition (from tracking history)
         cur.execute("""
-            SELECT id FROM users
-            WHERE id = (
-                SELECT current_handler_id FROM petitions WHERE id = %s
-            ) AND role = %s AND is_active = TRUE
-        """, (petition_id, cvo_role))
+            SELECT DISTINCT pt.from_user_id AS id
+            FROM petition_tracking pt
+            JOIN users u ON u.id = pt.from_user_id AND u.role = %s AND u.is_active = TRUE
+            WHERE pt.petition_id = %s
+            ORDER BY pt.from_user_id DESC
+            LIMIT 1
+        """, (cvo_role, petition_id))
         cvo_user = cur.fetchone()
         if not cvo_user:
             cur.execute("SELECT id FROM users WHERE role = %s AND is_active = TRUE LIMIT 1", (cvo_role,))

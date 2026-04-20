@@ -807,6 +807,21 @@
                 </div>
                 {% endif %}
 
+                {% if petition.status == 'permission_rejected' %}
+                <div class="action-panel">
+                    <h4>Permission Rejected by PO</h4>
+                    <p class="form-help">PO has rejected the permission request. You may re-submit with updated remarks or choose a different enquiry mode.</p>
+                    <form method="POST" action="{{ url_for('petition_action', petition_id=petition.id) }}">
+                        <input type="hidden" name="action" value="send_for_permission">
+                        <div class="form-group">
+                            <label>Remarks for Re-submission</label>
+                            <textarea name="comments" rows="3" placeholder="Provide additional justification or updated remarks"></textarea>
+                        </div>
+                        <button type="submit" class="btn btn-warning">Re-Send for Permission to PO</button>
+                    </form>
+                </div>
+                {% endif %}
+
                 {% if petition.status == 'permission_approved' or (petition.status == 'forwarded_to_cvo' and not petition.requires_permission) %}
                 <div class="action-panel">
                     <h4>Assign to Field Inspector</h4>
