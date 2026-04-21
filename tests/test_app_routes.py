@@ -55,10 +55,11 @@ def test_login_page_loads(client):
 
 
 def test_login_flow_success_and_logout(client, monkeypatch):
-    """Test a successful login and subsequent logout."""
+    """Test a successful login and subsequent logout (with OTP 2FA)."""
+    import auth_routes as auth_routes_mod
     user_data = {
         'id': 1, 'username': 'testuser', 'password_hash': 'h::password123',
-        'full_name': 'Test User', 'role': 'po', 'is_active': True, 'phone': '1234567890'
+        'full_name': 'Test User', 'role': 'po', 'is_active': True, 'phone': '9876543210'
     }
     full_user = {
         **user_data,
@@ -71,9 +72,12 @@ def test_login_flow_success_and_logout(client, monkeypatch):
     monkeypatch.setattr('app.models.authenticate_user', lambda u, p: user_data)
     monkeypatch.setattr('app.models.get_user_by_username', lambda u: full_user)
     monkeypatch.setattr('app.models.get_user_by_id', lambda _uid: full_user)
+    monkeypatch.setattr(auth_routes_mod, '_otp_api_call',
+                        lambda url, payload: {"status": "success"})
     with client:
         captcha_token = issue_login_captcha(client, "482753")
 
+        # Step 1: credentials → redirect to OTP verify
         response = client.post('/login', data={
             'username': 'testuser',
             'password': 'password123',
@@ -82,6 +86,11 @@ def test_login_flow_success_and_logout(client, monkeypatch):
             'login_action': 'credentials',
         }, follow_redirects=False)
 
+        assert response.status_code == 302
+        assert '/auth/otp/verify' in response.headers['Location']
+
+        # Step 2: OTP verify → redirect to dashboard
+        response = client.post('/auth/otp/verify', data={'otp_code': '123456'})
         assert response.status_code == 302
         assert response.headers['Location'].endswith('/dashboard')
         with client.session_transaction() as sess:

@@ -215,15 +215,24 @@ def _post_login(client, username="u", password="p"):
 
 
 def test_auth_dashboard_and_core_views(monkeypatch):
+    import auth_routes as auth_routes_mod
     stub = RichModelsStub()
     monkeypatch.setattr(app_module, "models", stub)
+    monkeypatch.setattr(auth_routes_mod, "_otp_api_call",
+                        lambda url, payload: {"status": "success"})
     app_module.app.config["TESTING"] = True
     with app_module.app.test_client() as client:
         root_response = client.get("/")
         assert root_response.status_code == 200
         assert b"Portal Nigaa" in root_response.data
         assert client.get("/login").status_code == 200
-        assert _post_login(client, "u", "p").status_code == 302
+        # Login step 1: credentials → OTP verify redirect
+        resp = _post_login(client, "u", "p")
+        assert resp.status_code == 302
+        assert "/auth/otp/verify" in resp.headers["Location"]
+        # Login step 2: OTP verify → dashboard redirect
+        resp = client.post("/auth/otp/verify", data={"otp_code": "123456"})
+        assert resp.status_code == 302
         assert client.get("/dashboard").status_code == 200
 
         stub.get_user_by_id = lambda _uid: {
@@ -251,8 +260,11 @@ def test_auth_dashboard_and_core_views(monkeypatch):
 
 
 def test_login_session_cookie_is_opaque(monkeypatch):
+    import auth_routes as auth_routes_mod
     stub = RichModelsStub()
     monkeypatch.setattr(app_module, "models", stub)
+    monkeypatch.setattr(auth_routes_mod, "_otp_api_call",
+                        lambda url, payload: {"status": "success"})
     app_module.app.config["TESTING"] = True
     app_module.TEST_SERVER_SESSION_STORE.clear()
     with app_module.app.test_client() as client:
@@ -1327,8 +1339,11 @@ def test_api_inspectors_forbidden_and_profile_photo_missing(monkeypatch):
 
 
 def test_misc_auth_and_api_edge_paths(monkeypatch):
+    import auth_routes as auth_routes_mod
     stub = RichModelsStub()
     monkeypatch.setattr(app_module, "models", stub)
+    monkeypatch.setattr(auth_routes_mod, "_otp_api_call",
+                        lambda url, payload: {"status": "success"})
     app_module.app.config["TESTING"] = True
     with app_module.app.test_client() as client:
         stub.user = None

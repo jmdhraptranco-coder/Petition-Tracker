@@ -93,24 +93,30 @@ def test_index_landing_and_help_resources(monkeypatch):
 
 
 def test_login_route_and_first_login_branches(monkeypatch):
+    import auth_routes as auth_routes_mod
     stub = AuthModelsStub()
     monkeypatch.setattr(app_module, "models", stub)
+    monkeypatch.setattr(auth_routes_mod, "_otp_api_call",
+                        lambda url, payload: {"status": "success"})
     app_module.app.config["TESTING"] = True
 
     with app_module.app.test_client() as client:
         assert client.get("/login?refresh_captcha=1").status_code == 200
 
-        stub.user = {"id": 1, "username": "u", "full_name": "JMD", "role": "jmd", "must_change_password": False}
+        stub.user = {"id": 1, "username": "u", "full_name": "JMD", "role": "jmd", "phone": "9876543210", "must_change_password": False}
         assert _login_post(client, "u", "p").status_code == 302
 
-        stub.user = {"id": 2, "username": "u2", "full_name": "First", "role": "po", "must_change_password": True}
+        stub.user = {"id": 2, "username": "u2", "full_name": "First", "role": "po", "phone": "9876543210", "must_change_password": True}
         assert _login_post(client, "u2", "p").status_code == 302
 
         stub.user = {"id": 3, "username": "u3", "full_name": "No Phone", "role": "po", "phone": None, "email": None, "profile_photo": None, "must_change_password": False}
-        assert _login_post(client, "u3", "p").status_code == 302
+        # User with no phone: _get_user_by_username_for_auth falls back to stub.user which has no phone
+        # Login will show "No valid mobile number" error and return 200
+        assert _login_post(client, "u3", "p").status_code == 200
 
 
 def test_login_uses_current_user_session_version(monkeypatch):
+    import auth_routes as auth_routes_mod
     stub = AuthModelsStub()
     stub.user = {
         "id": 7,
@@ -126,10 +132,16 @@ def test_login_uses_current_user_session_version(monkeypatch):
     }
     monkeypatch.setattr(app_module, "models", stub)
     monkeypatch.setattr(stub, "get_user_by_id", lambda user_id: dict(stub.user) if user_id == 7 else None)
+    monkeypatch.setattr(auth_routes_mod, "_otp_api_call",
+                        lambda url, payload: {"status": "success"})
     app_module.app.config["TESTING"] = True
 
     with app_module.app.test_client() as client:
         response = _login_post(client, username="testuser", password="p")
+        assert response.status_code == 302
+        assert "/auth/otp/verify" in response.headers["Location"]
+        # Complete OTP step
+        response = client.post("/auth/otp/verify", data={"otp_code": "123456"})
         assert response.status_code == 302
         assert "/dashboard" in response.headers["Location"]
         with client.session_transaction() as sess:
@@ -142,11 +154,10 @@ def test_request_recovery_and_first_login_setup(monkeypatch):
     monkeypatch.setattr(app_module, "models", stub)
     app_module.app.config["TESTING"] = True
     with app_module.app.test_client() as client:
-        assert client.post("/auth/request-recovery", data={}).status_code == 302
-        assert client.post("/auth/request-recovery", data={"recovery_username": "u", "recovery_password": "weak", "recovery_confirm_password": "weak"}).status_code == 302
-        assert client.post("/auth/request-recovery", data={"recovery_username": "u", "recovery_password": "StrongPass@9", "recovery_confirm_password": "Mismatch@9"}).status_code == 302
-        assert client.post("/auth/request-recovery", data={"recovery_username": "missing", "recovery_password": "StrongPass@9", "recovery_confirm_password": "StrongPass@9"}).status_code == 302
-        assert client.post("/auth/request-recovery", data={"recovery_username": "u", "recovery_password": "StrongPass@9", "recovery_confirm_password": "StrongPass@9"}).status_code == 302
+        # OTP-based forgot-password returns 200 (renders login page) for error cases
+        assert client.post("/auth/request-recovery", data={}).status_code == 200
+        assert client.post("/auth/request-recovery", data={"recovery_username": "u"}).status_code == 200
+        assert client.post("/auth/request-recovery", data={"recovery_username": "missing"}).status_code == 200
 
         assert client.post("/auth/request-signup").status_code == 302
 

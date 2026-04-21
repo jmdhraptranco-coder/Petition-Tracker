@@ -67,11 +67,15 @@ def client(monkeypatch):
         yield client
 
 
-def test_login_rotates_session_after_successful_auth(client):
+def test_login_rotates_session_after_successful_auth(client, monkeypatch):
+    import auth_routes as auth_routes_mod
+    monkeypatch.setattr(auth_routes_mod, "_otp_api_call",
+                        lambda url, payload: {"status": "success"})
     client.get("/login")
     with client.session_transaction() as sess:
         sid_before = sess.sid
 
+    # Step 1: credentials → OTP verify redirect
     response = client.post(
         "/login",
         data={
@@ -83,6 +87,11 @@ def test_login_rotates_session_after_successful_auth(client):
         follow_redirects=False,
     )
 
+    assert response.status_code == 302
+    assert "/auth/otp/verify" in response.headers["Location"]
+
+    # Step 2: OTP verify → dashboard redirect
+    response = client.post("/auth/otp/verify", data={"otp_code": "123456"})
     assert response.status_code == 302
     assert "/dashboard" in response.headers["Location"]
     with client.session_transaction() as sess:

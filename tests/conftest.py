@@ -9,6 +9,16 @@ import pytest
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 os.environ["SKIP_SCHEMA_UPDATES"] = "1"
+
+import auth_routes as _auth_routes_module
+
+
+def mock_otp_api(monkeypatch):
+    """Mock the external OTP API to always return success for both send and verify."""
+    monkeypatch.setattr(
+        _auth_routes_module, "_otp_api_call",
+        lambda url, payload: {"status": "success", "message": "OTP sent/verified"},
+    )
 _APP_MODULE = None
 
 

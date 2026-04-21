@@ -26,6 +26,15 @@ class RouteModelsStub:
     def authenticate_user(self, _u, _p):
         return self.user
 
+    def update_password_only(self, uid, pwd):
+        pass
+
+    def bump_user_session_version(self, uid):
+        pass
+
+    def delete_user_server_sessions(self, uid):
+        pass
+
 
 def _issue_captcha(client, answer="482753", issued_at=None):
     client.get("/login")
@@ -130,8 +139,11 @@ def test_petitions_list_sorting_and_auth_edge_branches(monkeypatch):
 
 
 def test_login_captcha_image_and_login_failure_edges(monkeypatch):
+    import auth_routes as auth_routes_mod
     stub = RouteModelsStub()
     monkeypatch.setattr(app_module, "models", stub)
+    monkeypatch.setattr(auth_routes_mod, "_otp_api_call",
+                        lambda url, payload: {"status": "success"})
     app_module.app.config["TESTING"] = True
     real_time = __import__("time").time
     with app_module.app.test_client() as client:
@@ -150,16 +162,22 @@ def test_login_captcha_image_and_login_failure_edges(monkeypatch):
 
 
 def test_login_success_creates_session_immediately(monkeypatch):
+    import auth_routes as auth_routes_mod
     stub = RouteModelsStub()
     stub.user = {"id": 5, "username": "u5", "full_name": "Login User", "role": "po", "phone": "9999999999", "email": None, "profile_photo": None, "must_change_password": False}
     monkeypatch.setattr(app_module, "models", stub)
+    monkeypatch.setattr(auth_routes_mod, "_otp_api_call",
+                        lambda url, payload: {"status": "success"})
     app_module.app.config["TESTING"] = True
 
     with app_module.app.test_client() as client:
         token = _issue_captcha(client)
         response = client.post("/login", data={"username": "u5", "password": "p", "captcha_answer": "482753", "captcha_token": token})
         assert response.status_code == 302
-
+        assert "/auth/otp/verify" in response.headers["Location"]
+        # Complete OTP step
+        response = client.post("/auth/otp/verify", data={"otp_code": "123456"})
+        assert response.status_code == 302
         with client.session_transaction() as sess:
             assert sess.get("user_id") == 5
 
@@ -175,4 +193,4 @@ def test_legacy_signup_and_password_reset_routes_redirect_to_login(monkeypatch):
 
         reset_response = client.get("/auth/forgot-password/set", follow_redirects=True)
         assert reset_response.status_code == 200
-        assert b"Please use the password recovery form to reset your password." in reset_response.data
+        assert b"Please complete OTP verification first." in reset_response.data
