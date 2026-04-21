@@ -123,6 +123,14 @@ class Config:
         # proxy, also set TRUST_PROXY_HEADERS=1 so Flask can detect HTTPS.
         self.FORCE_HTTPS = _env_bool('FORCE_HTTPS', False)
 
+        # Trusted internal hosts — database hosts that can skip SSL requirement.
+        # Comma-separated list of IPs or hostnames that are trusted internal network hosts.
+        # Example: "10.96.76.135,10.96.76.136,db.internal.local"
+        trusted_hosts_raw = os.environ.get('TRUSTED_INTERNAL_HOSTS', '').strip()
+        self.TRUSTED_INTERNAL_HOSTS = [
+            h.strip() for h in trusted_hosts_raw.split(',') if h.strip()
+        ] if trusted_hosts_raw else []
+
         # Logging — structured JSON logs written to a rotating file.
         self.LOG_FILE = (os.environ.get('LOG_FILE') or '').strip() or None
         self.LOG_LEVEL = (os.environ.get('LOG_LEVEL') or 'INFO').strip().upper()
@@ -172,14 +180,20 @@ class Config:
         # Prevent unencrypted DB connections in production for remote hosts.
         # Loopback addresses (localhost / 127.x / ::1) are exempt because local
         # PostgreSQL instances typically don't have SSL configured.
+        # Trusted internal hosts (from TRUSTED_INTERNAL_HOSTS env var) are also exempt.
         _loopback = {'localhost', '127.0.0.1', '::1', ''}
         db_host = (os.environ.get('DATABASE_URL') or self.DB_HOST or '').strip()
         is_loopback = any(db_host == h or db_host.startswith('127.') for h in _loopback)
-        if not is_loopback and self.DB_SSLMODE not in ('require', 'verify-ca', 'verify-full'):
+        is_trusted_internal = any(
+            db_host == trusted_host or db_host.startswith(trusted_host)
+            for trusted_host in self.TRUSTED_INTERNAL_HOSTS
+        )
+        if not is_loopback and not is_trusted_internal and self.DB_SSLMODE not in ('require', 'verify-ca', 'verify-full'):
             raise RuntimeError(
                 "Production requires DB_SSLMODE=require (or verify-ca/verify-full) "
                 f"for remote host '{db_host}'. Current value: '{self.DB_SSLMODE}'. "
-                "Set DB_SSLMODE=require in .env to enforce TLS to PostgreSQL."
+                "Set DB_SSLMODE=require in .env to enforce TLS to PostgreSQL, "
+                "or add host to TRUSTED_INTERNAL_HOSTS if it is on a trusted internal network."
             )
 
     @property

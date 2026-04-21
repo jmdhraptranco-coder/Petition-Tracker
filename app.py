@@ -6130,7 +6130,6 @@ def profile_photo_file(filename):
 
 @app.route('/petition-search')
 def petition_search_public():
-    raise NotFound()
     """Public petition status lookup — returns minimal info (no PII)."""
     q = (request.args.get('q') or '').strip()
     field = (request.args.get('field') or 'efile_no').strip()
