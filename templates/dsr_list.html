@@ -1,0 +1,124 @@
+﻿{% extends "base.html" %}
+{% block title %}DSR Entries{% endblock %}
+{% block page_title %}DSR — Daily Situation Reports{% endblock %}
+
+{% block content %}
+<div class="card petitions-page-card">
+    <div class="card-header petitions-header">
+        <div class="petitions-title-wrap">
+            <h2>Daily Situation Report Entries</h2>
+            <p style="color:var(--text-muted);font-size:.85rem;margin:4px 0 0;">
+                Total: <strong>{{ total }}</strong> entr{{ 'y' if total == 1 else 'ies' }}
+            </p>
+        </div>
+        <div class="petitions-toolbar">
+        <a href="{{ url_for('dsr_dashboard') }}" class="btn btn-outline btn-sm">Open DSR Dashboard</a>
+        <a href="{{ url_for('dsr_export', incident_type=filter_incident_type, from_date=filter_from_date, to_date=filter_to_date) }}"
+           class="btn btn-outline btn-sm" title="Export filtered DSR entries as CSV">
+            ⬇ Export CSV
+        </a>
+            {% if current_user_role in ('inspector', 'super_admin') %}
+            <a href="{{ url_for('dsr_new') }}" class="btn btn-primary btn-sm">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 8v8"/><path d="M8 12h8"/></svg>
+                New DSR Entry
+            </a>
+            {% endif %}
+        </div>
+    </div>
+
+    <!-- Filters -->
+    <form method="GET" action="{{ url_for('dsr_list') }}" class="petitions-toolbar"
+          style="padding:12px 16px;border-bottom:1px solid var(--border-color);flex-wrap:wrap;gap:10px;display:flex;align-items:flex-end;">
+        <div style="display:flex;flex-direction:column;gap:4px;">
+            <label style="font-size:.75rem;color:var(--text-muted);text-transform:uppercase;letter-spacing:.04em;">Incident Type</label>
+            <select name="incident_type" class="filter-select" style="min-width:240px;">
+                <option value="">All Types</option>
+                {% for key, label in incident_types %}
+                <option value="{{ key }}" {% if filter_incident_type == key %}selected{% endif %}>{{ label }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div style="display:flex;flex-direction:column;gap:4px;">
+            <label style="font-size:.75rem;color:var(--text-muted);text-transform:uppercase;letter-spacing:.04em;">From Date</label>
+            <input type="date" name="from_date" class="filter-select" value="{{ filter_from_date }}">
+        </div>
+        <div style="display:flex;flex-direction:column;gap:4px;">
+            <label style="font-size:.75rem;color:var(--text-muted);text-transform:uppercase;letter-spacing:.04em;">To Date</label>
+            <input type="date" name="to_date" class="filter-select" value="{{ filter_to_date }}">
+        </div>
+        <button type="submit" class="btn btn-sm btn-outline">Filter</button>
+        <a href="{{ url_for('dsr_list') }}" class="btn btn-sm btn-outline">Clear</a>
+    </form>
+
+    <div class="table-responsive">
+        {% if entries %}
+        <table class="data-table" id="dsrListTable">
+            <thead>
+                <tr>
+                    <th>#</th>
+                    <th>Date</th>
+                    <th>Incident Type</th>
+                    <th>Circle</th>
+                    <th>Place</th>
+                    <th>Submitted By</th>
+                    <th>Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for entry in entries %}
+                <tr>
+                    <td>{{ entry.id }}</td>
+                    <td>
+                        {% if entry.report_date %}
+                            {{ entry.report_date.strftime('%d/%m/%Y') if entry.report_date else '-' }}
+                        {% else %}-{% endif %}
+                    </td>
+                    <td>
+                        <span class="status-badge" style="background:var(--accent-muted,rgba(99,102,241,.12));color:var(--accent-primary);">
+                            {{ incident_type_map.get(entry.incident_type, entry.incident_type) }}
+                        </span>
+                    </td>
+                    <td>{{ entry.circle or '-' }}</td>
+                    <td>{{ entry.place or '-' }}</td>
+                    <td style="font-size:.82rem;color:var(--text-muted);">
+                        {{ entry.submitted_by_name or entry.submitted_by_username or '-' }}
+                    </td>
+                    <td>
+                        <a href="{{ url_for('dsr_view', entry_id=entry.id) }}" class="btn btn-xs btn-outline">View</a>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        {% else %}
+        <div class="empty-state" style="padding:60px 20px;text-align:center;color:var(--text-muted);">
+            <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.2"
+                 style="opacity:.35;margin-bottom:14px;display:block;margin-left:auto;margin-right:auto;">
+                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+                <polyline points="14 2 14 8 20 8"/>
+            </svg>
+            <p>No DSR entries found.</p>
+            {% if current_user_role in ('inspector', 'super_admin') %}
+            <a href="{{ url_for('dsr_new') }}" class="btn btn-primary" style="margin-top:10px;">Submit First Entry</a>
+            {% endif %}
+        </div>
+        {% endif %}
+    </div>
+
+    <!-- Pagination -->
+    {% if total_pages > 1 %}
+    <div class="pagination" style="padding:14px 16px;display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+        {% if page > 1 %}
+        <a href="{{ url_for('dsr_list', page=page-1, incident_type=filter_incident_type, from_date=filter_from_date, to_date=filter_to_date) }}"
+           class="btn btn-sm btn-outline">← Prev</a>
+        {% endif %}
+        <span style="font-size:.85rem;color:var(--text-muted);">Page {{ page }} of {{ total_pages }}</span>
+        {% if page < total_pages %}
+        <a href="{{ url_for('dsr_list', page=page+1, incident_type=filter_incident_type, from_date=filter_from_date, to_date=filter_to_date) }}"
+           class="btn btn-sm btn-outline">Next →</a>
+        {% endif %}
+    </div>
+    {% endif %}
+</div>
+{% endblock %}
+

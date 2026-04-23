@@ -562,9 +562,12 @@ ERECEIPT_UPLOAD_DIR = os.path.join(BASE_UPLOAD_DIR, 'e_receipts')
 ENQUIRY_UPLOAD_DIR = os.path.join(BASE_UPLOAD_DIR, 'enquiry_reports')
 PROFILE_UPLOAD_DIR = os.path.join(BASE_UPLOAD_DIR, 'profile_photos')
 HELP_RESOURCE_UPLOAD_DIR = os.path.join(BASE_UPLOAD_DIR, 'help_resources')
+DSR_UPLOAD_DIR = os.path.join(BASE_UPLOAD_DIR, 'dsr_attachments')
 MAX_UPLOAD_SIZE_BYTES = config.MAX_UPLOAD_SIZE_MB * 1024 * 1024
+DSR_ATTACHMENT_MAX_BYTES = 10 * 1024 * 1024
 PROFILE_PHOTO_MAX_BYTES = 2 * 1024 * 1024
 PROFILE_PHOTO_EXTENSIONS = {'jpg', 'jpeg', 'png', 'webp'}
+DSR_ALLOWED_EXTENSIONS = {'pdf', 'jpg', 'jpeg', 'png', 'webp'}
 HELP_RESOURCE_ALLOWED_EXTENSIONS = {
     'pdf', 'doc', 'docx', 'ppt', 'pptx', 'xls', 'xlsx',
     'jpg', 'jpeg', 'png', 'webp',
@@ -873,6 +876,43 @@ DEFAULT_FORM_FIELD_CONFIGS = {
     'po_decision.po_direct_lodge_efile_no': {'label': 'E-Office File No', 'type': 'text', 'required': False, 'options': []},
     'po_decision.po_direct_lodge_remarks': {'label': 'PO Lodge Remarks', 'type': 'textarea', 'required': False, 'options': []},
     'po_decision.close_comments': {'label': 'Closing Remarks', 'type': 'textarea', 'required': False, 'options': []},
+
+    # DSR Entry form
+    'dsr_entry.report_date': {'label': 'Report Date', 'type': 'date', 'required': True, 'options': []},
+    'dsr_entry.circle': {'label': 'Circle / Division', 'type': 'text', 'required': False, 'options': []},
+    'dsr_entry.incident_type': {
+        'label': 'Type of Incident',
+        'type': 'select',
+        'required': True,
+        'options': [{'value': k, 'label': v} for k, v in models.DSR_INCIDENT_TYPES],
+    },
+    'dsr_entry.place': {'label': 'Place', 'type': 'text', 'required': False, 'options': []},
+    'dsr_entry.description': {'label': 'Details / Remarks', 'type': 'textarea', 'required': False, 'options': []},
+    'dsr_entry.dsr_attachment': {'label': 'Attachment (PDF/Image, max 10 MB)', 'type': 'file', 'required': False, 'options': []},
+    'dsr_entry.transformer_capacity': {'label': 'Transformer Capacity (KVA)', 'type': 'text', 'required': False, 'options': []},
+    'dsr_entry.transformer_category': {
+        'label': 'Transformer Category',
+        'type': 'select',
+        'required': False,
+        'options': [
+            {'value': 'domestic', 'label': 'Domestic'},
+            {'value': 'agriculture', 'label': 'Agriculture'},
+        ],
+    },
+    'dsr_entry.fire_type': {
+        'label': 'Fire Type',
+        'type': 'select',
+        'required': False,
+        'options': [
+            {'value': 'house', 'label': 'House'},
+            {'value': 'hut', 'label': 'Hut'},
+            {'value': 'warehouse', 'label': 'Warehouse'},
+            {'value': 'other', 'label': 'Other'},
+        ],
+    },
+    'dsr_entry.fire_worth_loss': {'label': 'Worth / Loss (Rs)', 'type': 'text', 'required': False, 'options': []},
+    'dsr_entry.quality_cases_count': {'label': 'No. of Cases Registered', 'type': 'text', 'required': False, 'options': []},
+    'dsr_entry.quality_assessment_amount': {'label': 'Assessment Amount (Rs)', 'type': 'text', 'required': False, 'options': []},
 }
 
 FORM_MANAGEMENT_GROUPS = {
@@ -881,6 +921,7 @@ FORM_MANAGEMENT_GROUPS = {
     'cvo_review': 'CVO/DSP Review Form',
     'cmd_action': 'CMD/CGM-HR Action Form',
     'po_decision': 'PO Decision Form',
+    'dsr_entry': 'DSR Entry Form',
 }
 
 SYSTEM_SETTING_DEFINITIONS = {
@@ -1612,6 +1653,44 @@ def validate_pdf_upload(file_obj, label):
     return True, original_name
 
 
+def validate_dsr_upload(file_obj, label='DSR attachment'):
+    if not file_obj or not file_obj.filename:
+        return True, None
+
+    original_name = secure_filename(file_obj.filename or '')
+    if not original_name:
+        return False, f'{label} filename is invalid.'
+
+    ext = original_name.rsplit('.', 1)[-1].lower() if '.' in original_name else ''
+    if ext not in DSR_ALLOWED_EXTENSIONS:
+        return False, f"{label} must be one of: PDF, JPG, JPEG, PNG, WEBP."
+
+    file_obj.seek(0, os.SEEK_END)
+    file_size = file_obj.tell()
+    file_obj.seek(0)
+    if file_size <= 0:
+        return False, f'{label} is empty.'
+    if file_size > DSR_ATTACHMENT_MAX_BYTES:
+        return False, f'{label} must be below 10 MB.'
+
+    header = file_obj.read(16)
+    file_obj.seek(0)
+    is_valid = False
+    if ext == 'pdf':
+        is_valid = header.startswith(b'%PDF-')
+    elif ext in ('jpg', 'jpeg'):
+        is_valid = header.startswith(b'\xff\xd8\xff')
+    elif ext == 'png':
+        is_valid = header.startswith(b'\x89PNG\r\n\x1a\n')
+    elif ext == 'webp':
+        is_valid = header[:4] == b'RIFF' and header[8:12] == b'WEBP'
+
+    if not is_valid:
+        return False, f'{label} content does not match file type.'
+
+    return True, original_name
+
+
 def validate_contact(contact):
     if not contact:
         return True
@@ -1629,6 +1708,7 @@ def ensure_upload_dirs():
     os.makedirs(ENQUIRY_UPLOAD_DIR, exist_ok=True)
     os.makedirs(PROFILE_UPLOAD_DIR, exist_ok=True)
     os.makedirs(HELP_RESOURCE_UPLOAD_DIR, exist_ok=True)
+    os.makedirs(DSR_UPLOAD_DIR, exist_ok=True)
 
 
 def _normalize_storage_relpath(path_value):
@@ -2628,7 +2708,20 @@ def get_effective_form_field_configs():
 
     for key, override in overrides.items():
         if key not in merged:
-            continue
+            # Support fields added from Form Management that are not part of
+            # the hardcoded defaults.
+            try:
+                form_key, field_key = key.split('.', 1)
+            except ValueError:
+                continue
+            if form_key not in FORM_MANAGEMENT_GROUPS:
+                continue
+            merged[key] = {
+                'label': field_key.replace('_', ' ').title(),
+                'type': 'text',
+                'required': False,
+                'options': [],
+            }
         if isinstance(override, dict):
             if override.get('label'):
                 merged[key]['label'] = str(override.get('label')).strip() or merged[key]['label']
@@ -7599,6 +7692,37 @@ def chatbot_api():
             ],
         })
 
+    # ---- DSR stats ----
+    _DSR_WORDS = ('dsr', 'daily situation', 'situation report', 'dsr report',
+                  'dsr stats', 'dsr entries', 'inspection report', 'field report')
+    if user_role in DSR_ALLOWED_ROLES and any(w in msg_lower for w in _DSR_WORDS):
+        try:
+            dsr_stats = models.get_dsr_stats_for_chatbot(user_id, user_role)
+            lines = [
+                f"📋 **DSR Summary for {user_name}**",
+                "",
+                f"• Total Entries: **{dsr_stats['total']}**",
+                f"• Today's Reports: **{dsr_stats['today']}**",
+                f"• This Month: **{dsr_stats['this_month']}**",
+                f"• With Attachments: **{dsr_stats['with_attachment']}**",
+            ]
+            if dsr_stats.get('top_type') and dsr_stats.get('top_type_count', 0) > 0:
+                lines.append(
+                    f"• Most Reported Type: **{dsr_stats['top_type']}** ({dsr_stats['top_type_count']} entries)"
+                )
+            return jsonify({
+                'type': 'text',
+                'text': "\n".join(lines),
+                'suggestions': [
+                    {'label': '📊 DSR Dashboard', 'url': '/dsr/dashboard'},
+                    {'label': '📄 DSR List', 'url': '/dsr/'},
+                    {'label': '📊 Petition Stats', 'msg': 'stats'},
+                ],
+            })
+        except Exception:
+            app.logger.exception('Chatbot DSR stats error')
+            return jsonify({'type': 'text', 'text': 'Could not load DSR stats right now. Please try again. 🔄'})
+
     # ---- Stats ----
     if any(w in msg_lower for w in _STATS_WORDS):
         try:
@@ -7971,6 +8095,985 @@ def chatbot_api():
         ),
     ]
     return jsonify({'type': 'text', 'text': _random.choice(fallback_replies)})
+
+
+# ========================================
+# DSR (Daily Situation Report) ROUTES
+# ========================================
+
+DSR_ALLOWED_ROLES = (
+    'inspector', 'super_admin',
+    'cvo_apspdcl', 'cvo_apepdcl', 'cvo_apcpdcl', 'dsp',
+)
+DSR_SUBMIT_ROLES = ('inspector', 'super_admin')
+
+DSR_STATIC_MANAGED_FIELD_KEYS = {
+    'report_date',
+    'circle',
+    'incident_type',
+    'place',
+    'description',
+    'dsr_attachment',
+    'transformer_capacity',
+    'transformer_category',
+    'fire_type',
+    'fire_worth_loss',
+    'quality_cases_count',
+    'quality_assessment_amount',
+}
+
+# AP district names for dashboard filter (loaded from static JSON)
+_AP_LOC_PATH = os.path.join(os.path.dirname(__file__), 'static', 'data', 'ap_locations.json')
+try:
+    with open(_AP_LOC_PATH, encoding='utf-8') as _f:
+        AP_DISTRICTS = sorted(json.load(_f).keys())
+except Exception:
+    AP_DISTRICTS = []
+
+DSR_INSPECTOR_CIRCLE_MAP = {
+    'ci_ananthapuramu': 'Ananthapur Circle',
+    'ci_kurnool': 'Kurnool Circle',
+    'ci_kadapa': 'Kadapa Circle',
+    'ci_tirupati': 'Tirupati Circle',
+    'ci_nellore': 'Nellore Circle',
+    'ci_ongole': 'Ongole Circle',
+    'ci_guntur': 'Guntur Circle',
+    'ci_vijayawada': 'Vijayawada Circle',
+    'ci_eluru': 'Eluru Circle',
+    'ci_rajahmundry': 'Rajahmundry Circle',
+    'ci_visakhapatnam': 'Visakhapatnam Circle',
+    'ci_vizianagaram': 'Vizianagaram Circle',
+    'ci_srikakulam': 'Srikakulam Circle',
+}
+
+
+def _get_dsr_user_circle_defaults(user):
+    if not isinstance(user, dict):
+        return {'value': '', 'locked': False}
+
+    username = str(user.get('username') or '').strip().lower()
+    role = str(user.get('role') or '').strip().lower()
+    if role != 'inspector':
+        return {'value': '', 'locked': False}
+
+    mapped_circle = DSR_INSPECTOR_CIRCLE_MAP.get(username, '')
+    if mapped_circle:
+        return {'value': mapped_circle, 'locked': True}
+
+    full_name = str(user.get('full_name') or '').strip()
+    if '/' in full_name:
+        _, _, raw_circle = full_name.partition('/')
+        raw_circle = raw_circle.strip()
+        if raw_circle:
+            return {'value': f'{raw_circle} Circle', 'locked': True}
+
+    return {'value': '', 'locked': False}
+
+
+def _get_dsr_dynamic_fields():
+    cfg = get_effective_form_field_configs()
+    fields = []
+    for config_key, field_cfg in sorted(cfg.items()):
+        if not config_key.startswith('dsr_entry.'):
+            continue
+        field_key = config_key.split('.', 1)[1]
+        if field_key in DSR_STATIC_MANAGED_FIELD_KEYS:
+            continue
+
+        field_type = str((field_cfg or {}).get('type') or 'text').strip().lower()
+        if field_type not in VALID_DYNAMIC_FIELD_TYPES:
+            field_type = 'text'
+
+        raw_options = (field_cfg or {}).get('options')
+        options = []
+        if isinstance(raw_options, list):
+            for opt in raw_options:
+                if not isinstance(opt, dict):
+                    continue
+                ov = str(opt.get('value') or '').strip()
+                ol = str(opt.get('label') or '').strip()
+                if ov and ol:
+                    options.append({'value': ov, 'label': ol})
+
+        fields.append({
+            'field_key': field_key,
+            'input_name': f'dsr_dyn_{field_key}',
+            'label': str((field_cfg or {}).get('label') or field_key.replace('_', ' ').title()),
+            'type': field_type,
+            'required': bool((field_cfg or {}).get('required')),
+            'options': options,
+        })
+    return fields
+
+
+def _collect_dsr_dynamic_field_values(dynamic_fields, existing_values=None):
+    values = {}
+    new_uploaded_files = []
+    existing_values = existing_values if isinstance(existing_values, dict) else {}
+
+    for fld in dynamic_fields:
+        field_key = fld['field_key']
+        input_name = fld['input_name']
+        label = fld['label']
+        field_type = fld['type']
+        is_required = bool(fld.get('required'))
+
+        if field_type == 'file':
+            uploaded = request.files.get(input_name)
+            current_value = str(existing_values.get(field_key) or '').strip()
+            if uploaded and uploaded.filename:
+                ok, upload_result = validate_dsr_upload(uploaded, label)
+                if not ok:
+                    return False, {}, new_uploaded_files, upload_result
+                generated_name = _build_storage_filename(f'dsr_dyn_{field_key}', upload_result)
+                if not generated_name:
+                    return False, {}, new_uploaded_files, f'Unable to prepare filename for {label}.'
+                saved_ok, save_result = _save_uploaded_file(
+                    uploaded,
+                    DSR_UPLOAD_DIR,
+                    generated_name,
+                    label,
+                )
+                if not saved_ok:
+                    return False, {}, new_uploaded_files, save_result
+                current_value = save_result
+                new_uploaded_files.append(save_result)
+            if is_required and not current_value:
+                return False, {}, new_uploaded_files, f'{label} is required.'
+            values[field_key] = current_value
+            continue
+
+        raw_value = (request.form.get(input_name) or '').strip()
+        if field_type == 'select' and raw_value:
+            allowed_values = {opt['value'] for opt in (fld.get('options') or []) if isinstance(opt, dict) and opt.get('value')}
+            if allowed_values and raw_value not in allowed_values:
+                return False, {}, new_uploaded_files, f'Invalid value for {label}.'
+        if is_required and not raw_value:
+            return False, {}, new_uploaded_files, f'{label} is required.'
+        values[field_key] = raw_value
+
+    return True, values, new_uploaded_files, None
+
+
+def _extract_dsr_dynamic_files(extra_fields, file_field_keys=None):
+    files = []
+    if not isinstance(extra_fields, dict):
+        return files
+    allowed_keys = set(file_field_keys or [])
+    for key, val in extra_fields.items():
+        if allowed_keys and key not in allowed_keys:
+            continue
+        if isinstance(val, str):
+            normalized = _normalize_storage_relpath(val)
+            if normalized:
+                files.append(normalized)
+    return files
+
+
+def _extract_dsr_district(place):
+    """Return the district portion from a combined 'village, mandal, district' place string."""
+    if not place:
+        return ''
+    place = place.strip()
+    if ',' in place:
+        return place.rsplit(',', 1)[-1].strip()
+    return place
+
+
+def _build_dsr_dashboard_analytics(entries):
+    by_type = Counter()
+    by_circle = Counter()
+    by_inspector = Counter()
+    by_month = Counter()
+    by_district = Counter()
+
+    with_attachment = 0
+    quality_cases_total = 0
+
+    for row in entries:
+        incident_key = (row.get('incident_type') or '').strip()
+        incident_label = models.DSR_INCIDENT_TYPE_MAP.get(incident_key, incident_key or 'Unknown')
+        by_type[incident_label] += 1
+
+        circle = (row.get('circle') or '').strip() or 'Unknown'
+        by_circle[circle] += 1
+
+        inspector = (
+            (row.get('submitted_by_name') or '').strip()
+            or (row.get('submitted_by_username') or '').strip()
+            or 'Unknown'
+        )
+        by_inspector[inspector] += 1
+
+        district = _extract_dsr_district(row.get('place', '')) or 'Unknown'
+        by_district[district] += 1
+
+        if row.get('attachment_file'):
+            with_attachment += 1
+        try:
+            quality_cases_total += int(row.get('quality_cases_count') or 0)
+        except (TypeError, ValueError):
+            pass
+
+        d = row.get('report_date')
+        if d:
+            by_month[d.strftime('%Y-%m')] += 1
+
+    month_labels = sorted(by_month.keys())
+    month_values = [by_month[m] for m in month_labels]
+
+    def top_counter(counter_obj, limit):
+        items = sorted(counter_obj.items(), key=lambda kv: kv[1], reverse=True)[:limit]
+        return {
+            'labels': [k for k, _ in items],
+            'values': [v for _, v in items],
+        }
+
+    total = len(entries)
+    return {
+        'summary': {
+            'total': total,
+            'with_attachment': with_attachment,
+            'without_attachment': max(0, total - with_attachment),
+            'quality_cases_total': quality_cases_total,
+            'unique_circles': len(by_circle),
+            'unique_inspectors': len(by_inspector),
+            'unique_districts': len(by_district),
+        },
+        'trend': {
+            'labels': month_labels,
+            'values': month_values,
+        },
+        'type_split': top_counter(by_type, 12),
+        'circle_split': top_counter(by_circle, 12),
+        'district_split': top_counter(by_district, 26),
+        'inspector_split': top_counter(by_inspector, 12),
+        'attachment_split': {
+            'labels': ['With Attachment', 'Without Attachment'],
+            'values': [with_attachment, max(0, total - with_attachment)],
+        },
+    }
+
+
+@app.route('/dsr/dashboard', methods=['GET'])
+@login_required
+@role_required(*DSR_ALLOWED_ROLES)
+def dsr_dashboard():
+    user = _load_current_authenticated_user(refresh_activity=False)
+    user_id = (user or {}).get('id')
+    role = (user or {}).get('role')
+
+    incident_type = (request.args.get('incident_type') or '').strip()
+    from_date_raw = (request.args.get('from_date') or '').strip()
+    to_date_raw = (request.args.get('to_date') or '').strip()
+    inspector_id_raw = (request.args.get('inspector_id') or '').strip()
+    district_raw = (request.args.get('district') or '').strip()
+
+    from_date = parse_date_input(from_date_raw) if from_date_raw else None
+    to_date = parse_date_input(to_date_raw) if to_date_raw else None
+
+    fetched = models.get_dsr_entries(
+        submitted_by=user_id,
+        role=role,
+        page=1,
+        per_page=5000,
+        incident_type=incident_type or None,
+        from_date=from_date,
+        to_date=to_date,
+    )
+    entries = list(fetched.get('entries') or [])
+
+    # Additional inspector filter for supervisory roles.
+    selected_inspector_id = 'all'
+    if role == 'inspector':
+        selected_inspector_id = str(user_id)
+    elif inspector_id_raw and inspector_id_raw != 'all':
+        try:
+            selected_inspector_id = str(int(inspector_id_raw))
+        except (TypeError, ValueError):
+            selected_inspector_id = 'all'
+
+    if selected_inspector_id != 'all':
+        entries = [
+            row for row in entries
+            if str(row.get('submitted_by') or '') == selected_inspector_id
+        ]
+
+    if district_raw:
+        entries = [
+            row for row in entries
+            if _extract_dsr_district(row.get('place', '')) == district_raw
+        ]
+
+    inspector_options_map = {}
+    for row in fetched.get('entries') or []:
+        sid = row.get('submitted_by')
+        if not sid:
+            continue
+        if sid not in inspector_options_map:
+            inspector_options_map[sid] = (
+                (row.get('submitted_by_name') or '').strip()
+                or (row.get('submitted_by_username') or '').strip()
+                or f'User {sid}'
+            )
+    inspector_options = [
+        {'id': sid, 'name': name}
+        for sid, name in sorted(inspector_options_map.items(), key=lambda item: item[1].lower())
+    ]
+
+    analytics = _build_dsr_dashboard_analytics(entries)
+    recent_entries = sorted(
+        entries,
+        key=lambda r: (
+            r.get('report_date') or date.min,
+            r.get('created_at') or datetime.min,
+        ),
+        reverse=True,
+    )[:25]
+
+    active_filter_labels = []
+    if from_date:
+        active_filter_labels.append(f"From: {from_date.strftime('%d %b %Y')}")
+    if to_date:
+        active_filter_labels.append(f"To: {to_date.strftime('%d %b %Y')}")
+    if incident_type:
+        active_filter_labels.append(
+            f"Type: {models.DSR_INCIDENT_TYPE_MAP.get(incident_type, incident_type)}"
+        )
+    if selected_inspector_id != 'all':
+        selected_name = next(
+            (opt['name'] for opt in inspector_options if str(opt['id']) == selected_inspector_id),
+            f'Inspector {selected_inspector_id}',
+        )
+        active_filter_labels.append(f'Inspector: {selected_name}')
+    if district_raw:
+        active_filter_labels.append(f'District: {district_raw}')
+
+    all_entries_json = [
+        {
+            'id': r.get('id'),
+            'report_date': r.get('report_date').strftime('%d/%m/%Y') if r.get('report_date') else '-',
+            'month': r.get('report_date').strftime('%Y-%m') if r.get('report_date') else '',
+            'incident_type': models.DSR_INCIDENT_TYPE_MAP.get(
+                r.get('incident_type', ''), r.get('incident_type', '')) or 'Unknown',
+            'circle': (r.get('circle') or '-').strip() or '-',
+            'place': (r.get('place') or '-').strip() or '-',
+            'district': _extract_dsr_district(r.get('place', '')) or '-',
+            'inspector': (
+                (r.get('submitted_by_name') or '').strip()
+                or (r.get('submitted_by_username') or '').strip()
+                or 'Unknown'
+            ),
+            'has_attachment': bool(r.get('attachment_file')),
+        }
+        for r in entries
+    ]
+
+    return render_template(
+        'dsr_dashboard.html',
+        analytics=analytics,
+        recent_entries=recent_entries,
+        all_entries_json=all_entries_json,
+        incident_types=models.DSR_INCIDENT_TYPES,
+        incident_type_map=models.DSR_INCIDENT_TYPE_MAP,
+        inspector_options=inspector_options,
+        ap_districts=AP_DISTRICTS,
+        filter_incident_type=incident_type,
+        filter_from_date=from_date_raw,
+        filter_to_date=to_date_raw,
+        filter_inspector_id=selected_inspector_id,
+        filter_district=district_raw,
+        active_filter_labels=active_filter_labels,
+    )
+
+
+@app.route('/dsr/', methods=['GET'])
+@login_required
+@role_required(*DSR_ALLOWED_ROLES)
+def dsr_list():
+    user = _load_current_authenticated_user(refresh_activity=False)
+    user_id = (user or {}).get('id')
+    role = (user or {}).get('role')
+
+    page = max(1, int(request.args.get('page', 1) or 1))
+    incident_type = request.args.get('incident_type', '').strip() or None
+    from_date_raw = request.args.get('from_date', '').strip() or None
+    to_date_raw = request.args.get('to_date', '').strip() or None
+
+    from_date = parse_date_input(from_date_raw) if from_date_raw else None
+    to_date = parse_date_input(to_date_raw) if to_date_raw else None
+
+    result = models.get_dsr_entries(
+        submitted_by=user_id,
+        role=role,
+        page=page,
+        per_page=25,
+        incident_type=incident_type,
+        from_date=from_date,
+        to_date=to_date,
+    )
+    total_pages = max(1, -(-result['total'] // 25))
+    return render_template(
+        'dsr_list.html',
+        entries=result['entries'],
+        total=result['total'],
+        page=page,
+        total_pages=total_pages,
+        incident_types=models.DSR_INCIDENT_TYPES,
+        incident_type_map=models.DSR_INCIDENT_TYPE_MAP,
+        filter_incident_type=incident_type or '',
+        filter_from_date=from_date_raw or '',
+        filter_to_date=to_date_raw or '',
+    )
+
+
+@app.route('/dsr/new', methods=['GET', 'POST'])
+@login_required
+@role_required(*DSR_SUBMIT_ROLES)
+def dsr_new():
+    user = _load_current_authenticated_user(refresh_activity=False)
+    user_id = (user or {}).get('id')
+    dsr_dynamic_fields = _get_dsr_dynamic_fields()
+    circle_defaults = _get_dsr_user_circle_defaults(user)
+    circle_value = circle_defaults['value']
+    circle_locked = circle_defaults['locked']
+
+    if request.method == 'POST':
+        csrf_ok = _validate_csrf_token(request.form.get('_csrf_token', '').strip())
+        if not csrf_ok:
+            flash('Security check failed. Please try again.', 'danger')
+            return redirect(url_for('dsr_new'))
+
+        dsr_attachment = request.files.get('dsr_attachment')
+        attachment_filename = None
+        dynamic_uploaded_files = []
+        incident_type = (request.form.get('incident_type') or '').strip()
+        if incident_type not in models.DSR_INCIDENT_TYPE_MAP:
+            flash('Please select a valid incident type.', 'warning')
+            return render_template('dsr_form.html', incident_types=models.DSR_INCIDENT_TYPES, dsr_dynamic_fields=dsr_dynamic_fields, dsr_circle_value=circle_value, dsr_circle_locked=circle_locked)
+
+        report_date_raw = request.form.get('report_date', '').strip()
+        report_date = parse_date_input(report_date_raw)
+        if not report_date:
+            flash('Please enter a valid report date.', 'warning')
+            return render_template('dsr_form.html', incident_types=models.DSR_INCIDENT_TYPES, dsr_dynamic_fields=dsr_dynamic_fields, dsr_circle_value=circle_value, dsr_circle_locked=circle_locked)
+
+        if dsr_attachment and dsr_attachment.filename:
+            ok, upload_result = validate_dsr_upload(dsr_attachment, 'DSR attachment')
+            if not ok:
+                flash(upload_result, 'danger')
+                return render_template('dsr_form.html', incident_types=models.DSR_INCIDENT_TYPES, dsr_dynamic_fields=dsr_dynamic_fields, dsr_circle_value=circle_value, dsr_circle_locked=circle_locked)
+            attachment_original_name = upload_result
+            generated_name = _build_storage_filename('dsr_attachment', attachment_original_name)
+            if not generated_name:
+                flash('Unable to prepare attachment filename.', 'danger')
+                return render_template('dsr_form.html', incident_types=models.DSR_INCIDENT_TYPES, dsr_dynamic_fields=dsr_dynamic_fields, dsr_circle_value=circle_value, dsr_circle_locked=circle_locked)
+            saved_ok, save_result = _save_uploaded_file(
+                dsr_attachment,
+                DSR_UPLOAD_DIR,
+                generated_name,
+                'DSR attachment',
+            )
+            if not saved_ok:
+                flash(save_result, 'danger')
+                return render_template('dsr_form.html', incident_types=models.DSR_INCIDENT_TYPES, dsr_dynamic_fields=dsr_dynamic_fields, dsr_circle_value=circle_value, dsr_circle_locked=circle_locked)
+            attachment_filename = save_result
+
+        submitted_circle = request.form.get('circle', '').strip()
+        if circle_locked and circle_value:
+            submitted_circle = circle_value
+
+        # Build place: JS auto-combines into hidden field; fallback for no-JS
+        _place_raw = request.form.get('place', '').strip()
+        if not _place_raw:
+            _village = request.form.get('dsr_village', '').strip()
+            _mandal  = request.form.get('dsr_mandal',  '').strip()
+            _dist    = request.form.get('dsr_district', '').strip()
+            _place_raw = ', '.join(p for p in [_village, _mandal, _dist] if p)
+
+        # Gather common fields
+        data = {
+            'incident_type':             incident_type,
+            'report_date':               report_date,
+            'circle':                    submitted_circle,
+            'place':                     _place_raw,
+            'description':               request.form.get('description', '').strip(),
+            # Transformer theft
+            'transformer_capacity':      request.form.get('transformer_capacity', '').strip(),
+            'transformer_category':      request.form.get('transformer_category', '').strip(),
+            # Fire accident
+            'fire_type':                 request.form.get('fire_type', '').strip(),
+            'fire_worth_loss':           request.form.get('fire_worth_loss', '').strip(),
+            # Quality cases
+            'quality_assessment_amount': request.form.get('quality_assessment_amount', '').strip(),
+            'attachment_file':           attachment_filename,
+        }
+
+        # Quality cases count — integer
+        qc_raw = request.form.get('quality_cases_count', '').strip()
+        if qc_raw:
+            if not qc_raw.isdigit():
+                if attachment_filename:
+                    _delete_uploaded_file(DSR_UPLOAD_DIR, attachment_filename)
+                flash('Quality cases count must be a whole number.', 'warning')
+                return render_template('dsr_form.html', incident_types=models.DSR_INCIDENT_TYPES, dsr_dynamic_fields=dsr_dynamic_fields, dsr_circle_value=circle_value, dsr_circle_locked=circle_locked)
+            data['quality_cases_count'] = int(qc_raw)
+
+        # Fatal/Non-fatal matrix — build from named fields
+        if incident_type == 'fatal_nonfatal':
+            _FATAL_CATS = ['human_fatal', 'human_non_fatal', 'animal_fatal', 'animal_non_fatal']
+            _FATAL_KEYS = ['hf', 'hnf', 'af', 'anf']
+            fatality_dict = {}
+            for cat, sk in zip(_FATAL_CATS, _FATAL_KEYS):
+                fatality_dict[cat] = {
+                    'place': request.form.get(f'fatality_{sk}_place', '').strip(),
+                    'cause': request.form.get(f'fatality_{sk}_cause', '').strip(),
+                    'count': request.form.get(f'fatality_{sk}_count', '').strip(),
+                    'facts': request.form.get(f'fatality_{sk}_facts', '').strip(),
+                }
+            data['fatality_details_json'] = json.dumps(fatality_dict)
+
+        # Reported cases — build from form arrays
+        if incident_type == 'reported_cases':
+            rc_circles = request.form.getlist('rc_circle')
+            rc_dpe = request.form.getlist('rc_dpe')
+            rc_opn = request.form.getlist('rc_opn')
+            rc_comp_dpe = request.form.getlist('rc_comp_dpe')
+            rc_comp_opn = request.form.getlist('rc_comp_opn')
+            rc_amount = request.form.getlist('rc_amount')
+            rc_rows = []
+            for i in range(len(rc_circles)):
+                row = {
+                    'circle': (rc_circles[i] if i < len(rc_circles) else '').strip(),
+                    'dpe': (rc_dpe[i] if i < len(rc_dpe) else '').strip(),
+                    'opn': (rc_opn[i] if i < len(rc_opn) else '').strip(),
+                    'comp_dpe': (rc_comp_dpe[i] if i < len(rc_comp_dpe) else '').strip(),
+                    'comp_opn': (rc_comp_opn[i] if i < len(rc_comp_opn) else '').strip(),
+                    'amount': (rc_amount[i] if i < len(rc_amount) else '').strip(),
+                }
+                rc_rows.append(row)
+            data['reported_cases_json'] = json.dumps(rc_rows)
+
+        dyn_ok, dyn_values, dynamic_uploaded_files, dyn_err = _collect_dsr_dynamic_field_values(dsr_dynamic_fields)
+        if not dyn_ok:
+            if attachment_filename:
+                _delete_uploaded_file(DSR_UPLOAD_DIR, attachment_filename)
+            for fn in dynamic_uploaded_files:
+                _delete_uploaded_file(DSR_UPLOAD_DIR, fn)
+            flash(dyn_err or 'Invalid dynamic field values.', 'warning')
+            return render_template('dsr_form.html', incident_types=models.DSR_INCIDENT_TYPES, dsr_dynamic_fields=dsr_dynamic_fields, dsr_circle_value=circle_value, dsr_circle_locked=circle_locked)
+        data['extra_fields_json'] = json.dumps(dyn_values)
+
+        try:
+            entry_id = models.create_dsr_entry(data, user_id)
+            flash('DSR entry submitted successfully.', 'success')
+            return redirect(url_for('dsr_view', entry_id=entry_id))
+        except Exception:
+            if attachment_filename:
+                _delete_uploaded_file(DSR_UPLOAD_DIR, attachment_filename)
+            for fn in dynamic_uploaded_files:
+                _delete_uploaded_file(DSR_UPLOAD_DIR, fn)
+            app.logger.exception('DSR entry creation failed')
+            flash('An error occurred while saving the entry. Please try again.', 'danger')
+
+    return render_template('dsr_form.html', incident_types=models.DSR_INCIDENT_TYPES, dsr_dynamic_fields=dsr_dynamic_fields, dsr_circle_value=circle_value, dsr_circle_locked=circle_locked)
+
+
+@app.route('/dsr/<int:entry_id>', methods=['GET'])
+@login_required
+@role_required(*DSR_ALLOWED_ROLES)
+def dsr_view(entry_id):
+    user = _load_current_authenticated_user(refresh_activity=False)
+    user_id = (user or {}).get('id')
+    role = (user or {}).get('role')
+
+    entry = models.get_dsr_entry(entry_id, submitted_by=user_id, role=role)
+    if not entry:
+        flash('DSR entry not found or access denied.', 'warning')
+        return redirect(url_for('dsr_list'))
+
+    # Parse JSON sub-fields for rendering
+    _FATAL_CATS = ['human_fatal', 'human_non_fatal', 'animal_fatal', 'animal_non_fatal']
+    fatality_matrix = None   # new dict format
+    fatality_rows = []       # old list format (backward compat)
+    reported_rows = []
+    extra_fields = {}
+    if entry.get('fatality_details_json'):
+        try:
+            parsed = json.loads(entry['fatality_details_json'])
+            if isinstance(parsed, dict):
+                fatality_matrix = parsed
+            elif isinstance(parsed, list):
+                fatality_rows = parsed
+        except Exception:
+            pass
+    if entry.get('reported_cases_json'):
+        try:
+            reported_rows = json.loads(entry['reported_cases_json'])
+        except Exception:
+            pass
+    if entry.get('extra_fields_json'):
+        try:
+            parsed_extra = json.loads(entry['extra_fields_json'])
+            if isinstance(parsed_extra, dict):
+                extra_fields = parsed_extra
+        except Exception:
+            pass
+
+    return render_template(
+        'dsr_view.html',
+        entry=entry,
+        fatality_matrix=fatality_matrix,
+        fatality_rows=fatality_rows,
+        reported_rows=reported_rows,
+        extra_fields=extra_fields,
+        dsr_dynamic_fields=_get_dsr_dynamic_fields(),
+        incident_type_map=models.DSR_INCIDENT_TYPE_MAP,
+    )
+
+
+@app.route('/dsr/export', methods=['GET'])
+@login_required
+@role_required(*DSR_ALLOWED_ROLES)
+def dsr_export():
+    user = _load_current_authenticated_user(refresh_activity=False)
+    user_id = (user or {}).get('id')
+    role = (user or {}).get('role')
+
+    incident_type = (request.args.get('incident_type') or '').strip() or None
+    from_date_raw = (request.args.get('from_date') or '').strip()
+    to_date_raw = (request.args.get('to_date') or '').strip()
+    from_date = parse_date_input(from_date_raw) if from_date_raw else None
+    to_date = parse_date_input(to_date_raw) if to_date_raw else None
+
+    fetched = models.get_dsr_entries(
+        submitted_by=user_id, role=role,
+        page=1, per_page=100000,
+        incident_type=incident_type,
+        from_date=from_date, to_date=to_date,
+    )
+    entries = fetched.get('entries') or []
+
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow([
+        'ID', 'Report Date', 'Incident Type', 'Circle', 'Place',
+        'Description', 'Transformer Capacity (KVA)', 'Transformer Category',
+        'Fire Type', 'Fire Worth/Loss',
+        'Quality Cases Count', 'Quality Assessment Amount (Rs)',
+        'Extra Fields JSON',
+        'Has Attachment', 'Submitted By', 'Created At',
+    ])
+    for r in entries:
+        writer.writerow([
+            r.get('id', ''),
+            r.get('report_date').strftime('%d/%m/%Y') if r.get('report_date') else '',
+            models.DSR_INCIDENT_TYPE_MAP.get(r.get('incident_type', ''), r.get('incident_type', '')),
+            r.get('circle', ''),
+            r.get('place', ''),
+            r.get('description', ''),
+            r.get('transformer_capacity', ''),
+            r.get('transformer_category', ''),
+            r.get('fire_type', ''),
+            r.get('fire_worth_loss', ''),
+            r.get('quality_cases_count', ''),
+            r.get('quality_assessment_amount', ''),
+            r.get('extra_fields_json', ''),
+            'Yes' if r.get('attachment_file') else 'No',
+            (r.get('submitted_by_name') or r.get('submitted_by_username') or ''),
+            r.get('created_at').strftime('%d/%m/%Y %H:%M') if r.get('created_at') else '',
+        ])
+
+    csv_bytes = output.getvalue().encode('utf-8-sig')  # BOM for Excel compatibility
+    filename_ts = datetime.now().strftime('%Y%m%d_%H%M%S')
+    return Response(
+        csv_bytes,
+        mimetype='text/csv',
+        headers={'Content-Disposition': f'attachment; filename=DSR_Export_{filename_ts}.csv'},
+    )
+
+
+@app.route('/dsr/<int:entry_id>/edit', methods=['GET', 'POST'])
+@login_required
+@role_required(*DSR_SUBMIT_ROLES)
+def dsr_edit(entry_id):
+    user = _load_current_authenticated_user(refresh_activity=False)
+    user_id = (user or {}).get('id')
+    role = (user or {}).get('role')
+    circle_defaults = _get_dsr_user_circle_defaults(user)
+    circle_value = circle_defaults['value']
+    circle_locked = circle_defaults['locked']
+
+    entry = models.get_dsr_entry(entry_id, submitted_by=user_id, role=role)
+    if not entry:
+        flash('DSR entry not found or access denied.', 'warning')
+        return redirect(url_for('dsr_list'))
+
+    dsr_dynamic_fields = _get_dsr_dynamic_fields()
+
+    # Existing dynamic values (for edit persistence)
+    existing_extra_fields = {}
+    if entry.get('extra_fields_json'):
+        try:
+            parsed_extra = json.loads(entry['extra_fields_json'])
+            if isinstance(parsed_extra, dict):
+                existing_extra_fields = parsed_extra
+        except Exception:
+            pass
+
+    if request.method == 'POST':
+        csrf_ok = _validate_csrf_token(request.form.get('_csrf_token', '').strip())
+        if not csrf_ok:
+            flash('Security check failed. Please try again.', 'danger')
+            return redirect(url_for('dsr_edit', entry_id=entry_id))
+
+        incident_type = request.form.get('incident_type', '').strip()
+        if incident_type not in dict(models.DSR_INCIDENT_TYPES):
+            flash('Invalid incident type.', 'danger')
+            return redirect(url_for('dsr_edit', entry_id=entry_id))
+
+        report_date_raw = request.form.get('report_date', '').strip()
+        report_date = parse_date_input(report_date_raw)
+        if not report_date:
+            flash('Invalid date.', 'danger')
+            return redirect(url_for('dsr_edit', entry_id=entry_id))
+
+        qc_raw = request.form.get('quality_cases_count', '').strip()
+        qc_val = None
+        if qc_raw:
+            if not qc_raw.isdigit():
+                flash('Quality cases count must be a whole number.', 'warning')
+                return redirect(url_for('dsr_edit', entry_id=entry_id))
+            qc_val = int(qc_raw)
+
+        submitted_circle = request.form.get('circle', '').strip()
+        if circle_locked and circle_value:
+            submitted_circle = circle_value
+
+        # Build place: JS auto-combines into hidden field; fallback for no-JS
+        _place_raw = request.form.get('place', '').strip()
+        if not _place_raw:
+            _village = request.form.get('dsr_village', '').strip()
+            _mandal  = request.form.get('dsr_mandal',  '').strip()
+            _dist    = request.form.get('dsr_district', '').strip()
+            _place_raw = ', '.join(p for p in [_village, _mandal, _dist] if p)
+
+        data = {
+            'incident_type': incident_type,
+            'report_date': report_date,
+            'circle': submitted_circle or None,
+            'place': _place_raw or None,
+            'description': request.form.get('description', '').strip() or None,
+            'transformer_capacity': request.form.get('transformer_capacity', '').strip() or None,
+            'transformer_category': request.form.get('transformer_category', '').strip() or None,
+            'fire_type': request.form.get('fire_type', '').strip() or None,
+            'fire_worth_loss': request.form.get('fire_worth_loss', '').strip() or None,
+            'quality_cases_count': qc_val,
+            'quality_assessment_amount': request.form.get('quality_assessment_amount', '').strip() or None,
+        }
+
+        # Rebuild JSON sub-fields
+        if incident_type == 'fatal_nonfatal':
+            _FATAL_CATS = ['human_fatal', 'human_non_fatal', 'animal_fatal', 'animal_non_fatal']
+            _FATAL_KEYS = ['hf', 'hnf', 'af', 'anf']
+            fatality_dict = {}
+            for cat, sk in zip(_FATAL_CATS, _FATAL_KEYS):
+                fatality_dict[cat] = {
+                    'place': request.form.get(f'fatality_{sk}_place', '').strip(),
+                    'cause': request.form.get(f'fatality_{sk}_cause', '').strip(),
+                    'count': request.form.get(f'fatality_{sk}_count', '').strip(),
+                    'facts': request.form.get(f'fatality_{sk}_facts', '').strip(),
+                }
+            data['fatality_details_json'] = json.dumps(fatality_dict)
+
+        if incident_type == 'reported_cases':
+            rc_circles = request.form.getlist('rc_circle')
+            rc_dpe = request.form.getlist('rc_dpe')
+            rc_opn = request.form.getlist('rc_opn')
+            rc_comp_dpe = request.form.getlist('rc_comp_dpe')
+            rc_comp_opn = request.form.getlist('rc_comp_opn')
+            rc_amounts = request.form.getlist('rc_amount')
+            rc_rows = [
+                {'circle': ci, 'dpe': d, 'opn': o, 'comp_dpe': cd, 'comp_opn': co, 'amount': a}
+                for ci, d, o, cd, co, a in zip(
+                    rc_circles, rc_dpe, rc_opn, rc_comp_dpe, rc_comp_opn, rc_amounts,
+                )
+                if ci
+            ]
+            data['reported_cases_json'] = json.dumps(rc_rows)
+
+        dyn_ok, dyn_values, new_dynamic_files, dyn_err = _collect_dsr_dynamic_field_values(
+            dsr_dynamic_fields,
+            existing_values=existing_extra_fields,
+        )
+        if not dyn_ok:
+            for fn in new_dynamic_files:
+                _delete_uploaded_file(DSR_UPLOAD_DIR, fn)
+            flash(dyn_err or 'Invalid dynamic field values.', 'warning')
+            return redirect(url_for('dsr_edit', entry_id=entry_id))
+        data['extra_fields_json'] = json.dumps(dyn_values)
+
+        try:
+            ok = models.update_dsr_entry(entry_id, data, user_id, role)
+            if ok:
+                flash('DSR entry updated successfully.', 'success')
+                return redirect(url_for('dsr_view', entry_id=entry_id))
+            else:
+                for fn in new_dynamic_files:
+                    _delete_uploaded_file(DSR_UPLOAD_DIR, fn)
+                flash('Update failed — entry not found or access denied.', 'warning')
+        except Exception:
+            for fn in new_dynamic_files:
+                _delete_uploaded_file(DSR_UPLOAD_DIR, fn)
+            app.logger.exception('DSR entry update failed')
+            flash('An error occurred while updating the entry.', 'danger')
+
+        return redirect(url_for('dsr_edit', entry_id=entry_id))
+
+    # GET: parse stored JSON for form pre-population
+    _FATAL_CATS = ['human_fatal', 'human_non_fatal', 'animal_fatal', 'animal_non_fatal']
+    fatality_matrix = {}
+    reported_rows = []
+    if entry.get('fatality_details_json'):
+        try:
+            parsed = json.loads(entry['fatality_details_json'])
+            if isinstance(parsed, dict):
+                fatality_matrix = parsed
+            elif isinstance(parsed, list):
+                # Migrate old list format: fill matrix from first matching category row
+                for old_row in parsed:
+                    cat = old_row.get('category', '')
+                    if cat in _FATAL_CATS and cat not in fatality_matrix:
+                        fatality_matrix[cat] = {
+                            'place': old_row.get('place', ''),
+                            'cause': old_row.get('cause', ''),
+                            'count': old_row.get('count', ''),
+                            'facts': old_row.get('facts', ''),
+                        }
+        except Exception:
+            pass
+    if entry.get('reported_cases_json'):
+        try:
+            reported_rows = json.loads(entry['reported_cases_json'])
+        except Exception:
+            pass
+
+    return render_template(
+        'dsr_edit.html',
+        entry=entry,
+        fatality_matrix=fatality_matrix,
+        reported_rows=reported_rows,
+        extra_fields=existing_extra_fields,
+        dsr_dynamic_fields=dsr_dynamic_fields,
+        incident_types=models.DSR_INCIDENT_TYPES,
+        dsr_circle_value=circle_value,
+        dsr_circle_locked=circle_locked,
+    )
+
+
+@app.route('/dsr/<int:entry_id>/delete', methods=['POST'])
+@login_required
+@role_required(*DSR_SUBMIT_ROLES)
+def dsr_delete(entry_id):
+    user = _load_current_authenticated_user(refresh_activity=False)
+    user_id = (user or {}).get('id')
+    role = (user or {}).get('role')
+
+    csrf_ok = _validate_csrf_token(request.form.get('_csrf_token', '').strip())
+    if not csrf_ok:
+        flash('Security check failed.', 'danger')
+        return redirect(url_for('dsr_view', entry_id=entry_id))
+
+    try:
+        result = models.delete_dsr_entry(entry_id, user_id, role)
+        if result and result.get('deleted'):
+            att = result.get('attachment_file')
+            if att:
+                try:
+                    _delete_uploaded_file(DSR_UPLOAD_DIR, att)
+                except Exception:
+                    app.logger.warning('Could not delete DSR attachment: %s', att)
+
+            extra = {}
+            try:
+                extra_raw = result.get('extra_fields_json')
+                if extra_raw:
+                    parsed = json.loads(extra_raw)
+                    if isinstance(parsed, dict):
+                        extra = parsed
+            except Exception:
+                extra = {}
+            file_field_keys = {
+                fld['field_key']
+                for fld in _get_dsr_dynamic_fields()
+                if fld.get('type') == 'file'
+            }
+            for fn in _extract_dsr_dynamic_files(extra, file_field_keys=file_field_keys):
+                try:
+                    _delete_uploaded_file(DSR_UPLOAD_DIR, fn)
+                except Exception:
+                    app.logger.warning('Could not delete DSR dynamic file: %s', fn)
+
+            flash('DSR entry deleted.', 'success')
+        else:
+            flash('Entry not found or access denied.', 'warning')
+    except Exception:
+        app.logger.exception('DSR delete failed')
+        flash('An error occurred while deleting the entry.', 'danger')
+
+    return redirect(url_for('dsr_list'))
+
+
+@app.route('/dsr-files/<path:filename>')
+@login_required
+@role_required(*DSR_ALLOWED_ROLES)
+def dsr_file(filename):
+    filename = _normalize_storage_relpath(filename)
+    if not filename:
+        return Response(status=404)
+
+    entry_id_raw = (request.args.get('entry_id') or '').strip()
+    try:
+        entry_id = int(entry_id_raw)
+    except (TypeError, ValueError):
+        return Response(status=404)
+    if entry_id <= 0:
+        return Response(status=404)
+
+    user = _load_current_authenticated_user(refresh_activity=False)
+    user_id = (user or {}).get('id')
+    role = (user or {}).get('role')
+    entry = models.get_dsr_entry(entry_id, submitted_by=user_id, role=role)
+    if not entry:
+        log_security_event('access.dsr_file_entry_missing_or_denied', severity='warning', entry_id=entry_id)
+        return Response(status=404)
+
+    allowed_files = set()
+    main_attachment = _normalize_storage_relpath(entry.get('attachment_file') or '')
+    if main_attachment:
+        allowed_files.add(main_attachment)
+    if entry.get('extra_fields_json'):
+        try:
+            parsed_extra = json.loads(entry['extra_fields_json'])
+            if isinstance(parsed_extra, dict):
+                file_field_keys = {
+                    fld['field_key']
+                    for fld in _get_dsr_dynamic_fields()
+                    if fld.get('type') == 'file'
+                }
+                allowed_files.update(_extract_dsr_dynamic_files(parsed_extra, file_field_keys=file_field_keys))
+        except Exception:
+            pass
+
+    if filename not in allowed_files:
+        log_security_event('access.dsr_file_mismatch', severity='warning', entry_id=entry_id)
+        return Response(status=404)
+    if not _uploaded_file_exists(DSR_UPLOAD_DIR, filename):
+        log_security_event('access.dsr_file_missing', severity='info', entry_id=entry_id)
+        flash('Attachment file is missing.', 'warning')
+        return redirect(url_for('dsr_view', entry_id=entry_id))
+
+    return send_from_directory(DSR_UPLOAD_DIR, filename, as_attachment=False)
 
 
 # ========================================

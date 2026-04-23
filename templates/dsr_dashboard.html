@@ -1,0 +1,391 @@
+{% extends "base.html" %}
+{% block title %}DSR Dashboard{% endblock %}
+{% block page_title %}DSR Dashboard{% endblock %}
+
+{% block content %}
+<div class="dashboard dashboard-compact-board">
+    <div class="dashboard-filter-shell">
+        <form class="dashboard-filter-inline dashboard-filter-inline-compact" method="GET" action="{{ url_for('dsr_dashboard') }}">
+            <div class="dashboard-filter-main">
+                <div class="dashboard-filter-field">
+                    <label class="dashboard-filter-mini-label" for="dsrFromDate">From Date</label>
+                    <input id="dsrFromDate" class="filter-select dashboard-filter-input" type="date" name="from_date" value="{{ filter_from_date }}">
+                </div>
+                <div class="dashboard-filter-field">
+                    <label class="dashboard-filter-mini-label" for="dsrToDate">To Date</label>
+                    <input id="dsrToDate" class="filter-select dashboard-filter-input" type="date" name="to_date" value="{{ filter_to_date }}">
+                </div>
+                <div class="dashboard-filter-field">
+                    <label class="dashboard-filter-mini-label" for="dsrIncidentType">Incident Type</label>
+                    <select id="dsrIncidentType" class="filter-select dashboard-filter-input" name="incident_type">
+                        <option value="">All Types</option>
+                        {% for key, label in incident_types %}
+                        <option value="{{ key }}" {% if filter_incident_type == key %}selected{% endif %}>{{ label }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                {% if current_user_role != 'inspector' %}
+                <div class="dashboard-filter-field">
+                    <label class="dashboard-filter-mini-label" for="dsrInspector">Inspector</label>
+                    <select id="dsrInspector" class="filter-select dashboard-filter-input" name="inspector_id">
+                        <option value="all" {% if filter_inspector_id == 'all' %}selected{% endif %}>All Inspectors</option>
+                        {% for opt in inspector_options %}
+                        <option value="{{ opt.id }}" {% if filter_inspector_id == opt.id|string %}selected{% endif %}>{{ opt.name }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                {% endif %}
+                <div class="dashboard-filter-field">
+                    <label class="dashboard-filter-mini-label" for="dsrDistrict">District</label>
+                    <select id="dsrDistrict" class="filter-select dashboard-filter-input" name="district">
+                        <option value="">All Districts</option>
+                        {% for d in ap_districts %}
+                        <option value="{{ d }}" {% if filter_district == d %}selected{% endif %}>{{ d }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="dashboard-filter-actions">
+                    <button class="btn btn-sm btn-primary dashboard-filter-btn" type="submit">Apply</button>
+                    <a class="btn btn-sm btn-outline dashboard-filter-btn" href="{{ url_for('dsr_dashboard') }}">Clear</a>
+                </div>
+            </div>
+            <div class="dashboard-filter-art dashboard-filter-art-inline dashboard-filter-applied">
+                <div class="dashboard-applied-title">Filters</div>
+                <div class="dashboard-applied-list">
+                    {% if active_filter_labels %}
+                        {% for label in active_filter_labels %}
+                        <span class="dashboard-applied-chip">{{ label }}</span>
+                        {% endfor %}
+                    {% else %}
+                    <span class="dashboard-applied-empty">All records</span>
+                    {% endif %}
+                </div>
+            </div>
+        </form>
+    </div>
+
+    <div class="stats-grid dashboard-kpi-grid">
+        <div class="stat-card stat-primary">
+            <div class="stat-content">
+                <span class="stat-value">{{ analytics.summary.total }}</span>
+                <span class="stat-label">Total DSR Reports</span>
+            </div>
+        </div>
+        <div class="stat-card stat-success">
+            <div class="stat-content">
+                <span class="stat-value">{{ analytics.summary.with_attachment }}</span>
+                <span class="stat-label">With Attachments</span>
+            </div>
+        </div>
+        <div class="stat-card stat-warning">
+            <div class="stat-content">
+                <span class="stat-value">{{ analytics.summary.without_attachment }}</span>
+                <span class="stat-label">Without Attachments</span>
+            </div>
+        </div>
+        <div class="stat-card stat-violet">
+            <div class="stat-content">
+                <span class="stat-value">{{ analytics.summary.quality_cases_total }}</span>
+                <span class="stat-label">Quality Cases (Total)</span>
+            </div>
+        </div>
+        <div class="stat-card stat-info">
+            <div class="stat-content">
+                <span class="stat-value">{{ analytics.summary.unique_circles }}</span>
+                <span class="stat-label">Active Circles</span>
+            </div>
+        </div>
+        <div class="stat-card stat-success">
+            <div class="stat-content">
+                <span class="stat-value">{{ analytics.summary.unique_districts }}</span>
+                <span class="stat-label">Active Districts</span>
+            </div>
+        </div>
+        <div class="stat-card stat-primary">
+            <div class="stat-content">
+                <span class="stat-value">{{ analytics.summary.unique_inspectors }}</span>
+                <span class="stat-label">Contributing Inspectors</span>
+            </div>
+        </div>
+    </div>
+
+    <div class="analytics-grid">
+        <div class="card analytics-card analytics-wide">
+            <div class="card-header"><h2>Monthly DSR Trend</h2></div>
+            <div class="analytics-canvas-wrap"><canvas id="dsrTrendChart"></canvas></div>
+        </div>
+        <div class="card analytics-card">
+            <div class="card-header"><h2>Incident Type Split</h2></div>
+            <div class="analytics-canvas-wrap"><canvas id="dsrTypeChart"></canvas></div>
+        </div>
+        <div class="card analytics-card">
+            <div class="card-header"><h2>Attachment Coverage</h2></div>
+            <div class="analytics-canvas-wrap"><canvas id="dsrAttachmentChart"></canvas></div>
+        </div>
+        <div class="card analytics-card analytics-wide">
+            <div class="card-header"><h2>Top Circles</h2></div>
+            <div class="analytics-canvas-wrap"><canvas id="dsrCircleChart"></canvas></div>
+        </div>
+        <div class="card analytics-card analytics-wide">
+            <div class="card-header"><h2>Reports by District</h2></div>
+            <div class="analytics-canvas-wrap"><canvas id="dsrDistrictChart"></canvas></div>
+        </div>
+        <div class="card analytics-card analytics-wide analytics-officer-wide">
+            <div class="card-header"><h2>Inspector Wise Uploads</h2></div>
+            <div class="analytics-canvas-wrap"><canvas id="dsrInspectorChart"></canvas></div>
+        </div>
+    </div>
+
+    <div class="card recent-panel">
+        <div class="card-header">
+            <h2>Recent DSR Reports</h2>
+            <div style="display:flex;gap:8px;align-items:center;">
+                <a href="{{ url_for('dsr_export') }}" class="btn btn-sm btn-outline" title="Export all as CSV">⬇ Export CSV</a>
+                <button class="btn btn-sm btn-outline" onclick="window.print()" title="Print / Save as PDF">🖨 Print / PDF</button>
+                <a href="{{ url_for('dsr_list') }}" class="btn btn-sm btn-outline">View DSR List</a>
+            </div>
+        </div>
+        <div class="table-wrapper">
+            <table class="data-table" id="dsrRecentTable">
+                <thead>
+                    <tr>
+                        <th>ID</th>
+                        <th>Date</th>
+                        <th>Type</th>
+                        <th>District</th>
+                        <th>Circle</th>
+                        <th>Inspector</th>
+                        <th>Attachment</th>
+                        <th></th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for r in recent_entries %}
+                    <tr>
+                        <td>{{ r.id }}</td>
+                        <td>{{ r.report_date.strftime('%d/%m/%Y') if r.report_date else '-' }}</td>
+                        <td>{{ incident_type_map.get(r.incident_type, r.incident_type) }}</td>
+                        <td>{{ r.place.rsplit(',', 1)[-1].strip() if r.place and ',' in r.place else (r.place or '-') }}</td>
+                        <td>{{ r.circle or '-' }}</td>
+                        <td>{{ r.submitted_by_name or r.submitted_by_username or '-' }}</td>
+                        <td>{{ 'Yes' if r.attachment_file else 'No' }}</td>
+                        <td><a href="{{ url_for('dsr_view', entry_id=r.id) }}" class="btn btn-xs btn-outline">View</a></td>
+                    </tr>
+                    {% else %}
+                    <tr><td colspan="8" class="empty-state">No DSR records found.</td></tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<!-- ─── Drilldown Modal ─── -->
+<div id="dsrDrillModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:2000;align-items:center;justify-content:center;">
+    <div style="background:var(--surface-card);border-radius:10px;padding:0;max-width:820px;width:95%;max-height:85vh;display:flex;flex-direction:column;box-shadow:0 8px 40px rgba(0,0,0,.35);">
+        <div style="display:flex;justify-content:space-between;align-items:center;padding:16px 20px;border-bottom:1px solid var(--border-color);">
+            <h3 id="dsrDrillTitle" style="margin:0;font-size:1rem;">Entries</h3>
+            <button onclick="document.getElementById('dsrDrillModal').style.display='none'" class="btn btn-xs btn-outline">✕ Close</button>
+        </div>
+        <div style="overflow:auto;flex:1;padding:16px 20px;">
+            <table class="data-table" id="dsrDrillTable">
+                <thead>
+                    <tr>
+                        <th>ID</th><th>Date</th><th>Type</th><th>District</th><th>Circle</th><th>Inspector</th><th>Attachment</th><th></th>
+                    </tr>
+                </thead>
+                <tbody id="dsrDrillBody"></tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<style>
+@media print {
+    .sidebar, .top-nav, .dashboard-filter-shell, .petitions-toolbar,
+    #dsrDrillModal, .btn, nav, header, footer { display: none !important; }
+    .dashboard { padding: 0 !important; }
+    .analytics-grid { break-inside: avoid; }
+    body { background: white !important; color: black !important; }
+    .stat-card { border: 1px solid #ccc !important; background: white !important; }
+}
+</style>
+
+<script
+    src="https://cdn.jsdelivr.net/npm/chart.js@4.4.6/dist/chart.umd.min.js"
+    onerror="this.onerror=null;this.src='{{ url_for('static', filename='js/vendor/chart.umd.min.js') }}';"
+></script>
+<script>
+(function() {
+    if (!window.Chart) return;
+
+    const analytics = {{ analytics|tojson }};
+    const allEntries = {{ all_entries_json|tojson }};
+    const palette = ['#4f46e5', '#06b6d4', '#22c55e', '#f59e0b', '#ec4899', '#ef4444', '#8b5cf6', '#14b8a6', '#3b82f6', '#84cc16', '#f97316', '#a855f7'];
+    const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
+    const axisColor = isDark ? '#b7c6e8' : '#5e739f';
+    const gridColor = isDark ? 'rgba(120,145,200,0.22)' : '#e7efff';
+
+    const common = {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+            legend: {
+                labels: { color: axisColor, usePointStyle: true, pointStyle: 'circle' }
+            }
+        },
+        scales: {
+            x: { ticks: { color: axisColor }, grid: { color: gridColor } },
+            y: { ticks: { color: axisColor, precision: 0 }, grid: { color: gridColor }, beginAtZero: true }
+        }
+    };
+
+    // ── Drilldown helpers ────────────────────────────────────────
+    function showDrill(title, rows) {
+        document.getElementById('dsrDrillTitle').textContent = title + ' — ' + rows.length + ' entr' + (rows.length === 1 ? 'y' : 'ies');
+        const tbody = document.getElementById('dsrDrillBody');
+        if (!rows.length) {
+            tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;padding:20px;color:var(--text-muted);">No entries found.</td></tr>';
+        } else {
+            tbody.innerHTML = rows.map(r =>
+                `<tr>
+                    <td>${r.id}</td>
+                    <td>${r.report_date}</td>
+                    <td>${r.incident_type}</td>
+                    <td>${r.district}</td>
+                    <td>${r.circle}</td>
+                    <td>${r.inspector}</td>
+                    <td>${r.has_attachment ? '\u2705' : '\u2014'}</td>
+                    <td><a href="/dsr/${r.id}" class="btn btn-xs btn-outline">View</a></td>
+                </tr>`
+            ).join('');
+        }
+        document.getElementById('dsrDrillModal').style.display = 'flex';
+    }
+
+    function drillByType(label) {
+        showDrill(label, allEntries.filter(r => r.incident_type === label));
+    }
+    function drillByCircle(label) {
+        showDrill(label, allEntries.filter(r => r.circle === label));
+    }
+    function drillByDistrict(label) {
+        showDrill(label, allEntries.filter(r => r.district === label));
+    }
+    function drillByInspector(label) {
+        showDrill(label, allEntries.filter(r => r.inspector === label));
+    }
+    function drillByMonth(label) {
+        showDrill(label, allEntries.filter(r => r.month === label));
+    }
+    function drillByAttachment(label) {
+        const hasAtt = label.toLowerCase().startsWith('with');
+        showDrill(label, allEntries.filter(r => r.has_attachment === hasAtt));
+    }
+
+    // ── Charts ───────────────────────────────────────────────────
+    new Chart(document.getElementById('dsrTrendChart'), {
+        type: 'line',
+        data: {
+            labels: analytics.trend.labels,
+            datasets: [{
+                label: 'Reports',
+                data: analytics.trend.values,
+                borderColor: '#4f46e5',
+                backgroundColor: 'rgba(79,70,229,0.15)',
+                fill: true,
+                tension: 0.35
+            }]
+        },
+        options: {
+            ...common,
+            onClick(evt, elements) {
+                if (!elements.length) return;
+                drillByMonth(analytics.trend.labels[elements[0].index]);
+            }
+        }
+    });
+
+    new Chart(document.getElementById('dsrTypeChart'), {
+        type: 'doughnut',
+        data: {
+            labels: analytics.type_split.labels,
+            datasets: [{ data: analytics.type_split.values, backgroundColor: palette }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: { legend: { position: 'bottom', labels: { color: axisColor } } },
+            onClick(evt, elements) {
+                if (!elements.length) return;
+                drillByType(analytics.type_split.labels[elements[0].index]);
+            }
+        }
+    });
+
+    new Chart(document.getElementById('dsrAttachmentChart'), {
+        type: 'pie',
+        data: {
+            labels: analytics.attachment_split.labels,
+            datasets: [{ data: analytics.attachment_split.values, backgroundColor: ['#22c55e', '#ef4444'] }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: { legend: { position: 'bottom', labels: { color: axisColor } } },
+            onClick(evt, elements) {
+                if (!elements.length) return;
+                drillByAttachment(analytics.attachment_split.labels[elements[0].index]);
+            }
+        }
+    });
+
+    new Chart(document.getElementById('dsrCircleChart'), {
+        type: 'bar',
+        data: {
+            labels: analytics.circle_split.labels,
+            datasets: [{ label: 'Reports', data: analytics.circle_split.values, borderRadius: 8, backgroundColor: '#06b6d4' }]
+        },
+        options: {
+            ...common,
+            onClick(evt, elements) {
+                if (!elements.length) return;
+                drillByCircle(analytics.circle_split.labels[elements[0].index]);
+            }
+        }
+    });
+
+    new Chart(document.getElementById('dsrDistrictChart'), {
+        type: 'bar',
+        data: {
+            labels: analytics.district_split.labels,
+            datasets: [{ label: 'Reports', data: analytics.district_split.values, borderRadius: 8,
+                backgroundColor: analytics.district_split.labels.map((_, i) => palette[i % palette.length]) }]
+        },
+        options: {
+            ...common,
+            indexAxis: analytics.district_split.labels.length > 8 ? 'y' : 'x',
+            onClick(evt, elements) {
+                if (!elements.length) return;
+                drillByDistrict(analytics.district_split.labels[elements[0].index]);
+            }
+        }
+    });
+
+    new Chart(document.getElementById('dsrInspectorChart'), {
+        type: 'bar',
+        data: {
+            labels: analytics.inspector_split.labels,
+            datasets: [{ label: 'Reports', data: analytics.inspector_split.values, borderRadius: 8, backgroundColor: '#8b5cf6' }]
+        },
+        options: {
+            ...common,
+            onClick(evt, elements) {
+                if (!elements.length) return;
+                drillByInspector(analytics.inspector_split.labels[elements[0].index]);
+            }
+        }
+    });
+})();
+</script>
+{% endblock %}

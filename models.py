@@ -284,6 +284,48 @@ def ensure_schema_updates():
             CREATE INDEX IF NOT EXISTS idx_server_sessions_expires_at
             ON server_sessions (expires_at)
         """)
+
+        # ── DSR (Daily Situation Report) module ───────────────────────────
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS dsr_entries (
+                id                       SERIAL PRIMARY KEY,
+                incident_type            VARCHAR(80)  NOT NULL,
+                report_date              DATE         NOT NULL DEFAULT CURRENT_DATE,
+                circle                   VARCHAR(100),
+                place                    VARCHAR(300),
+                description              TEXT,
+                transformer_capacity     VARCHAR(50),
+                transformer_category     VARCHAR(30),
+                fire_type                VARCHAR(30),
+                fire_worth_loss          VARCHAR(150),
+                fatality_details_json    TEXT,
+                reported_cases_json      TEXT,
+                extra_fields_json        TEXT,
+                quality_cases_count      INTEGER,
+                quality_assessment_amount VARCHAR(150),
+                attachment_file          VARCHAR(255),
+                submitted_by             INTEGER REFERENCES users(id),
+                created_at               TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at               TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+        cur.execute("""
+            CREATE INDEX IF NOT EXISTS idx_dsr_entries_submitted_by_date
+            ON dsr_entries (submitted_by, report_date DESC)
+        """)
+        cur.execute("""
+            CREATE INDEX IF NOT EXISTS idx_dsr_entries_incident_type_date
+            ON dsr_entries (incident_type, report_date DESC)
+        """)
+        # Attachment column migration for older deployments.
+        cur.execute("""
+            ALTER TABLE dsr_entries
+            ADD COLUMN IF NOT EXISTS attachment_file VARCHAR(255)
+        """)
+        cur.execute("""
+            ALTER TABLE dsr_entries
+            ADD COLUMN IF NOT EXISTS extra_fields_json TEXT
+        """)
     except Exception:
         raise
     finally:
@@ -4180,4 +4222,384 @@ def get_sla_employee_profile_for_user(user_role, viewer_user_id, cvo_office, off
         'petitions': petitions,
         'unauthorized': False,
     }
+
+
+# ============================================================
+# DSR (Daily Situation Report) — model functions
+# ============================================================
+
+DSR_INCIDENT_TYPES = [
+    ('transformer_theft',       'Transformer Thefts'),
+    ('fire_accident',           'Fire Accidents'),
+    ('fatal_nonfatal',          'Fatal / Non-Fatal Cases'),
+    ('reported_cases',          'Reported Cases'),
+    ('quality_cases',           'Quality Cases'),
+    ('aperc_meeting',           'APERC Meetings'),
+    ('cgrf',                    'CGRF (Consumers Grievance Redressal Forum)'),
+    ('union_activities',        'Union Activities'),
+    ('vip_vvip_press',          'VIP/VVIP Press Meets / Senior Officers Press Statements'),
+    ('area_issues',             'Area Wise Important Issues'),
+    ('corruption_bribe',        'Corruption / Bribe Allegations'),
+    ('govt_go',                 'Govt. GOs'),
+    ('protest',                 'Protest by Public / Employees'),
+    ('sr_officer_review',       'Senior Officers Review Meetings'),
+]
+
+DSR_INCIDENT_TYPE_MAP = dict(DSR_INCIDENT_TYPES)
+
+
+def create_dsr_entry(data, submitted_by):
+    conn = get_db()
+    try:
+        cur = dict_cursor(conn)
+        cur.execute("""
+            INSERT INTO dsr_entries (
+                incident_type, report_date, circle, place, description,
+                transformer_capacity, transformer_category,
+                fire_type, fire_worth_loss,
+                fatality_details_json, reported_cases_json, extra_fields_json,
+                quality_cases_count, quality_assessment_amount,
+                attachment_file, submitted_by
+            ) VALUES (
+                %s, %s, %s, %s, %s,
+                %s, %s,
+                %s, %s,
+                %s, %s, %s,
+                %s, %s,
+                %s, %s
+            ) RETURNING id
+        """, (
+            data.get('incident_type'),
+            data.get('report_date'),
+            data.get('circle') or None,
+            data.get('place') or None,
+            data.get('description') or None,
+            data.get('transformer_capacity') or None,
+            data.get('transformer_category') or None,
+            data.get('fire_type') or None,
+            data.get('fire_worth_loss') or None,
+            data.get('fatality_details_json') or None,
+            data.get('reported_cases_json') or None,
+            data.get('extra_fields_json') or None,
+            data.get('quality_cases_count') or None,
+            data.get('quality_assessment_amount') or None,
+            data.get('attachment_file') or None,
+            submitted_by,
+        ))
+        row = cur.fetchone()
+        conn.commit()
+        return row['id'] if row else None
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+
+_CVO_DSP_ROLES = frozenset(('cvo_apspdcl', 'cvo_apepdcl', 'cvo_apcpdcl', 'dsp'))
+
+
+def _get_cvo_scoped_inspector_ids(cvo_user_id, cur):
+    """Return the set of inspector user IDs that fall under the given CVO/DSP user's
+    jurisdiction.  Mirrors the scoping logic used by get_inspectors_by_cvo() but
+    re-uses an existing cursor so it can be called inside a larger transaction."""
+    cur.execute("SELECT id, role, cvo_office FROM users WHERE id = %s", (cvo_user_id,))
+    cvo = cur.fetchone()
+    if not cvo:
+        return set()
+
+    handled_offices = []
+    if cvo.get('role') in ('cvo_apspdcl', 'cvo_apcpdcl'):
+        handled_offices = ['apspdcl', 'apcpdcl']
+    elif cvo.get('cvo_office'):
+        handled_offices = [cvo.get('cvo_office')]
+
+    related_cvo_ids = [int(cvo_user_id)]
+    if handled_offices:
+        office_ph = ', '.join(['%s'] * len(handled_offices))
+        cur.execute(
+            f"SELECT id FROM users WHERE is_active = TRUE"
+            f" AND role IN ('cvo_apspdcl', 'cvo_apepdcl', 'cvo_apcpdcl', 'dsp')"
+            f" AND cvo_office IN ({office_ph})",
+            tuple(handled_offices),
+        )
+        related_cvo_ids.extend(int(r['id']) for r in cur.fetchall() if r and r.get('id'))
+    related_cvo_ids = sorted(set(related_cvo_ids))
+
+    qparams = list(related_cvo_ids)
+    id_ph = ', '.join(['%s'] * len(related_cvo_ids))
+    assigned_clause = f"i.assigned_cvo_id IN ({id_ph})"
+
+    office_clause = ''
+    if handled_offices:
+        office_ph2 = ', '.join(['%s'] * len(handled_offices))
+        office_clause = (
+            f" OR (i.assigned_cvo_id IS NULL AND i.cvo_office IS NOT NULL"
+            f" AND i.cvo_office IN ({office_ph2}))"
+        )
+        qparams.extend(handled_offices)
+
+    cur.execute(
+        f"SELECT DISTINCT i.id FROM users i"
+        f" WHERE i.role = 'inspector' AND i.is_active = TRUE"
+        f" AND ({assigned_clause}{office_clause})",
+        tuple(qparams),
+    )
+    return {int(r['id']) for r in cur.fetchall() if r and r.get('id')}
+
+
+def get_dsr_entries(submitted_by=None, role=None, page=1, per_page=20,
+                    incident_type=None, from_date=None, to_date=None):
+    conn = get_db()
+    try:
+        cur = dict_cursor(conn)
+        conditions = []
+        params = []
+
+        # Inspectors only see their own entries.
+        # CVO/DSP users are scoped to entries submitted by inspectors under their
+        # jurisdiction — prevents IDOR across CVO office boundaries.
+        # super_admin sees everything.
+        if role == 'inspector' and submitted_by:
+            conditions.append("d.submitted_by = %s")
+            params.append(submitted_by)
+        elif role in _CVO_DSP_ROLES and submitted_by:
+            inspector_ids = _get_cvo_scoped_inspector_ids(submitted_by, cur)
+            if not inspector_ids:
+                return {'total': 0, 'entries': [], 'page': page, 'per_page': per_page}
+            id_ph = ', '.join(['%s'] * len(inspector_ids))
+            conditions.append(f"d.submitted_by IN ({id_ph})")
+            params.extend(sorted(inspector_ids))
+
+        if incident_type:
+            conditions.append("d.incident_type = %s")
+            params.append(incident_type)
+        if from_date:
+            conditions.append("d.report_date >= %s")
+            params.append(from_date)
+        if to_date:
+            conditions.append("d.report_date <= %s")
+            params.append(to_date)
+
+        where_clause = ("WHERE " + " AND ".join(conditions)) if conditions else ""
+
+        cur.execute(f"""
+            SELECT COUNT(*) as total
+            FROM dsr_entries d
+            {where_clause}
+        """, params)
+        total = (cur.fetchone() or {}).get('total', 0)
+
+        offset = (page - 1) * per_page
+        cur.execute(f"""
+            SELECT d.*,
+                   u.full_name AS submitted_by_name,
+                   u.username  AS submitted_by_username
+            FROM dsr_entries d
+            LEFT JOIN users u ON u.id = d.submitted_by
+            {where_clause}
+            ORDER BY d.report_date DESC, d.created_at DESC
+            LIMIT %s OFFSET %s
+        """, params + [per_page, offset])
+        rows = cur.fetchall()
+        return {'total': total, 'entries': rows, 'page': page, 'per_page': per_page}
+    finally:
+        conn.close()
+
+
+def get_dsr_entry(entry_id, submitted_by=None, role=None):
+    conn = get_db()
+    try:
+        cur = dict_cursor(conn)
+        cur.execute("""
+            SELECT d.*,
+                   u.full_name AS submitted_by_name,
+                   u.username  AS submitted_by_username
+            FROM dsr_entries d
+            LEFT JOIN users u ON u.id = d.submitted_by
+            WHERE d.id = %s
+        """, (entry_id,))
+        row = cur.fetchone()
+        if not row:
+            return None
+        # Inspectors can only view their own entries.
+        if role == 'inspector' and submitted_by and row.get('submitted_by') != submitted_by:
+            return None
+        # CVO/DSP users may only access entries submitted by inspectors under
+        # their jurisdiction — prevents cross-office IDOR.
+        if role in _CVO_DSP_ROLES and submitted_by:
+            allowed = _get_cvo_scoped_inspector_ids(submitted_by, cur)
+            if row.get('submitted_by') not in allowed:
+                return None
+        return row
+    finally:
+        conn.close()
+
+
+def get_dsr_entry_by_attachment(attachment_file, submitted_by=None, role=None):
+    conn = get_db()
+    try:
+        cur = dict_cursor(conn)
+        cur.execute("""
+            SELECT d.*,
+                   u.full_name AS submitted_by_name,
+                   u.username  AS submitted_by_username
+            FROM dsr_entries d
+            LEFT JOIN users u ON u.id = d.submitted_by
+            WHERE d.attachment_file = %s
+            LIMIT 1
+        """, (attachment_file,))
+        row = cur.fetchone()
+        if not row:
+            return None
+        if role == 'inspector' and submitted_by and row.get('submitted_by') != submitted_by:
+            return None
+        if role in _CVO_DSP_ROLES and submitted_by:
+            allowed = _get_cvo_scoped_inspector_ids(submitted_by, cur)
+            if row.get('submitted_by') not in allowed:
+                return None
+        return row
+    finally:
+        conn.close()
+
+
+def update_dsr_entry(entry_id, data, submitted_by, role):
+    """Update a DSR entry. Inspectors may only update their own entries."""
+    conn = get_db()
+    try:
+        cur = dict_cursor(conn)
+        # Ownership check
+        cur.execute("SELECT submitted_by FROM dsr_entries WHERE id = %s", (entry_id,))
+        existing = cur.fetchone()
+        if not existing:
+            return False
+        if role == 'inspector' and existing.get('submitted_by') != submitted_by:
+            return False
+        cur.execute("""
+            UPDATE dsr_entries SET
+                incident_type = %s,
+                report_date = %s,
+                circle = %s,
+                place = %s,
+                description = %s,
+                transformer_capacity = %s,
+                transformer_category = %s,
+                fire_type = %s,
+                fire_worth_loss = %s,
+                fatality_details_json = %s,
+                reported_cases_json = %s,
+                extra_fields_json = %s,
+                quality_cases_count = %s,
+                quality_assessment_amount = %s,
+                updated_at = CURRENT_TIMESTAMP
+            WHERE id = %s
+        """, (
+            data.get('incident_type'),
+            data.get('report_date'),
+            data.get('circle') or None,
+            data.get('place') or None,
+            data.get('description') or None,
+            data.get('transformer_capacity') or None,
+            data.get('transformer_category') or None,
+            data.get('fire_type') or None,
+            data.get('fire_worth_loss') or None,
+            data.get('fatality_details_json') or None,
+            data.get('reported_cases_json') or None,
+            data.get('extra_fields_json') or None,
+            data.get('quality_cases_count') or None,
+            data.get('quality_assessment_amount') or None,
+            entry_id,
+        ))
+        conn.commit()
+        return True
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+
+
+def delete_dsr_entry(entry_id, submitted_by, role):
+    """Delete a DSR entry. Returns file paths so caller can remove files from storage."""
+    conn = get_db()
+    try:
+        cur = dict_cursor(conn)
+        cur.execute("SELECT submitted_by, attachment_file, extra_fields_json FROM dsr_entries WHERE id = %s", (entry_id,))
+        existing = cur.fetchone()
+        if not existing:
+            return None
+        if role == 'inspector' and existing.get('submitted_by') != submitted_by:
+            return None
+        attachment = existing.get('attachment_file')
+        extra_fields_json = existing.get('extra_fields_json')
+        cur.execute("DELETE FROM dsr_entries WHERE id = %s", (entry_id,))
+        conn.commit()
+        return {
+            'deleted': True,
+            'attachment_file': attachment,
+            'extra_fields_json': extra_fields_json,
+        }
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+
+
+def get_dsr_stats_for_chatbot(user_id, role):
+    """Return a summary dict of DSR statistics for the chatbot."""
+    from datetime import date as _date, timedelta
+    conn = get_db()
+    try:
+        cur = dict_cursor(conn)
+        today = _date.today()
+        month_start = today.replace(day=1)
+
+        visibility = ""
+        params_base = []
+        if role == 'inspector' and user_id:
+            visibility = "WHERE d.submitted_by = %s"
+            params_base = [user_id]
+
+        def q(sql, params=()):
+            cur.execute(sql, list(params_base) + list(params))
+            r = cur.fetchone()
+            return int((r or {}).get('n', 0))
+
+        where = visibility
+        and_clause = "AND" if visibility else "WHERE"
+
+        total = q(f"SELECT COUNT(*) AS n FROM dsr_entries d {where}")
+        today_count = q(
+            f"SELECT COUNT(*) AS n FROM dsr_entries d {where} {and_clause} d.report_date = %s",
+            (today,),
+        )
+        month_count = q(
+            f"SELECT COUNT(*) AS n FROM dsr_entries d {where} {and_clause} d.report_date >= %s",
+            (month_start,),
+        )
+        with_attachment = q(
+            f"SELECT COUNT(*) AS n FROM dsr_entries d {where} {and_clause} d.attachment_file IS NOT NULL"
+        )
+
+        # Top incident type
+        top_where = where if where else ""
+        cur.execute(
+            f"SELECT incident_type, COUNT(*) AS n FROM dsr_entries d {top_where} GROUP BY incident_type ORDER BY n DESC LIMIT 1",
+            params_base,
+        )
+        top_row = cur.fetchone() or {}
+        top_type_key = top_row.get('incident_type', '')
+        top_type_label = DSR_INCIDENT_TYPE_MAP.get(top_type_key, top_type_key or 'N/A')
+        top_type_count = int(top_row.get('n', 0))
+
+        return {
+            'total': total,
+            'today': today_count,
+            'this_month': month_count,
+            'with_attachment': with_attachment,
+            'top_type': top_type_label,
+            'top_type_count': top_type_count,
+        }
+    finally:
+        conn.close()
 

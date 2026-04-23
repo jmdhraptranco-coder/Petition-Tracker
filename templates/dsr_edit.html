@@ -1,0 +1,533 @@
+{% extends "base.html" %}
+{% block title %}Edit DSR Entry #{{ entry.id }}{% endblock %}
+{% block page_title %}DSR — Edit Entry #{{ entry.id }}{% endblock %}
+
+{% block content %}
+<div class="card" style="max-width:860px;margin:0 auto;">
+    <div class="card-header" style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;">
+        <div>
+            <h2 style="margin:0;">Edit DSR Entry #{{ entry.id }}</h2>
+            <p style="margin:4px 0 0;color:var(--text-muted);font-size:.85rem;">
+                Submitted by <strong>{{ entry.submitted_by_name or entry.submitted_by_username or 'Unknown' }}</strong>
+            </p>
+        </div>
+        <div style="display:flex;gap:8px;align-items:center;">
+            <a href="{{ url_for('dsr_view', entry_id=entry.id) }}" class="btn btn-outline btn-sm">← Cancel</a>
+            <!-- Delete -->
+            {% if current_user_role in ('super_admin', 'inspector') %}
+            <button type="button" class="btn btn-sm"
+                    style="background:var(--danger,#ef4444);color:#fff;border:none;"
+                    onclick="document.getElementById('deleteModal').style.display='flex'">
+                🗑 Delete Entry
+            </button>
+            {% endif %}
+        </div>
+    </div>
+
+    <form method="POST" action="{{ url_for('dsr_edit', entry_id=entry.id) }}" id="dsrEditForm" autocomplete="off" enctype="multipart/form-data">
+        <input type="hidden" name="_csrf_token" value="{{ csrf_token }}">
+
+        <div class="form-grid" style="padding:20px 20px 0;">
+
+            <!-- Report Date -->
+            <div class="form-group">
+                <label for="report_date">Report Date <span class="required">*</span></label>
+                <input type="date" id="report_date" name="report_date"
+                       value="{{ entry.report_date.strftime('%Y-%m-%d') if entry.report_date else '' }}" required>
+            </div>
+
+            <!-- Circle -->
+            <div class="form-group">
+                <label for="circle">Circle / Division</label>
+                  <input type="text" id="circle" name="circle" maxlength="100"
+                      value="{{ dsr_circle_value or entry.circle or '' }}"
+                      placeholder="e.g. Tirupathi Circle"
+                      {% if dsr_circle_locked %}readonly{% endif %}>
+                  {% if dsr_circle_locked %}
+                  <small class="form-help">Auto-filled from the logged-in field inspector mapping.</small>
+                  {% endif %}
+            </div>
+
+            <!-- Location: District → Mandal → Village/City -->
+            <div class="form-group">
+                <label for="dsr_district">District</label>
+                <select id="dsr_district" name="dsr_district">
+                    <option value="">-- Select District --</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label for="dsr_mandal">Mandal</label>
+                <select id="dsr_mandal" name="dsr_mandal">
+                    <option value="">-- Select Mandal --</option>
+                </select>
+            </div>
+            <div class="form-group" style="grid-column:1/-1;">
+                <label for="dsr_village">Village / City</label>
+                <input type="text" id="dsr_village" name="dsr_village" maxlength="200"
+                       value="{{ request.form.get('dsr_village', '') }}"
+                       placeholder="Enter village or city name">
+                <small class="form-help">Select District and Mandal first, then type the village/city name.</small>
+            </div>
+            <!-- Hidden combined place field (auto-filled by JS) -->
+            <input type="hidden" id="place_combined" name="place" value="{{ entry.place or '' }}">
+
+            <!-- Incident Type -->
+            <div class="form-group" style="grid-column:1/-1;">
+                <label for="incident_type">Type of Incident <span class="required">*</span></label>
+                <select id="incident_type" name="incident_type" required onchange="showDsrFields(this.value)">
+                    <option value="">-- Select Incident Type --</option>
+                    {% for key, label in incident_types %}
+                    <option value="{{ key }}" {% if entry.incident_type == key %}selected{% endif %}>{{ label }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+
+            {% if entry.attachment_file %}
+            <div class="form-group" style="grid-column:1/-1;">
+                <label>Current Attachment</label>
+                <p style="font-size:.85rem;color:var(--text-muted);margin:4px 0 0;">
+                    <a href="{{ url_for('dsr_file', filename=entry.attachment_file, entry_id=entry.id) }}"
+                       target="_blank" rel="noopener" class="btn btn-xs btn-outline">View Current Attachment</a>
+                    <span style="margin-left:8px;font-size:.8rem;color:var(--text-muted);">
+                        (Attachment cannot be changed in edit — delete and re-create to change file.)
+                    </span>
+                </p>
+            </div>
+            {% endif %}
+
+        </div>
+
+        <!-- ─── COMMON description ─── -->
+        <div id="section_description" class="dsr-section" style="display:none;padding:0 20px;">
+            <div class="form-group" style="grid-column:1/-1;">
+                <label for="description">Details / Remarks</label>
+                <textarea id="description" name="description" rows="5"
+                          placeholder="Enter full details here...">{{ entry.description or '' }}</textarea>
+            </div>
+        </div>
+
+        <!-- ─── TRANSFORMER THEFT ─── -->
+        <div id="section_transformer_theft" class="dsr-section" style="display:none;padding:0 20px;">
+            <div class="dsr-section-title">Transformer Theft Details</div>
+            <div class="form-grid">
+                <div class="form-group">
+                    <label>Place</label>
+                    <p class="form-help" style="margin:6px 0 0;">&#128205; Location set via District / Mandal / Village fields at top of form.</p>
+                </div>
+                <div class="form-group">
+                    <label for="transformer_capacity">Capacity (KVA)</label>
+                    <input type="text" id="transformer_capacity" name="transformer_capacity" maxlength="50"
+                           value="{{ entry.transformer_capacity or '' }}"
+                           placeholder="e.g. 25 KVA">
+                </div>
+                <div class="form-group">
+                    <label for="transformer_category">Category</label>
+                    <select id="transformer_category" name="transformer_category">
+                        <option value="">-- Select --</option>
+                        <option value="domestic" {% if entry.transformer_category == 'domestic' %}selected{% endif %}>Domestic</option>
+                        <option value="agriculture" {% if entry.transformer_category == 'agriculture' %}selected{% endif %}>Agriculture</option>
+                    </select>
+                </div>
+                <div class="form-group" style="grid-column:1/-1;">
+                    <label>Brief Description / Remarks</label>
+                    <textarea name="description" rows="3"
+                              placeholder="Any additional details...">{{ entry.description or '' }}</textarea>
+                </div>
+            </div>
+        </div>
+
+        <!-- ─── FIRE ACCIDENT ─── -->
+        <div id="section_fire_accident" class="dsr-section" style="display:none;padding:0 20px;">
+            <div class="dsr-section-title">Fire Accident Details</div>
+            <div class="form-grid">
+                <div class="form-group">
+                    <label>Place</label>
+                    <p class="form-help" style="margin:6px 0 0;">&#128205; Location set via District / Mandal / Village fields at top of form.</p>
+                </div>
+                <div class="form-group">
+                    <label>Type</label>
+                    <select name="fire_type">
+                        <option value="">-- Select --</option>
+                        <option value="house" {% if entry.fire_type == 'house' %}selected{% endif %}>House</option>
+                        <option value="hut" {% if entry.fire_type == 'hut' %}selected{% endif %}>Hut</option>
+                        <option value="warehouse" {% if entry.fire_type == 'warehouse' %}selected{% endif %}>Warehouse</option>
+                        <option value="other" {% if entry.fire_type == 'other' %}selected{% endif %}>Other</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>Worth / Loss (₹)</label>
+                    <input type="text" name="fire_worth_loss" maxlength="150"
+                           value="{{ entry.fire_worth_loss or '' }}"
+                           placeholder="Estimated loss amount">
+                </div>
+                <div class="form-group" style="grid-column:1/-1;">
+                    <label>Brief Description</label>
+                    <textarea name="description" rows="3"
+                              placeholder="Cause, injuries, property damage...">{{ entry.description or '' }}</textarea>
+                </div>
+            </div>
+        </div>
+
+        <!-- ─── FATAL / NON-FATAL ─── -->
+        <div id="section_fatal_nonfatal" class="dsr-section" style="display:none;padding:0 20px;">
+            <div class="dsr-section-title">Fatal / Non-Fatal Cases</div>
+            {% set hf  = fatality_matrix.get('human_fatal',  {}) %}
+            {% set hnf = fatality_matrix.get('human_non_fatal', {}) %}
+            {% set af  = fatality_matrix.get('animal_fatal', {}) %}
+            {% set anf = fatality_matrix.get('animal_non_fatal', {}) %}
+            <div class="table-responsive">
+                <table class="dsr-grid-table fatal-matrix-table">
+                    <thead>
+                        <tr>
+                            <th rowspan="2" style="min-width:160px;"></th>
+                            <th colspan="2" style="text-align:center;border-right:2px solid var(--border-color);">HUMAN</th>
+                            <th colspan="2" style="text-align:center;">ANIMAL</th>
+                        </tr>
+                        <tr>
+                            <th style="text-align:center;">FATAL</th>
+                            <th style="text-align:center;border-right:2px solid var(--border-color);">NON-FATAL</th>
+                            <th style="text-align:center;">FATAL</th>
+                            <th style="text-align:center;">NON-FATAL</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td class="fatal-row-label">1. Place</td>
+                            <td><input type="text" name="fatality_hf_place" class="tbl-input" value="{{ hf.place or '' }}" placeholder="Place"></td>
+                            <td style="border-right:2px solid var(--border-color);"><input type="text" name="fatality_hnf_place" class="tbl-input" value="{{ hnf.place or '' }}" placeholder="Place"></td>
+                            <td><input type="text" name="fatality_af_place" class="tbl-input" value="{{ af.place or '' }}" placeholder="Place"></td>
+                            <td><input type="text" name="fatality_anf_place" class="tbl-input" value="{{ anf.place or '' }}" placeholder="Place"></td>
+                        </tr>
+                        <tr>
+                            <td class="fatal-row-label">2. Cause</td>
+                            <td><input type="text" name="fatality_hf_cause" class="tbl-input" value="{{ hf.cause or '' }}" placeholder="Cause"></td>
+                            <td style="border-right:2px solid var(--border-color);"><input type="text" name="fatality_hnf_cause" class="tbl-input" value="{{ hnf.cause or '' }}" placeholder="Cause"></td>
+                            <td><input type="text" name="fatality_af_cause" class="tbl-input" value="{{ af.cause or '' }}" placeholder="Cause"></td>
+                            <td><input type="text" name="fatality_anf_cause" class="tbl-input" value="{{ anf.cause or '' }}" placeholder="Cause"></td>
+                        </tr>
+                        <tr>
+                            <td class="fatal-row-label">3. No. of Persons / Animals</td>
+                            <td><input type="text" name="fatality_hf_count" class="tbl-input" value="{{ hf.count or '' }}" placeholder="Count"></td>
+                            <td style="border-right:2px solid var(--border-color);"><input type="text" name="fatality_hnf_count" class="tbl-input" value="{{ hnf.count or '' }}" placeholder="Count"></td>
+                            <td><input type="text" name="fatality_af_count" class="tbl-input" value="{{ af.count or '' }}" placeholder="Count"></td>
+                            <td><input type="text" name="fatality_anf_count" class="tbl-input" value="{{ anf.count or '' }}" placeholder="Count"></td>
+                        </tr>
+                        <tr>
+                            <td class="fatal-row-label">4. Brief Facts</td>
+                            <td><textarea name="fatality_hf_facts" class="tbl-input" rows="3" placeholder="Brief facts">{{ hf.facts or '' }}</textarea></td>
+                            <td style="border-right:2px solid var(--border-color);"><textarea name="fatality_hnf_facts" class="tbl-input" rows="3" placeholder="Brief facts">{{ hnf.facts or '' }}</textarea></td>
+                            <td><textarea name="fatality_af_facts" class="tbl-input" rows="3" placeholder="Brief facts">{{ af.facts or '' }}</textarea></td>
+                            <td><textarea name="fatality_anf_facts" class="tbl-input" rows="3" placeholder="Brief facts">{{ anf.facts or '' }}</textarea></td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+            <div class="form-group" style="margin-top:14px;">
+                <label>Additional Remarks</label>
+                <textarea name="description" rows="3" placeholder="Any extra details...">{{ entry.description or '' }}</textarea>
+            </div>
+        </div>
+
+        <!-- ─── REPORTED CASES ─── -->
+        <div id="section_reported_cases" class="dsr-section" style="display:none;padding:0 20px;">
+            <div class="dsr-section-title">Reported Cases</div>
+            <div class="table-responsive">
+                <table class="dsr-grid-table" id="rcTable">
+                    <thead>
+                        <tr>
+                            <th rowspan="2" style="vertical-align:middle;">Circle</th>
+                            <th colspan="2" style="text-align:center;">Reported Cases</th>
+                                <th rowspan="2" style="vertical-align:middle;text-align:center;min-width:92px;">Total<br><span style="font-size:.68rem;font-weight:600;">(DPE + OPN)</span></th>
+                            <th colspan="2" style="text-align:center;">Compounding Cases</th>
+                                <th rowspan="2" style="vertical-align:middle;text-align:center;min-width:92px;">Total<br><span style="font-size:.68rem;font-weight:600;">(DPE + OPN)</span></th>
+                            <th rowspan="2" style="vertical-align:middle;text-align:center;">Compounding Amount Collected (₹)</th>
+                            <th rowspan="2" style="width:40px;"></th>
+                        </tr>
+                        <tr>
+                            <th style="text-align:center;">DPE</th>
+                            <th style="text-align:center;">OPN</th>
+                            <th style="text-align:center;">DPE</th>
+                            <th style="text-align:center;">OPN</th>
+                        </tr>
+                    </thead>
+                    <tbody id="rcRows">
+                        {% if reported_rows %}
+                            {% for row in reported_rows %}
+                            {% set dpe = (row.dpe | int) if row.dpe else 0 %}
+                            {% set opn = (row.opn | int) if row.opn else 0 %}
+                            {% set cdpe = (row.comp_dpe | int) if row.comp_dpe else 0 %}
+                            {% set copn = (row.comp_opn | int) if row.comp_opn else 0 %}
+                            <tr class="rc-row">
+                                <td><input type="text" name="rc_circle" class="tbl-input" value="{{ row.circle or '' }}" placeholder="Circle"></td>
+                                <td><input type="number" name="rc_dpe" class="tbl-input rc-num" min="0" value="{{ dpe }}" oninput="recalcRow(this)"></td>
+                                <td><input type="number" name="rc_opn" class="tbl-input rc-num" min="0" value="{{ opn }}" oninput="recalcRow(this)"></td>
+                                <td class="rc-total-reported">{{ dpe + opn }}</td>
+                                <td><input type="number" name="rc_comp_dpe" class="tbl-input rc-num" min="0" value="{{ cdpe }}" oninput="recalcRow(this)"></td>
+                                <td><input type="number" name="rc_comp_opn" class="tbl-input rc-num" min="0" value="{{ copn }}" oninput="recalcRow(this)"></td>
+                                <td class="rc-total-comp">{{ cdpe + copn }}</td>
+                                <td><input type="text" name="rc_amount" class="tbl-input" value="{{ row.amount or '' }}" placeholder="₹ amount"></td>
+                                <td><button type="button" class="btn btn-xs btn-outline" onclick="removeRcRow(this)">✕</button></td>
+                            </tr>
+                            {% endfor %}
+                        {% else %}
+                        <tr class="rc-row">
+                            <td><input type="text" name="rc_circle" class="tbl-input" placeholder="Circle"></td>
+                            <td><input type="number" name="rc_dpe" class="tbl-input rc-num" min="0" placeholder="0" oninput="recalcRow(this)"></td>
+                            <td><input type="number" name="rc_opn" class="tbl-input rc-num" min="0" placeholder="0" oninput="recalcRow(this)"></td>
+                            <td class="rc-total-reported">0</td>
+                            <td><input type="number" name="rc_comp_dpe" class="tbl-input rc-num" min="0" placeholder="0" oninput="recalcRow(this)"></td>
+                            <td><input type="number" name="rc_comp_opn" class="tbl-input rc-num" min="0" placeholder="0" oninput="recalcRow(this)"></td>
+                            <td class="rc-total-comp">0</td>
+                            <td><input type="text" name="rc_amount" class="tbl-input" placeholder="₹ amount"></td>
+                            <td><button type="button" class="btn btn-xs btn-outline" onclick="removeRcRow(this)">✕</button></td>
+                        </tr>
+                        {% endif %}
+                    </tbody>
+                </table>
+            </div>
+            <button type="button" class="btn btn-sm btn-outline" style="margin-top:8px" onclick="addRcRow()">+ Add Row</button>
+            <div class="form-group" style="margin-top:14px;">
+                <label>Remarks</label>
+                <textarea name="description" rows="2" placeholder="Any additional remarks...">{{ entry.description or '' }}</textarea>
+            </div>
+        </div>
+
+        <!-- ─── QUALITY CASES ─── -->
+        <div id="section_quality_cases" class="dsr-section" style="display:none;padding:0 20px;">
+            <div class="dsr-section-title">Quality Cases</div>
+            <div class="form-grid">
+                <div class="form-group">
+                    <label for="quality_cases_count">No. of Cases Registered</label>
+                    <input type="number" id="quality_cases_count" name="quality_cases_count" min="0"
+                           value="{{ entry.quality_cases_count if entry.quality_cases_count is not none else '' }}"
+                           placeholder="0">
+                </div>
+                <div class="form-group">
+                    <label for="quality_assessment_amount">Assessment Amount (₹)</label>
+                    <input type="text" id="quality_assessment_amount" name="quality_assessment_amount" maxlength="150"
+                           value="{{ entry.quality_assessment_amount or '' }}"
+                           placeholder="Total assessment amount">
+                </div>
+                <div class="form-group" style="grid-column:1/-1;">
+                    <label>Remarks</label>
+                    <textarea name="description" rows="3"
+                              placeholder="Additional details...">{{ entry.description or '' }}</textarea>
+                </div>
+            </div>
+        </div>
+
+        {% if dsr_dynamic_fields %}
+        <div class="dsr-section" style="padding:0 20px;">
+            <div class="dsr-section-title">Additional Configured Fields</div>
+            <div class="form-grid">
+                {% for fld in dsr_dynamic_fields %}
+                {% set current_val = extra_fields.get(fld.field_key, '') if extra_fields else '' %}
+                <div class="form-group {% if fld.type == 'textarea' %}full-width{% endif %}">
+                    <label for="{{ fld.input_name }}">{{ fld.label }}{% if fld.required %} <span class="required">*</span>{% endif %}</label>
+                    {% if fld.type == 'textarea' %}
+                    <textarea id="{{ fld.input_name }}" name="{{ fld.input_name }}" rows="3">{{ current_val }}</textarea>
+                    {% elif fld.type == 'select' %}
+                    <select id="{{ fld.input_name }}" name="{{ fld.input_name }}">
+                        <option value="">-- Select --</option>
+                        {% for opt in fld.options %}
+                        <option value="{{ opt.value }}" {% if current_val == opt.value %}selected{% endif %}>{{ opt.label }}</option>
+                        {% endfor %}
+                    </select>
+                    {% elif fld.type == 'file' %}
+                    {% if current_val %}
+                    <p style="margin:0 0 6px;">
+                        <a href="{{ url_for('dsr_file', filename=current_val, entry_id=entry.id) }}" class="btn btn-xs btn-outline" target="_blank" rel="noopener">View Current File</a>
+                    </p>
+                    {% endif %}
+                    <input type="file" id="{{ fld.input_name }}" name="{{ fld.input_name }}" accept=".pdf,.jpg,.jpeg,.png,.webp">
+                    <small class="form-help">Upload to replace current file (PDF/JPG/JPEG/PNG/WEBP, max 10 MB).</small>
+                    {% else %}
+                    <input type="{{ fld.type if fld.type in ('date','email','tel') else 'text' }}" id="{{ fld.input_name }}" name="{{ fld.input_name }}" value="{{ current_val }}">
+                    {% endif %}
+                </div>
+                {% endfor %}
+            </div>
+        </div>
+        {% endif %}
+
+        <!-- ─── UPDATE BUTTON ─── -->
+        <div style="padding:20px;border-top:1px solid var(--border-color);display:flex;gap:12px;margin-top:10px;">
+            <button type="submit" class="btn btn-primary">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v14a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
+                Update Entry
+            </button>
+            <a href="{{ url_for('dsr_view', entry_id=entry.id) }}" class="btn btn-outline">Cancel</a>
+        </div>
+    </form>
+</div>
+
+<!-- ─── Delete Confirmation Modal ─── -->
+<div id="deleteModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:2000;align-items:center;justify-content:center;">
+    <div style="background:var(--surface-card);border-radius:10px;padding:28px 28px 22px;max-width:400px;width:90%;box-shadow:0 8px 40px rgba(0,0,0,.35);">
+        <h3 style="margin:0 0 10px;color:var(--danger,#ef4444);">Delete DSR Entry #{{ entry.id }}?</h3>
+        <p style="font-size:.88rem;color:var(--text-muted);margin-bottom:20px;">
+            This will permanently remove this entry and its attachment. This cannot be undone.
+        </p>
+        <div style="display:flex;gap:10px;justify-content:flex-end;">
+            <button type="button" class="btn btn-outline btn-sm"
+                    onclick="document.getElementById('deleteModal').style.display='none'">Cancel</button>
+            <form method="POST" action="{{ url_for('dsr_delete', entry_id=entry.id) }}" style="display:inline;">
+                <input type="hidden" name="_csrf_token" value="{{ csrf_token }}">
+                <button type="submit" class="btn btn-sm"
+                        style="background:var(--danger,#ef4444);color:#fff;border:none;">
+                    Yes, Delete
+                </button>
+            </form>
+        </div>
+    </div>
+</div>
+
+<style>
+.dsr-section-title {
+    font-weight: 600;
+    font-size: .95rem;
+    color: var(--accent-primary);
+    margin: 16px 0 10px;
+    border-bottom: 1px solid var(--border-color);
+    padding-bottom: 6px;
+}
+.dsr-grid-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: .82rem;
+}
+.dsr-grid-table th {
+    background: var(--surface-elevated);
+    color: var(--text-secondary);
+    text-transform: uppercase;
+    font-size: .72rem;
+    letter-spacing: .04em;
+    padding: 7px 8px;
+    border: 1px solid var(--border-color);
+    white-space: nowrap;
+}
+.dsr-grid-table td {
+    padding: 5px 6px;
+    border: 1px solid var(--border-color);
+    vertical-align: middle;
+}
+.tbl-input {
+    width: 100%;
+    min-width: 80px;
+    background: var(--input-bg, var(--surface-card));
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    padding: 4px 6px;
+    font-size: .82rem;
+    color: var(--text-primary);
+}
+.tbl-input:focus { outline: none; border-color: var(--accent-primary); }
+.rc-total-reported, .rc-total-comp {
+    text-align: center;
+    font-weight: 600;
+    color: var(--accent-primary);
+}
+.fatal-matrix-table th {
+    background: var(--surface-elevated);
+    color: var(--text-secondary);
+    text-transform: uppercase;
+    font-size: .72rem;
+    letter-spacing: .04em;
+    padding: 7px 10px;
+    border: 1px solid var(--border-color);
+}
+.fatal-row-label {
+    font-weight: 600;
+    font-size: .82rem;
+    color: var(--text-secondary);
+    white-space: nowrap;
+    background: var(--surface-elevated);
+    padding: 8px 12px;
+}
+</style>
+
+<script>
+const DSR_SECTIONS = {
+    transformer_theft: ['transformer_theft'],
+    fire_accident:     ['fire_accident'],
+    fatal_nonfatal:    ['fatal_nonfatal'],
+    reported_cases:    ['reported_cases'],
+    quality_cases:     ['quality_cases'],
+};
+const DSR_DESCRIPTION_TYPES = [
+    'aperc_meeting','cgrf','union_activities','vip_vvip_press',
+    'area_issues','corruption_bribe','govt_go','protest','sr_officer_review'
+];
+
+function showDsrFields(val) {
+    document.querySelectorAll('.dsr-section').forEach(s => s.style.display = 'none');
+    if (!val) return;
+    if (DSR_DESCRIPTION_TYPES.includes(val)) {
+        document.getElementById('section_description').style.display = '';
+    } else if (DSR_SECTIONS[val]) {
+        DSR_SECTIONS[val].forEach(k => {
+            const el = document.getElementById('section_' + k);
+            if (el) el.style.display = '';
+        });
+    }
+}
+(function() {
+    const sel = document.getElementById('incident_type');
+    if (sel && sel.value) showDsrFields(sel.value);
+})();
+
+let fatalRowCount = document.querySelectorAll('#fatalRows .fatal-row').length || 1;
+
+function addFatalRow() { /* unused — matrix layout */ }
+function removeFatalRow(btn) { /* unused — matrix layout */ }
+
+function addRcRow() {
+    const tbody = document.getElementById('rcRows');
+    const tr = document.createElement('tr');
+    tr.className = 'rc-row';
+    tr.innerHTML = `
+        <td><input type="text" name="rc_circle" class="tbl-input" placeholder="Circle"></td>
+        <td><input type="number" name="rc_dpe" class="tbl-input rc-num" min="0" placeholder="0" oninput="recalcRow(this)"></td>
+        <td><input type="number" name="rc_opn" class="tbl-input rc-num" min="0" placeholder="0" oninput="recalcRow(this)"></td>
+        <td class="rc-total-reported">0</td>
+        <td><input type="number" name="rc_comp_dpe" class="tbl-input rc-num" min="0" placeholder="0" oninput="recalcRow(this)"></td>
+        <td><input type="number" name="rc_comp_opn" class="tbl-input rc-num" min="0" placeholder="0" oninput="recalcRow(this)"></td>
+        <td class="rc-total-comp">0</td>
+        <td><input type="text" name="rc_amount" class="tbl-input" placeholder="₹ amount"></td>
+        <td><button type="button" class="btn btn-xs btn-outline" onclick="removeRcRow(this)">✕</button></td>`;
+    tbody.appendChild(tr);
+}
+function removeRcRow(btn) {
+    if (document.querySelectorAll('#rcRows .rc-row').length > 1)
+        btn.closest('tr').remove();
+}
+function recalcRow(input) {
+    const tr = input.closest('tr');
+    const dpe  = parseInt(tr.querySelector('[name="rc_dpe"]')?.value  || 0);
+    const opn  = parseInt(tr.querySelector('[name="rc_opn"]')?.value  || 0);
+    const cdpe = parseInt(tr.querySelector('[name="rc_comp_dpe"]')?.value || 0);
+    const copn = parseInt(tr.querySelector('[name="rc_comp_opn"]')?.value || 0);
+    tr.querySelector('.rc-total-reported').textContent = dpe + opn;
+    tr.querySelector('.rc-total-comp').textContent     = cdpe + copn;
+}
+document.querySelectorAll('#rcRows .rc-num').forEach(el => el.addEventListener('input', () => recalcRow(el)));
+
+function renumberRows(tbodyId, cls) {
+    document.querySelectorAll(`#${tbodyId} .${cls}`).forEach((el, i) => el.textContent = i + 1);
+}
+</script>
+<script src="{{ url_for('static', filename='js/dsr_location.js') }}"></script>
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+    if (window.DsrLocation) {
+        DsrLocation.init([{
+            districtId: 'dsr_district',
+            mandalId:   'dsr_mandal',
+            villageId:  'dsr_village',
+            placeId:    'place_combined',
+            savedPlace: {{ (entry.place or '') | tojson }}
+        }]);
+    }
+});
+</script>
+{% endblock %}

@@ -1,0 +1,344 @@
+{% extends "base.html" %}
+{% block title %}DSR Entry #{{ entry.id }}{% endblock %}
+{% block page_title %}DSR Entry — #{{ entry.id }}{% endblock %}
+
+{% block content %}
+<div class="card" style="max-width:860px;margin:0 auto;">
+    <div class="card-header" style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;">
+        <div>
+            <h2 style="margin:0;">DSR Entry #{{ entry.id }}</h2>
+            <p style="margin:4px 0 0;color:var(--text-muted);font-size:.85rem;">
+                Submitted by
+                <strong>{{ entry.submitted_by_name or entry.submitted_by_username or 'Unknown' }}</strong>
+                &nbsp;·&nbsp;
+                {% if entry.created_at %}
+                    {{ entry.created_at.strftime('%d %b %Y, %I:%M %p') }}
+                {% endif %}
+            </p>
+        </div>
+        <a href="{{ url_for('dsr_list') }}" class="btn btn-outline btn-sm">← Back to List</a>
+        {% if current_user_role in ('super_admin', 'inspector') %}
+        <a href="{{ url_for('dsr_edit', entry_id=entry.id) }}" class="btn btn-sm btn-outline">✏ Edit</a>
+        {% endif %}
+    </div>
+
+    <div style="padding:22px 20px;">
+
+        <!-- Header metadata -->
+        <div class="form-grid" style="margin-bottom:20px;">
+            <div class="detail-field">
+                <span class="detail-label">Report Date</span>
+                <span class="detail-value">
+                    {{ entry.report_date.strftime('%d %B %Y') if entry.report_date else '—' }}
+                </span>
+            </div>
+            <div class="detail-field">
+                <span class="detail-label">Circle / Division</span>
+                <span class="detail-value">{{ entry.circle or '—' }}</span>
+            </div>
+            <div class="detail-field" style="grid-column:1/-1;">
+                <span class="detail-label">Incident Type</span>
+                <span class="detail-value">
+                    <span class="status-badge" style="background:var(--accent-muted,rgba(99,102,241,.12));color:var(--accent-primary);font-size:.88rem;">
+                        {{ incident_type_map.get(entry.incident_type, entry.incident_type) }}
+                    </span>
+                </span>
+            </div>
+            <div class="detail-field" style="grid-column:1/-1;">
+                <span class="detail-label">Attachment</span>
+                <span class="detail-value">
+                    {% if entry.attachment_file %}
+                    <a class="btn btn-xs btn-outline" href="{{ url_for('dsr_file', filename=entry.attachment_file, entry_id=entry.id) }}" target="_blank" rel="noopener">View Attachment</a>
+                    {% else %}
+                    —
+                    {% endif %}
+                </span>
+            </div>
+        </div>
+
+        <!-- ─── Transformer Theft ─── -->
+        {% if entry.incident_type == 'transformer_theft' %}
+        <div class="dsr-detail-section">
+            <div class="dsr-section-title">Transformer Theft</div>
+            <div class="form-grid">
+                <div class="detail-field">
+                    <span class="detail-label">Place</span>
+                    <span class="detail-value">{{ entry.place or '—' }}</span>
+                </div>
+                <div class="detail-field">
+                    <span class="detail-label">Capacity (KVA)</span>
+                    <span class="detail-value">{{ entry.transformer_capacity or '—' }}</span>
+                </div>
+                <div class="detail-field">
+                    <span class="detail-label">Category</span>
+                    <span class="detail-value">{{ entry.transformer_category | title if entry.transformer_category else '—' }}</span>
+                </div>
+            </div>
+        </div>
+        {% endif %}
+
+        <!-- ─── Fire Accident ─── -->
+        {% if entry.incident_type == 'fire_accident' %}
+        <div class="dsr-detail-section">
+            <div class="dsr-section-title">Fire Accident</div>
+            <div class="form-grid">
+                <div class="detail-field">
+                    <span class="detail-label">Place</span>
+                    <span class="detail-value">{{ entry.place or '—' }}</span>
+                </div>
+                <div class="detail-field">
+                    <span class="detail-label">Type</span>
+                    <span class="detail-value">{{ entry.fire_type | title if entry.fire_type else '—' }}</span>
+                </div>
+                <div class="detail-field">
+                    <span class="detail-label">Worth / Loss</span>
+                    <span class="detail-value">{{ entry.fire_worth_loss or '—' }}</span>
+                </div>
+            </div>
+        </div>
+        {% endif %}
+
+        <!-- ─── Fatal / Non-Fatal ─── -->
+        {% if entry.incident_type == 'fatal_nonfatal' %}
+        <div class="dsr-detail-section">
+            <div class="dsr-section-title">Fatal / Non-Fatal Cases</div>
+            <div class="table-responsive">
+                {% if fatality_matrix %}
+                {# New matrix format #}
+                {% set hf  = fatality_matrix.get('human_fatal', {}) %}
+                {% set hnf = fatality_matrix.get('human_non_fatal', {}) %}
+                {% set af  = fatality_matrix.get('animal_fatal', {}) %}
+                {% set anf = fatality_matrix.get('animal_non_fatal', {}) %}
+                <table class="dsr-grid-table" style="border-collapse:collapse;">
+                    <thead>
+                        <tr>
+                            <th rowspan="2" style="min-width:160px;"></th>
+                            <th colspan="2" style="text-align:center;border-right:2px solid var(--border-color);">HUMAN</th>
+                            <th colspan="2" style="text-align:center;">ANIMAL</th>
+                        </tr>
+                        <tr>
+                            <th style="text-align:center;">FATAL</th>
+                            <th style="text-align:center;border-right:2px solid var(--border-color);">NON-FATAL</th>
+                            <th style="text-align:center;">FATAL</th>
+                            <th style="text-align:center;">NON-FATAL</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td style="font-weight:600;background:var(--surface-elevated);white-space:nowrap;padding:8px 12px;">1. Place</td>
+                            <td>{{ hf.place or '—' }}</td>
+                            <td style="border-right:2px solid var(--border-color);">{{ hnf.place or '—' }}</td>
+                            <td>{{ af.place or '—' }}</td>
+                            <td>{{ anf.place or '—' }}</td>
+                        </tr>
+                        <tr>
+                            <td style="font-weight:600;background:var(--surface-elevated);white-space:nowrap;padding:8px 12px;">2. Cause</td>
+                            <td>{{ hf.cause or '—' }}</td>
+                            <td style="border-right:2px solid var(--border-color);">{{ hnf.cause or '—' }}</td>
+                            <td>{{ af.cause or '—' }}</td>
+                            <td>{{ anf.cause or '—' }}</td>
+                        </tr>
+                        <tr>
+                            <td style="font-weight:600;background:var(--surface-elevated);white-space:nowrap;padding:8px 12px;">3. No. of Persons / Animals</td>
+                            <td>{{ hf.count or '—' }}</td>
+                            <td style="border-right:2px solid var(--border-color);">{{ hnf.count or '—' }}</td>
+                            <td>{{ af.count or '—' }}</td>
+                            <td>{{ anf.count or '—' }}</td>
+                        </tr>
+                        <tr>
+                            <td style="font-weight:600;background:var(--surface-elevated);white-space:nowrap;padding:8px 12px;">4. Brief Facts</td>
+                            <td style="white-space:pre-wrap;">{{ hf.facts or '—' }}</td>
+                            <td style="white-space:pre-wrap;border-right:2px solid var(--border-color);">{{ hnf.facts or '—' }}</td>
+                            <td style="white-space:pre-wrap;">{{ af.facts or '—' }}</td>
+                            <td style="white-space:pre-wrap;">{{ anf.facts or '—' }}</td>
+                        </tr>
+                    </tbody>
+                </table>
+                {% elif fatality_rows %}
+                {# Legacy list format #}
+                {% set cat_labels = {
+                    'human_fatal': 'Human — Fatal',
+                    'human_non_fatal': 'Human — Non-Fatal',
+                    'animal_fatal': 'Animal — Fatal',
+                    'animal_non_fatal': 'Animal — Non-Fatal'
+                } %}
+                <table class="dsr-grid-table">
+                    <thead>
+                        <tr>
+                            <th>#</th><th>Place</th><th>Cause</th><th>Count</th><th>Brief Facts</th><th>Category</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for row in fatality_rows %}
+                        <tr>
+                            <td>{{ loop.index }}</td>
+                            <td>{{ row.place or '—' }}</td>
+                            <td>{{ row.cause or '—' }}</td>
+                            <td>{{ row.count or '—' }}</td>
+                            <td>{{ row.facts or '—' }}</td>
+                            <td>{{ cat_labels.get(row.get('category',''), row.get('category','—')) }}</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+                {% else %}
+                <p style="color:var(--text-muted);font-size:.88rem;">No data recorded.</p>
+                {% endif %}
+            </div>
+        </div>
+        {% endif %}
+
+        <!-- ─── Reported Cases ─── -->
+        {% if entry.incident_type == 'reported_cases' and reported_rows %}
+        <div class="dsr-detail-section">
+            <div class="dsr-section-title">Reported Cases</div>
+            <div class="table-responsive">
+                <table class="dsr-grid-table">
+                    <thead>
+                        <tr>
+                            <th rowspan="2" style="vertical-align:middle;">Circle</th>
+                            <th colspan="2" style="text-align:center;">Reported Cases</th>
+                                <th rowspan="2" style="vertical-align:middle;text-align:center;min-width:92px;">Total<br><span style="font-size:.68rem;font-weight:600;">(DPE + OPN)</span></th>
+                            <th colspan="2" style="text-align:center;">Compounding Cases</th>
+                                <th rowspan="2" style="vertical-align:middle;text-align:center;min-width:92px;">Total<br><span style="font-size:.68rem;font-weight:600;">(DPE + OPN)</span></th>
+                            <th rowspan="2" style="vertical-align:middle;text-align:center;">Compounding Amount Collected (₹)</th>
+                        </tr>
+                        <tr>
+                            <th style="text-align:center;">DPE</th>
+                            <th style="text-align:center;">OPN</th>
+                            <th style="text-align:center;">DPE</th>
+                            <th style="text-align:center;">OPN</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for row in reported_rows %}
+                        {% set dpe = (row.dpe | int) if row.dpe else 0 %}
+                        {% set opn = (row.opn | int) if row.opn else 0 %}
+                        {% set cdpe = (row.comp_dpe | int) if row.comp_dpe else 0 %}
+                        {% set copn = (row.comp_opn | int) if row.comp_opn else 0 %}
+                        <tr>
+                            <td>{{ row.circle or '—' }}</td>
+                            <td>{{ dpe }}</td>
+                            <td>{{ opn }}</td>
+                            <td><strong>{{ dpe + opn }}</strong></td>
+                            <td>{{ cdpe }}</td>
+                            <td>{{ copn }}</td>
+                            <td><strong>{{ cdpe + copn }}</strong></td>
+                            <td>{{ row.amount or '—' }}</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+        {% endif %}
+
+        <!-- ─── Quality Cases ─── -->
+        {% if entry.incident_type == 'quality_cases' %}
+        <div class="dsr-detail-section">
+            <div class="dsr-section-title">Quality Cases</div>
+            <div class="form-grid">
+                <div class="detail-field">
+                    <span class="detail-label">No. of Cases Registered</span>
+                    <span class="detail-value">{{ entry.quality_cases_count if entry.quality_cases_count is not none else '—' }}</span>
+                </div>
+                <div class="detail-field">
+                    <span class="detail-label">Assessment Amount (₹)</span>
+                    <span class="detail-value">{{ entry.quality_assessment_amount or '—' }}</span>
+                </div>
+            </div>
+        </div>
+        {% endif %}
+
+        {% if dsr_dynamic_fields %}
+        <div class="dsr-detail-section">
+            <div class="dsr-section-title">Additional Configured Fields</div>
+            <div class="form-grid">
+                {% for fld in dsr_dynamic_fields %}
+                {% set val = extra_fields.get(fld.field_key, '') if extra_fields else '' %}
+                {% if val %}
+                <div class="detail-field"{% if fld.type == 'textarea' %} style="grid-column:1/-1;"{% endif %}>
+                    <span class="detail-label">{{ fld.label }}</span>
+                    <span class="detail-value">
+                        {% if fld.type == 'file' %}
+                        <a class="btn btn-xs btn-outline" href="{{ url_for('dsr_file', filename=val, entry_id=entry.id) }}" target="_blank" rel="noopener">View File</a>
+                        {% elif fld.type == 'textarea' %}
+                        <span style="white-space:pre-wrap;">{{ val }}</span>
+                        {% elif fld.type == 'select' %}
+                        {% set ns = namespace(lbl=val) %}
+                        {% for opt in fld.options %}
+                            {% if opt.value == val %}{% set ns.lbl = opt.label %}{% endif %}
+                        {% endfor %}
+                        {{ ns.lbl }}
+                        {% else %}
+                        {{ val }}
+                        {% endif %}
+                    </span>
+                </div>
+                {% endif %}
+                {% endfor %}
+            </div>
+        </div>
+        {% endif %}
+
+        <!-- ─── Description / Remarks (all types) ─── -->
+        {% if entry.description %}
+        <div class="dsr-detail-section">
+            <div class="dsr-section-title">Details / Remarks</div>
+            <div class="detail-text-block">{{ entry.description }}</div>
+        </div>
+        {% endif %}
+
+    </div><!-- /padding -->
+</div>
+
+<style>
+.dsr-detail-section { margin-bottom: 20px; }
+.dsr-section-title {
+    font-weight: 600;
+    font-size: .9rem;
+    color: var(--accent-primary);
+    border-bottom: 1px solid var(--border-color);
+    padding-bottom: 6px;
+    margin-bottom: 12px;
+}
+.detail-field { display: flex; flex-direction: column; gap: 3px; }
+.detail-label {
+    font-size: .72rem;
+    text-transform: uppercase;
+    letter-spacing: .05em;
+    color: var(--text-muted);
+    font-weight: 600;
+}
+.detail-value { font-size: .92rem; color: var(--text-primary); }
+.detail-text-block {
+    background: var(--surface-elevated);
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    padding: 12px 14px;
+    font-size: .88rem;
+    white-space: pre-wrap;
+    color: var(--text-primary);
+}
+.dsr-grid-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: .83rem;
+}
+.dsr-grid-table th {
+    background: var(--surface-elevated);
+    color: var(--text-secondary);
+    text-transform: uppercase;
+    font-size: .72rem;
+    letter-spacing: .04em;
+    padding: 7px 8px;
+    border: 1px solid var(--border-color);
+    white-space: nowrap;
+}
+.dsr-grid-table td {
+    padding: 6px 8px;
+    border: 1px solid var(--border-color);
+    vertical-align: middle;
+}
+</style>
+{% endblock %}

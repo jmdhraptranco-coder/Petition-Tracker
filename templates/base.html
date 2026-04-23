@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
@@ -91,6 +91,17 @@
                     <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 8v8"/><path d="M8 12h8"/></svg>
                     <span data-i18n="nav.new_petition">New Petition</span>
                 </a>
+                {% endif %}
+
+                {% if current_user_role in ('inspector', 'super_admin', 'cvo_apspdcl', 'cvo_apepdcl', 'cvo_apcpdcl', 'dsp') %}
+                <a href="{{ url_for('dsr_list') }}" class="nav-item {% if request.endpoint in ('dsr_list', 'dsr_new', 'dsr_view') %}active{% endif %}">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
+                    <span>DSR Reports</span>
+                </a>
+<a href="{{ url_for('dsr_dashboard') }}" class="nav-item {% if request.endpoint == 'dsr_dashboard' %}active{% endif %}">
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3v18h18"/><path d="M7 14l3-3 3 2 4-5"/></svg>
+    <span>DSR Dashboard</span>
+</a>
                 {% endif %}
 
                 {% if current_user_role == 'super_admin' %}
@@ -515,4 +526,5 @@
     {% endif %}
 </body>
 </html>
+
 
